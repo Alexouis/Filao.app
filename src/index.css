@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  /* Colors from tailwind.config.js (The Intended Design) */
+  --color-filao-primary: #00A3E0;
+  --color-filao-secondary: #0B1F38;
+  --color-filao-accent: #FF8D6D;
+  --color-filao-surface: #F8FAFC;
+  --color-filao-card: #FFFFFF;
+  --color-filao-success: #10B981;
+  --color-filao-warning: #F59E0B;
+  --color-filao-error: #EF4444;
+
+  /* Additional Colors from index.html (Old/Hacked design - keeping for compatibility) */
+  --color-filao-dark: #1B2533;
+  --color-filao-blue: #0E4F70;
+  --color-filao-ocean: #0086B1;
+  --color-filao-light-teal: #B6E0E2;
+  --color-filao-header-gray: #5D7285;
+  --color-filao-wizard: #0A3D58;
+  --color-filao-chart: #569CB1;
+  --color-filao-action-light: #A7D7D9;
+  --color-filao-danger: #D32F2F;
+  --color-filao-muted: #6B7C8E;
+  --color-filao-card-bg: #EBE7E4;
+  --color-filao-card-bg-alt: #B4C5CD;
+  --color-filao-card-bg-alt2: #E5E7E6;
+  --color-filao-input: #062C41;
+
+  /* Typography */
+  --font-sans: "DM Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Border Radius */
+  --radius-filao-card: 2.5rem;
+  --radius-filao-card-sm: 1.5rem;
+  --radius-filao-btn: 1rem;
+  --radius-filao-input: 0.75rem;
+  --radius-filao-inner: 0.5rem;
+
+  /* Shadows */
+  --shadow-filao-card: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-filao-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+  /* Animations */
+  --animate-fade-in-up: fadeInUp 0.5s ease-out forwards;
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-slide-in: slideIn 0.3s ease-out forwards;
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+@layer base {
+  body {
+    @apply font-sans;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar-dark::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar-dark::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar-dark::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+  }
+
+  .custom-scrollbar-dark::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+  }
+}
