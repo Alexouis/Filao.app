@@ -31,6 +31,9 @@ import {
     coerceModePassation,
     coerceSecteurActivite,
     coerceStatut,
+    deduireSecteurDepuisCpv,
+    suggererDomainesDepuisCpv,
+    versTableau,
     champsManquants,
     messageErreurBase
 } from '../helpers/tenderEnums';
@@ -1584,8 +1587,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .update({
                     titre: data.titre,
                     organisme_acheteur: data.organisme_acheteur,
-                    lieu_execution: data.lieu_execution,
-                    type_marche: data.type_marche,
+                    lieu_execution: versTableau(data.lieu_execution),
+                    type_marche: versTableau(data.type_marche),
                     secteur_activite: coerceSecteurActivite(data.secteur_activite),
                     mode_passation: coerceModePassation(data.mode_passation),
                     date_publication: data.date_publication || null,
@@ -1848,12 +1851,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             departments.push(name);
         }
 
+        // Les CPV, critères et référence vivent dans `tender.donnees`, une chaîne
+        // JSON issue du XML BOAMP — d'où le passage par un parseur dédié plutôt
+        // qu'un accès direct aux propriétés.
+        const cpvCodes = extractCpvCodes(tender).map(c => c.code);
+
         setFormData(prev => ({
             ...prev,
             titre: tender.objet || '',
             organisme_acheteur: tender.nomacheteur || 'Anonyme',
             lieu_execution: departments || [],
-            type_marche: tender.type_marche,
+            // Colonne ARRAY NOT NULL : une valeur scalaire ou nulle ferait
+            // échouer l'insert.
+            type_marche: versTableau(tender.type_marche),
             // `type_procedure` est null sur une partie des avis BOAMP, et ''
             // n'est pas une valeur de mode_passation_enum : l'insert échouait.
             mode_passation: coerceModePassation(tender.type_procedure),
@@ -1861,13 +1871,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             date_limite: tender.datelimitereponse ? new Date(tender.datelimitereponse).toISOString() : '',
             date_depot_souhaitee: tender.datefindiffusion || tender.datelimitereponse || new Date().toISOString(),
             montant_estime: tender.montant || 0,
-            secteur_activite: coerceSecteurActivite("Autres"),
+            // Le secteur était écrit en dur à « Autres », ce qui neutralisait au
+            // passage l'inférence des compétences requises (qui teste le libellé
+            // du secteur). Les CPV donnent une déduction correcte dans la
+            // plupart des cas ; l'utilisateur reste libre de la corriger.
+            secteur_activite: deduireSecteurDepuisCpv(cpvCodes) ?? 'Autres',
             lien_telechargement: tender.url_avis || '',
             description: tender.objet || '',
-            // Les CPV, critères et référence vivent dans `tender.donnees`, une
-            // chaîne JSON issue du XML BOAMP — d'où le passage par un parseur
-            // dédié plutôt qu'un accès direct aux propriétés.
-            cpv_codes: extractCpvCodes(tender).map(c => c.code),
+            cpv_codes: cpvCodes,
             criteres_attribution: extractCriteresAttribution(tender),
             reference_marche: extractReferenceMarche(tender),
             // collaborators removed
@@ -1937,9 +1948,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 titre: formData.titre,
                 description: formData.description,
                 organisme_acheteur: formData.organisme_acheteur,
-                lieu_execution: formData.lieu_execution,
+                lieu_execution: versTableau(formData.lieu_execution),
                 secteur_activite: coerceSecteurActivite(formData.secteur_activite),
-                type_marche: formData.type_marche,
+                type_marche: versTableau(formData.type_marche),
                 mode_passation: coerceModePassation(formData.mode_passation),
                 date_publication: formData.date_publication || null, // Send null if empty
                 date_limite: formData.date_limite || null,
@@ -4043,17 +4054,29 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         // libre, la découper à chaque frappe rendrait le champ
                                         // inutilisable dès qu'on tape une virgule.
                                         onBlur={(e) => {
-                                            const codes = e.target.value
+                                            const saisis = e.target.value
                                                 .split(/[\s,;]+/)
                                                 .map(c => c.trim())
-                                                .filter(c => /^\d{8}$/.test(c));
-                                            setFormData({ ...formData, cpv_codes: Array.from(new Set(codes)) });
+                                                .filter(c => c.length > 0);
+                                            const valides = Array.from(new Set(saisis.filter(c => /^\d{8}$/.test(c))));
+                                            const rejetes = saisis.filter(c => !/^\d{8}$/.test(c));
+                                            setFormData({ ...formData, cpv_codes: valides });
+                                            // Sans ce retour, une faute de frappe faisait disparaître le
+                                            // code sans que l'utilisateur comprenne pourquoi.
+                                            if (rejetes.length > 0) {
+                                                showToast(
+                                                    `Code CPV ignoré (8 chiffres attendus) : ${rejetes.join(', ')}`,
+                                                    'warning'
+                                                );
+                                            }
+                                            // Reflète la valeur nettoyée dans le champ.
+                                            e.target.value = valides.join(', ');
                                         }}
                                         placeholder="45213000, 71000000"
                                         className={`${inputGlassPlain} w-full`}
                                     />
                                     <p className="text-[10px] text-[#0B1F38]/40 mt-1">
-                                        8 chiffres, séparés par des virgules. Les valeurs non conformes sont ignorées.
+                                        Un code = 8 chiffres. Séparez-en plusieurs par une virgule, un point-virgule ou un espace.
                                     </p>
                                 </div>
                             </div>
@@ -4147,6 +4170,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             {dropOpen && (
                                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#0B1F38]/10 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto custom-scrollbar-dark ring-4 ring-[#0B1F38]/2">
                                     {(() => {
+                                        const domainesSuggeres = suggererDomainesDepuisCpv(formData.cpv_codes);
+                                        const rangDe = (domainId: string) => {
+                                            const i = domainesSuggeres.indexOf(domainId);
+                                            return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+                                        };
+
                                         const filteredSpecs = refSpecialties
                                             .filter(s => {
                                                 const domain = refDomains.find(d => d.id === s.domain_id);
@@ -4155,6 +4184,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                 return s.label.toLowerCase().includes(skillQuery.toLowerCase()) ||
                                                     (domain && domain.label.toLowerCase().includes(skillQuery.toLowerCase()));
                                             })
+                                            // Tri avant troncature : sans cela, la limite de 50 rognait
+                                            // les domaines suggérés au profit de l'ordre alphabétique.
+                                            .sort((a, b) => rangDe(a.domain_id) - rangDe(b.domain_id))
                                             .slice(0, 50);
 
                                         if (filteredSpecs.length === 0) {
@@ -4165,19 +4197,31 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             );
                                         }
 
-                                        // Group by Domain
+                                        // Groupement par domaine, domaines suggérés par les CPV en tête.
                                         const grouped: Record<string, typeof filteredSpecs> = {};
+                                        const rangDomaine: Record<string, number> = {};
                                         filteredSpecs.forEach(s => {
                                             const d = refDomains.find(rd => rd.id === s.domain_id);
                                             const dName = d ? d.label : "Autre";
-                                            if (!grouped[dName]) grouped[dName] = [];
+                                            if (!grouped[dName]) {
+                                                grouped[dName] = [];
+                                                const idx = d ? domainesSuggeres.indexOf(d.id) : -1;
+                                                rangDomaine[dName] = idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+                                            }
                                             grouped[dName].push(s);
                                         });
 
-                                        return Object.entries(grouped).map(([domainName, specs]) => (
+                                        return Object.entries(grouped)
+                                            .sort(([a], [b]) => rangDomaine[a] - rangDomaine[b])
+                                            .map(([domainName, specs]) => (
                                             <div key={domainName}>
-                                                <div className="px-3 py-1.5 bg-[#F8FAFC] text-[9px] font-bold text-[#0B1F38]/30 uppercase tracking-widest border-y border-[#0B1F38]/5">
-                                                    {domainName}
+                                                <div className="px-3 py-1.5 bg-[#F8FAFC] text-[9px] font-bold text-[#0B1F38]/30 uppercase tracking-widest border-y border-[#0B1F38]/5 flex items-center justify-between gap-2">
+                                                    <span>{domainName}</span>
+                                                    {rangDomaine[domainName] !== Number.MAX_SAFE_INTEGER && (
+                                                        <span className="text-[#00A3E0] shrink-0" title="Domaine suggéré d'après les codes CPV de l'avis">
+                                                            suggéré
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {specs.map(s => {
                                                     const isSelected = formData.required_specialty_ids?.includes(s.id);

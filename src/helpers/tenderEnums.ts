@@ -169,6 +169,226 @@ export const coerceStatut = (value: unknown): StatutReponseAo => {
 };
 
 // ---------------------------------------------------------------------------
+// Déduction du secteur depuis les codes CPV
+// ---------------------------------------------------------------------------
+
+/**
+ * Division CPV (2 premiers chiffres) → secteur d'activité Filao.
+ *
+ * ⚠️ Correspondance heuristique. La nomenclature CPV compte 45 divisions et ne
+ * s'aligne pas sur nos 8 secteurs : certaines divisions sont transverses
+ * (79 « services aux entreprises » couvre du juridique comme du marketing) et
+ * d'autres pourraient légitimement tomber dans deux secteurs — 71
+ * (architecture, ingénierie) est ici rattaché au BTP parce que c'est son usage
+ * dominant en marché public, mais couvre aussi de l'ingénierie industrielle.
+ *
+ * À faire valider côté produit ; le but est de proposer mieux que « Autres »
+ * par défaut, pas d'être exact à tous les coups. L'utilisateur peut corriger.
+ */
+const DIVISION_CPV_VERS_SECTEUR: Record<string, SecteurActivite> = {
+    // Travaux, matériaux, ingénierie de construction
+    '44': 'BTP_Construction',
+    '45': 'BTP_Construction',
+    '71': 'BTP_Construction',
+
+    // Informatique, logiciels, télécoms
+    '30': 'Informatique_Digital',
+    '32': 'Informatique_Digital',
+    '48': 'Informatique_Digital',
+    '72': 'Informatique_Digital',
+
+    // Transport et logistique
+    '34': 'Transport_Logistique',
+    '60': 'Transport_Logistique',
+    '63': 'Transport_Logistique',
+
+    // Santé et pharmacie
+    '33': 'Sante_Pharmaceutique',
+    '85': 'Sante_Pharmaceutique',
+
+    // Énergie, eau, déchets, espaces naturels
+    '09': 'Energie_Environnement',
+    '65': 'Energie_Environnement',
+    '77': 'Energie_Environnement',
+    '90': 'Energie_Environnement',
+
+    // Industrie et équipements
+    '14': 'Industrie',
+    '16': 'Industrie',
+    '18': 'Industrie',
+    '19': 'Industrie',
+    '24': 'Industrie',
+    '31': 'Industrie',
+    '38': 'Industrie',
+    '39': 'Industrie',
+    '42': 'Industrie',
+    '43': 'Industrie',
+
+    // Services aux entreprises et aux collectivités
+    '50': 'Services_Entreprises',
+    '51': 'Services_Entreprises',
+    '55': 'Services_Entreprises',
+    '66': 'Services_Entreprises',
+    '75': 'Services_Entreprises',
+    '79': 'Services_Entreprises',
+    '80': 'Services_Entreprises',
+    '92': 'Services_Entreprises',
+    '98': 'Services_Entreprises'
+};
+
+/**
+ * Déduit un secteur d'activité à partir des codes CPV d'un avis.
+ *
+ * Le secteur retenu est celui de la division la plus représentée. À égalité,
+ * l'ordre des codes tranche : `extractCpvCodes` place le CPV du marché avant
+ * ceux des lots, et le CPV du marché est le plus général.
+ *
+ * @returns null si aucune division ne correspond — l'appelant décide alors du
+ *          repli, plutôt que de recevoir « Autres » sans savoir si c'est une
+ *          déduction ou un échec.
+ */
+export const deduireSecteurDepuisCpv = (codes: string[] | undefined | null): SecteurActivite | null => {
+    if (!codes?.length) return null;
+
+    const comptes = new Map<SecteurActivite, number>();
+    let premier: SecteurActivite | null = null;
+
+    for (const code of codes) {
+        const secteur = DIVISION_CPV_VERS_SECTEUR[String(code).slice(0, 2)];
+        if (!secteur) continue;
+        if (!premier) premier = secteur;
+        comptes.set(secteur, (comptes.get(secteur) ?? 0) + 1);
+    }
+
+    if (comptes.size === 0) return null;
+
+    let meilleur = premier as SecteurActivite;
+    let meilleurCompte = comptes.get(meilleur) ?? 0;
+    for (const [secteur, compte] of comptes) {
+        if (compte > meilleurCompte) {
+            meilleur = secteur;
+            meilleurCompte = compte;
+        }
+    }
+    return meilleur;
+};
+
+// ---------------------------------------------------------------------------
+// Suggestion de domaines de compétences depuis les CPV
+// ---------------------------------------------------------------------------
+
+/**
+ * Division CPV → identifiants `ref_domains`, du plus au moins probable.
+ *
+ * Sert à ordonner le sélecteur de spécialités, pas à présélectionner : un CPV
+ * indique l'objet du marché, jamais les compétences précises attendues. La
+ * décision reste à l'utilisateur ; on se contente de lui éviter de parcourir
+ * 201 spécialités pour en trouver trois.
+ *
+ * Les identifiants doivent rester alignés sur le seed de la migration 025.
+ */
+const DIVISION_CPV_VERS_DOMAINES: Record<string, string[]> = {
+    '03': ['DOM-17', 'DOM-07'],
+    '09': ['DOM-19'],
+    '14': ['DOM-17'],
+    '15': ['DOM-18'],
+    '16': ['DOM-17', 'DOM-07'],
+    '18': ['DOM-17'],
+    '19': ['DOM-17'],
+    '22': ['DOM-12', 'DOM-17'],
+    '24': ['DOM-17'],
+    '30': ['DOM-10', 'DOM-17'],
+    '31': ['DOM-04', 'DOM-17'],
+    '32': ['DOM-10', 'DOM-15'],
+    '33': ['DOM-20', 'DOM-17'],
+    '34': ['DOM-16', 'DOM-17'],
+    '35': ['DOM-15'],
+    '37': ['DOM-17'],
+    '38': ['DOM-17', 'DOM-09'],
+    '39': ['DOM-17'],
+    '41': ['DOM-19'],
+    '42': ['DOM-17'],
+    '43': ['DOM-17', 'DOM-05'],
+    '44': ['DOM-17', 'DOM-01', 'DOM-02'],
+    '45': ['DOM-01', 'DOM-02', 'DOM-05', 'DOM-03', 'DOM-04', 'DOM-06'],
+    '48': ['DOM-10'],
+    '50': ['DOM-14', 'DOM-03', 'DOM-04'],
+    '51': ['DOM-03', 'DOM-04', 'DOM-17'],
+    '55': ['DOM-18'],
+    '60': ['DOM-16'],
+    '63': ['DOM-16'],
+    '64': ['DOM-10'],
+    '65': ['DOM-19'],
+    '66': ['DOM-11'],
+    '70': ['DOM-11'],
+    '71': ['DOM-08', 'DOM-09'],
+    '72': ['DOM-10'],
+    '73': ['DOM-09'],
+    '75': ['DOM-11'],
+    '76': ['DOM-19'],
+    '77': ['DOM-07'],
+    '79': ['DOM-11', 'DOM-12', 'DOM-15'],
+    '80': ['DOM-13'],
+    '85': ['DOM-20'],
+    '90': ['DOM-19', 'DOM-06'],
+    '92': ['DOM-12'],
+    '98': ['DOM-14']
+};
+
+/**
+ * Domaines `ref_domains` suggérés par les CPV d'un avis, sans doublon et par
+ * pertinence décroissante.
+ *
+ * @returns tableau vide si aucun CPV ne correspond — l'ordre d'affichage
+ *          existant s'applique alors sans changement.
+ */
+export const suggererDomainesDepuisCpv = (codes: string[] | undefined | null): string[] => {
+    if (!codes?.length) return [];
+    const scores = new Map<string, number>();
+    const premiereApparition = new Map<string, number>();
+    let rangGlobal = 0;
+
+    codes.forEach(code => {
+        const domaines = DIVISION_CPV_VERS_DOMAINES[String(code).slice(0, 2)];
+        if (!domaines) return;
+        domaines.forEach((id, rang) => {
+            // Poids décroissant en 1/(rang+1) : le domaine de tête d'une
+            // division vaut toujours 1, quelle que soit la longueur de sa liste.
+            // Une pondération en (longueur - rang) faisait au contraire gagner
+            // les divisions les plus détaillées — « 50 réparation » passait
+            // devant « 34 véhicules » sur un marché de véhicules.
+            scores.set(id, (scores.get(id) ?? 0) + 1 / (rang + 1));
+            if (!premiereApparition.has(id)) premiereApparition.set(id, rangGlobal++);
+        });
+    });
+
+    return [...scores.entries()]
+        .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            // À égalité, l'ordre des CPV tranche : extractCpvCodes place le CPV
+            // du marché avant ceux des lots.
+            return (premiereApparition.get(a[0]) ?? 0) - (premiereApparition.get(b[0]) ?? 0);
+        })
+        .map(([id]) => id);
+};
+
+// ---------------------------------------------------------------------------
+// Normalisation des colonnes tableau
+// ---------------------------------------------------------------------------
+
+/**
+ * `type_marche` et `lieu_execution` sont des colonnes ARRAY NOT NULL. Une valeur
+ * scalaire ou nulle venue du BOAMP ferait échouer l'écriture ; on normalise.
+ */
+export const versTableau = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+        return value.map(v => String(v)).filter(v => v.trim().length > 0);
+    }
+    if (typeof value === 'string' && value.trim().length > 0) return [value.trim()];
+    return [];
+};
+
+// ---------------------------------------------------------------------------
 // Validation des champs NOT NULL
 // ---------------------------------------------------------------------------
 
