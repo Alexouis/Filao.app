@@ -111,7 +111,9 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       }
 
       // 4. Combine all unique IDs
-      const grpUserIds = grpData?.flatMap(g => g.entreprise?.membres?.map((m: any) => m.id) || []) || [];
+      // Supabase infère les jointures imbriquées comme des tableaux ; la forme
+      // réelle dépend de la cardinalité de la relation, d'où le passage par any.
+      const grpUserIds = grpData?.flatMap((g: any) => g.entreprise?.membres?.map((m: any) => m.id) || []) || [];
       const allIds = Array.from(new Set([...grpUserIds, ...invUserIds]));
 
       setTenderCollaborators(allIds.map(id => ({ id })));
@@ -542,4 +544,4 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       </div>
     </div>
   );
-};
+}; 

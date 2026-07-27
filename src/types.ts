@@ -1,4 +1,4 @@
-import type { CriteresAttribution } from '../helpers/boampHelpers';
+import type { CriteresAttribution } from './helpers/boampHelpers';
 
 export type NavItem = 'dashboard' | 'tenders' | 'calendar' | 'collaborators' | 'company' | 'finance' | 'profile' | 'settings' | 'notifications' | 'pricing' | 'chat';
 
@@ -7,7 +7,10 @@ export interface Tender {
     id: string;
     createur_id: string;
     titre: string;
-    statut: 'Brouillon' | 'En cours' | 'Gagné' | 'Perdu'; // 'Expiré' is computed, never stored
+    // Aligné sur l'enum PostgreSQL `reponse_ao_statuts`. « Déposé » manquait,
+    // alors que STATUSES.submitted vaut cette valeur et que le verrouillage du
+    // dossier en dépend. « Expiré » est calculé depuis date_limite, jamais stocké.
+    statut: 'Brouillon' | 'En cours' | 'Déposé' | 'Gagné' | 'Perdu';
     montant_estime: number;
     devise: string;
     etape: string;
@@ -18,10 +21,24 @@ export interface Tender {
     date_depot_souhaitee: Date; // or string? DB is timestamptz. Frontend often treats as string or Date.
     date_publication: Date;
     secteur_activite: string;
-    type_marche: string;
+    type_marche: string[]; // colonne ARRAY en base
     type_groupement?: 'solidaire' | 'conjoint';
     groupements?: Groupement[];
     modified_at?: string;
+    success_score?: number;
+    nb_fichiers_recus?: number;
+    nombre_pj_attendues?: number;
+    nb_collaborateurs?: number;
+    remporte?: boolean;
+    feed_id?: string;
+    required_skills?: string[];
+    jalons?: any[];
+    dce_documents?: any[];
+    cpv_codes?: string[];
+    criteres_attribution?: CriteresAttribution | null;
+    reference_marche?: string;
+    /** Jointure `invitations (...)`, présente selon la requête. */
+    invitations?: { email?: string;[key: string]: any }[];
 }
 
 export interface ChartData {

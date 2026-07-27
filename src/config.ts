@@ -2,7 +2,7 @@
 // Edit this file to change global settings, logo, and theme variables.
 import React from 'react';
 import { NavItem } from './types';
-import type { CriteresAttribution } from '../helpers/boampHelpers';
+import type { CriteresAttribution } from './helpers/boampHelpers';
 
 export const APP_CONFIG = {
   appName: "Filao",
@@ -628,21 +628,12 @@ export interface CollaboratorData {
   displayName?: string;
 }
 
-export interface Tender {
-  id: string;
-  createur_id: string;
-  titre: string;
-  statut: string;
-  montant_estime: number;
-  devise: string;
-  etape: string;
-  created_at: string;
-  date_limite: string;
-  success_score?: number;
-  type_groupement?: 'solidaire' | 'conjoint';
-  jalons?: any[];
-  dce_documents?: any[];
-};
+// `Tender` et `TenderFormData` vivaient ici ET dans types.ts, avec des champs
+// divergents. Les deux wizards se passant le même objet, la duplication imposait
+// de maintenir deux définitions à la main — et masquait des erreurs, le typage
+// structurel de TS acceptant silencieusement les écarts. Source unique désormais.
+import type { Tender, TenderFormData } from './types';
+export type { Tender, TenderFormData };
 
 export interface GroupementData {
   id?: string;
@@ -726,34 +717,6 @@ export interface SidebarProps {
   toggleCollapse: () => void;
   onLogout: () => void;
 };
-
-export interface TenderFormData {
-  titre: string;
-  organisme_acheteur: string;
-  lieu_execution: string[];
-  type_marche: string[];
-  secteur_activite: string;
-  mode_passation: string;
-  description: string;
-  date_publication: string;
-  date_limite: string;
-  date_depot_souhaitee: string;
-  montant_estime: number;
-  lien_telechargement: string;
-  lien_depot: string;
-  // ⚠️ Doublon de TenderFormData dans types.ts — les deux wizards manipulent le
-  // même objet via deux définitions distinctes. Garder les deux synchronisées
-  // tant que la fusion n'est pas faite.
-  cpv_codes: string[];
-  criteres_attribution?: CriteresAttribution | null;
-  reference_marche?: string;
-  type_groupement?: 'solidaire' | 'conjoint';
-  required_skills: string[];
-  required_specialty_ids: string[];
-  documents: File[]; // Used for temporary UI state in wizard
-  jalons: any[];
-  dce_documents: any[];
-}
 
 export interface Notifications {
   id: string;

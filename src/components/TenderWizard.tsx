@@ -857,15 +857,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         try {
             const members = membersOverride || groupementMembers;
             // 1. Get all unique emails from the team members (including guests)
-            const teamEmails = Array.from(new Set(
+            // `filter(Boolean)` ne restreint pas le type, et l'inférence se perd
+            // au passage par `Array.from(new Set(...))` avec la lib TS configurée
+            // ici — d'où le prédicat explicite ET l'annotation.
+            const teamEmails: string[] = Array.from(new Set(
                 members
                     .map(m => m.email?.toLowerCase().trim())
-                    .filter(Boolean)
+                    .filter((e): e is string => Boolean(e))
             ));
 
             // Also include current user just in case
             const { data: { user } } = await supabase.auth.getUser();
-            if (user && !teamEmails.includes(user.email)) {
+            if (user?.email && !teamEmails.includes(user.email)) {
                 teamEmails.push(user.email);
             }
 
@@ -2706,7 +2709,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     <div className="bg-[#0B1F38]/5 rounded-xl p-3 flex items-center gap-3 mb-6">
                         <span className="text-xs font-bold text-[#0B1F38]/60 uppercase shrink-0">Recherche acheteur</span>
                         <div className="flex gap-2 flex-1">
-                            <input value={siretQuery} onChange={e => setSiretQuery(e.target.value)} type="text" placeholder="SIRET, SIREN ou nom..." className={inputGlass} />
+                            <input value={siretQuery} onChange={e => setSiretQuery(e.target.value)} type="text" placeholder="SIRET, SIREN ou nom..." className={`${inputGlassPlain} w-full`} />
                             <button onClick={handleSiretSearch} disabled={siretLoading} className="px-4 py-2 bg-[#0B1F38] text-white rounded-xl hover:bg-[#00A3E0] font-bold shadow-sm transition-all shrink-0">
                                 {siretLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
                             </button>
@@ -2719,26 +2722,26 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         {/* Acheteur */}
                         <div className="md:col-span-2">
                             <label className={labelStyle}>Nom de l'acheteur <span className="text-red-500">*</span></label>
-                            <input value={formData.organisme_acheteur} onChange={e => setFormData(prev => ({ ...prev, organisme_acheteur: e.target.value }))} type="text" placeholder="Ex: Mairie de Paris" className={inputGlass} />
+                            <input value={formData.organisme_acheteur} onChange={e => setFormData(prev => ({ ...prev, organisme_acheteur: e.target.value }))} type="text" placeholder="Ex: Mairie de Paris" className={`${inputGlassPlain} w-full`} />
                         </div>
 
                         {/* Titre */}
                         <div className="md:col-span-2">
                             <label className={labelStyle}>Intitulé de l'appel d'offres <span className="text-red-500">*</span></label>
-                            <input value={formData.titre} onChange={e => setFormData(prev => ({ ...prev, titre: e.target.value }))} type="text" placeholder="Titre complet du marché" className={inputGlass} />
+                            <input value={formData.titre} onChange={e => setFormData(prev => ({ ...prev, titre: e.target.value }))} type="text" placeholder="Titre complet du marché" className={`${inputGlassPlain} w-full`} />
                         </div>
 
                         {/* Type marché / Mode passation */}
                         <div>
                             <label className={labelStyle}>Type de marché <span className="text-red-500">*</span></label>
-                            <select value={formData.type_marche?.[0] || ''} onChange={e => setFormData(prev => ({ ...prev, type_marche: [e.target.value] }))} className={inputGlass}>
+                            <select value={formData.type_marche?.[0] || ''} onChange={e => setFormData(prev => ({ ...prev, type_marche: [e.target.value] }))} className={`${inputGlassPlain} w-full`}>
                                 <option value="" disabled>Sélectionner...</option>
                                 {MARKET_TYPES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                             </select>
                         </div>
                         <div>
                             <label className={labelStyle}>Mode de passation <span className="text-red-500">*</span></label>
-                            <select value={formData.mode_passation || ''} onChange={e => setFormData(prev => ({ ...prev, mode_passation: e.target.value }))} className={inputGlass}>
+                            <select value={formData.mode_passation || ''} onChange={e => setFormData(prev => ({ ...prev, mode_passation: e.target.value }))} className={`${inputGlassPlain} w-full`}>
                                 <option value="" disabled>Sélectionner...</option>
                                 {Object.entries(HANDOVER_TYPES_LABELS).map(([value, label]) => (
                                     <option key={value} value={value}>{label as string}</option>
@@ -2749,20 +2752,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         {/* Secteur / Date limite */}
                         <div>
                             <label className={labelStyle}>Secteur d'activité <span className="text-red-500">*</span></label>
-                            <select value={formData.secteur_activite || ''} onChange={e => setFormData(prev => ({ ...prev, secteur_activite: e.target.value }))} className={inputGlass}>
+                            <select value={formData.secteur_activite || ''} onChange={e => setFormData(prev => ({ ...prev, secteur_activite: e.target.value }))} className={`${inputGlassPlain} w-full`}>
                                 <option value="" disabled>Sélectionner...</option>
                                 {Object.keys(SECTORS_LABELS).map(k => <option key={k} value={k}>{(SECTORS_LABELS as any)[k]}</option>)}
                             </select>
                         </div>
                         <div>
                             <label className={labelStyle}>Date limite <span className="text-red-500">*</span></label>
-                            <input value={formData.date_limite} onChange={e => setFormData(prev => ({ ...prev, date_limite: e.target.value }))} type="date" className={inputGlass} />
+                            <input value={formData.date_limite} onChange={e => setFormData(prev => ({ ...prev, date_limite: e.target.value }))} type="date" className={`${inputGlassPlain} w-full`} />
                         </div>
 
                         {/* Montant — optional */}
                         <div className="md:col-span-2">
                             <label className={labelStyle}>Montant estimé (€ HT) <span className="text-[#0B1F38]/30 font-normal normal-case">— optionnel</span></label>
-                            <input value={formData.montant_estime || ''} onChange={e => setFormData(prev => ({ ...prev, montant_estime: parseFloat(e.target.value) || 0 }))} type="number" placeholder="Ex: 150000" className={inputGlass} />
+                            <input value={formData.montant_estime || ''} onChange={e => setFormData(prev => ({ ...prev, montant_estime: parseFloat(e.target.value) || 0 }))} type="number" placeholder="Ex: 150000" className={`${inputGlassPlain} w-full`} />
                         </div>
                     </div>
                 </div>
@@ -3973,7 +3976,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             <div className="grid grid-cols-3 gap-4 md:col-span-2">
                                 <div>
                                     <label className={labelStyle}>Date publication</label>
-                                    <input type="date" value={formData.date_publication} onChange={(e) => setFormData({ ...formData, date_publication: e.target.value })} className={inputGlass} />
+                                    <input type="date" value={formData.date_publication} onChange={(e) => setFormData({ ...formData, date_publication: e.target.value })} className={`${inputGlassPlain} w-full`} />
                                 </div>
                                 <div>
                                     <label className={labelStyle}>Date limite *</label>
@@ -4277,7 +4280,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             if (proposees.length === 0) return null;
 
                             return (
-                                <div className="space-y-1.5 mb-3">
+                                <div className="space-y-1.5">
                                     <div className="flex items-center justify-between gap-2">
                                         <p className="text-[9px] font-bold text-[#0B1F38]/30 uppercase tracking-wider">
                                             Suggéré d'après les codes CPV

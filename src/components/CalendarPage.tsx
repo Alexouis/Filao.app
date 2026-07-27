@@ -13,16 +13,9 @@ import { GLASS_STYLE } from '../lib/styles';
 import { supabase } from '../lib/supabaseClient';
 
 // --- TYPES ---
-interface Tender {
-    id: string;
-    titre: string;
-    date_limite: string;
-    statut: string;
-    createur_id: string;
-    groupements?: any;
-    organisme_acheteur?: string;
-    nb_fichiers_recus?: number;
-}
+// Troisième définition locale de Tender, à côté de celles de types.ts et
+// config.ts. Elle omettait `invitations`, pourtant lu l. 255 depuis une jointure.
+import type { Tender } from '../types';
 
 interface CalendarPageProps {
     onAddTender: () => void;
