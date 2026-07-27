@@ -19,6 +19,14 @@ import { ChatDrawer } from './chat/ChatDrawer';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
+import {
+    extractCpvCodes,
+    extractCriteresAttribution,
+    extractReferenceMarche,
+    normaliserPoids,
+    formatCpv,
+    type CriteresAttribution
+} from '../helpers/boampHelpers';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
 import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
@@ -29,6 +37,11 @@ import { useChat } from '../context/ChatContext';
 // --- STYLES ---
 
 const inputGlass = "w-full pl-10 pr-4 py-3 rounded-xl border border-white/60 bg-white/50 focus:bg-white focus:ring-2 focus:ring-[#00A3E0] focus:outline-none transition-all text-sm font-medium text-[#0B1F38] placeholder-[#0B1F38]/40";
+// Variante sans `pl-10` : cette réserve de 40px sert à loger une icône absolue.
+// Sur un champ sans icône elle repousse le texte hors de la zone visible dès que
+// la largeur est contrainte. Pas de `w-full` non plus, pour laisser le conteneur
+// (flex/grid) décider de la largeur sans conflit de spécificité.
+const inputGlassPlain = "px-4 py-3 rounded-xl border border-white/60 bg-white/50 focus:bg-white focus:ring-2 focus:ring-[#00A3E0] focus:outline-none transition-all text-sm font-medium text-[#0B1F38] placeholder-[#0B1F38]/40";
 const labelStyle = "text-xs font-bold text-[#0B1F38]/50 mb-1.5 block uppercase tracking-wide";
 
 const REQUIRED_SKILLS: string[] = [];
@@ -191,6 +204,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     // UI States
     const [showDocDetails, setShowDocDetails] = useState(false);
     const [showContextEditModal, setShowContextEditModal] = useState(false);
+    const [showCriteresModal, setShowCriteresModal] = useState(false);
+    /**
+     * Brouillon d'édition des critères, séparé de formData.
+     *
+     * Indispensable : une ligne vierge (« Ajouter un critère ») n'a pas sa place
+     * dans la donnée persistée, mais doit exister à l'écran le temps de la
+     * saisie. Dériver les lignes affichées de formData faisait disparaître
+     * toute ligne vide dès sa création — le bouton semblait inopérant.
+     */
+    const [criteresDraft, setCriteresDraft] = useState<{ libelle: string; poids?: number }[]>([]);
     const [showDCEPiecesModal, setShowDCEPiecesModal] = useState(false);
     const [showRetroplanningModal, setShowRetroplanningModal] = useState(false);
     const [previousView, setPreviousView] = useState<'results' | 'manual'>('results');
@@ -247,6 +270,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         montant_estime: 0,
         lien_telechargement: '',
         lien_depot: '',
+        cpv_codes: [],
+        criteres_attribution: null,
+        reference_marche: '',
         // collaborateurs removed
         required_skills: [],
         required_specialty_ids: [],
@@ -1147,6 +1173,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     montant_estime: data.montant_estime || 0,
                     lien_telechargement: data.lien_telechargement || '',
                     lien_depot: data.lien_depot || '',
+                    cpv_codes: data.cpv_codes || [],
+                    criteres_attribution: data.criteres_attribution || null,
+                    reference_marche: data.reference_marche || '',
                     required_skills: data.required_skills || [],
                     required_specialty_ids: specialtyIds,
                     type_groupement: data.type_groupement || undefined,
@@ -1524,26 +1553,36 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
-    const saveTenderContext = async () => {
+    /**
+     * @param overrides valeurs à écrire en priorité sur celles de formData.
+     *   setFormData étant asynchrone, un appelant qui vient de modifier un champ
+     *   doit transmettre la nouvelle valeur ici plutôt que de compter sur le
+     *   state, qui serait encore périmé au moment de la requête.
+     */
+    const saveTenderContext = async (overrides?: Partial<TenderFormData>) => {
         if (!tenderId) return;
+        const data = { ...formData, ...overrides };
         setLoading(true);
         try {
             const { error } = await supabase
                 .from('reponses_ao')
                 .update({
-                    titre: formData.titre,
-                    organisme_acheteur: formData.organisme_acheteur,
-                    lieu_execution: formData.lieu_execution,
-                    type_marche: formData.type_marche,
-                    secteur_activite: formData.secteur_activite,
-                    mode_passation: formData.mode_passation,
-                    date_publication: formData.date_publication || null,
-                    date_limite: formData.date_limite || null,
-                    date_depot_souhaitee: formData.date_depot_souhaitee || null,
-                    montant_estime: formData.montant_estime || 0,
-                    lien_telechargement: formData.lien_telechargement || '',
-                    lien_depot: formData.lien_depot || '',
-                    description: formData.description || '',
+                    titre: data.titre,
+                    organisme_acheteur: data.organisme_acheteur,
+                    lieu_execution: data.lieu_execution,
+                    type_marche: data.type_marche,
+                    secteur_activite: data.secteur_activite,
+                    mode_passation: data.mode_passation,
+                    date_publication: data.date_publication || null,
+                    date_limite: data.date_limite || null,
+                    date_depot_souhaitee: data.date_depot_souhaitee || null,
+                    montant_estime: data.montant_estime || 0,
+                    lien_telechargement: data.lien_telechargement || '',
+                    lien_depot: data.lien_depot || '',
+                    cpv_codes: data.cpv_codes || [],
+                    criteres_attribution: data.criteres_attribution ?? null,
+                    reference_marche: data.reference_marche || null,
+                    description: data.description || '',
                     modified_at: new Date().toISOString()
                 })
                 .eq('id', tenderId);
@@ -1808,6 +1847,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             secteur_activite: "Autres",
             lien_telechargement: tender.url_avis || '',
             description: tender.objet || '',
+            // Les CPV, critères et référence vivent dans `tender.donnees`, une
+            // chaîne JSON issue du XML BOAMP — d'où le passage par un parseur
+            // dédié plutôt qu'un accès direct aux propriétés.
+            cpv_codes: extractCpvCodes(tender).map(c => c.code),
+            criteres_attribution: extractCriteresAttribution(tender),
+            reference_marche: extractReferenceMarche(tender),
             // collaborators removed
             documents: []
         }));
@@ -1879,6 +1924,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 // qu'en state local et disparaissait au premier rechargement.
                 lien_telechargement: formData.lien_telechargement || '',
                 lien_depot: formData.lien_depot || '',
+                cpv_codes: formData.cpv_codes || [],
+                criteres_attribution: formData.criteres_attribution ?? null,
+                reference_marche: formData.reference_marche || null,
                 nb_collaborateurs: groupementMembers.filter(m => !m.deleted).length, // Map count from active members only
                 nombre_pj_attendues: 0, // Default or calc
                 // collaborateurs: formData.collaborateurs, // Removed
@@ -2806,8 +2854,106 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             return `${val}€`;
         };
 
-        // Conseil contextuel critères
-        const critereAdvice = 'Focus sur le mémoire technique';
+        /**
+         * Carte « Critères d'attribution ».
+         *
+         * Le BOAMP publie quatre formes distinctes et deux seulement sont
+         * chiffrées, d'où les quatre rendus ci-dessous. Le cas le plus fréquent
+         * n'est pas le plus riche : beaucoup d'acheteurs renvoient au règlement
+         * de consultation sans rien publier de structuré.
+         */
+        const renderCriteresCard = () => {
+            const crit = formData.criteres_attribution;
+            const editable = isOwner && !isLocked;
+
+            const Wrapper = ({ children }: { children: React.ReactNode }) => (
+                <div
+                    className={`bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all ${editable ? 'cursor-pointer' : ''}`}
+                    onClick={editable ? openCriteresModal : undefined}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Critères d'attribution</p>
+                        {editable && <PenTool size={10} className="text-[#0B1F38]/25" />}
+                    </div>
+                    {children}
+                </div>
+            );
+
+            // Aucune donnée, ou renvoi au règlement de consultation.
+            if (!crit || crit.kind === 'absent' || crit.kind === 'cctp') {
+                return (
+                    <Wrapper>
+                        <p className="text-[11px] text-[#0B1F38]/50 leading-snug">
+                            {crit?.kind === 'cctp'
+                                ? "L'acheteur renvoie au règlement de consultation."
+                                : 'Non communiqués dans l\'avis.'}
+                        </p>
+                        {editable && (
+                            <p className="text-[9px] text-[#00A3E0] font-bold mt-1.5">Saisir les critères →</p>
+                        )}
+                    </Wrapper>
+                );
+            }
+
+            // Texte libre : on affiche tel quel, tronqué.
+            if (crit.kind === 'libre') {
+                return (
+                    <Wrapper>
+                        <p className="text-[11px] text-[#0B1F38]/70 leading-snug line-clamp-4">{crit.texte}</p>
+                    </Wrapper>
+                );
+            }
+
+            // Critères classés sans pondération.
+            if (crit.kind === 'priorites') {
+                return (
+                    <Wrapper>
+                        <div className="space-y-1">
+                            {crit.criteres.map((c, i) => (
+                                <div key={i} className="flex items-start gap-1.5">
+                                    <span className="text-[10px] font-bold text-[#00A3E0] shrink-0 mt-px">{c.ordre}.</span>
+                                    <span className="text-[11px] text-[#0B1F38] leading-snug line-clamp-2">{c.libelle}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="text-[9px] text-[#0B1F38]/40 mt-1.5 italic">Classés par ordre d'importance, sans pondération publiée.</p>
+                    </Wrapper>
+                );
+            }
+
+            // Critères pondérés. ⚠️ Les poids ne somment pas toujours à 100 :
+            // on normalise pour la barre, et on signale la conversion.
+            const parts = normaliserPoids(crit.criteres);
+            const palette = ['#00A3E0', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#0B1F38'];
+
+            return (
+                <Wrapper>
+                    <div className="space-y-1.5">
+                        {parts.map((p, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: palette[i % palette.length] }} />
+                                    <span className="text-[11px] font-medium text-[#0B1F38] truncate" title={p.libelle}>{p.libelle}</span>
+                                </div>
+                                <span className="text-xs font-bold text-[#0B1F38] shrink-0">{p.pourcentage}%</span>
+                            </div>
+                        ))}
+                    </div>
+                    {parts.length > 0 && (
+                        <div className="flex rounded-full h-2 overflow-hidden mt-2">
+                            {parts.map((p, i) => (
+                                <div key={i} className="h-full" style={{ width: `${p.pourcentage}%`, background: palette[i % palette.length] }} />
+                            ))}
+                        </div>
+                    )}
+                    {!crit.poidsSontDesPourcentages && (
+                        <p className="text-[9px] text-[#0B1F38]/40 mt-1.5 italic">
+                            Coefficients publiés par l'acheteur, convertis en pourcentages.
+                        </p>
+                    )}
+                </Wrapper>
+            );
+        };
 
         return (
             <div className="w-full h-full flex flex-col animate-in slide-in-from-right-4 duration-500 overflow-hidden">
@@ -2960,21 +3106,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </div>
 
                                 {/* Carte 3 — Critères d'attribution */}
-                                <div className="bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all">
-                                    <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider mb-2">Critères d'attribution</p>
-                                    <div className="space-y-1.5">
-                                        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#00A3E0]" /><span className="text-[11px] font-medium text-[#0B1F38]">Valeur technique</span></div><span className="text-xs font-bold text-[#0B1F38]">50%</span></div>
-                                        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#F59E0B]" /><span className="text-[11px] font-medium text-[#0B1F38]">Prix</span></div><span className="text-xs font-bold text-[#0B1F38]">40%</span></div>
-                                        <div className="flex items-center justify-between"><div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[#10B981]" /><span className="text-[11px] font-medium text-[#0B1F38]">Délai</span></div><span className="text-xs font-bold text-[#0B1F38]">10%</span></div>
-                                    </div>
-                                    {/* Segmented bar */}
-                                    <div className="flex rounded-full h-2 overflow-hidden mt-2">
-                                        <div className="bg-[#00A3E0] h-full" style={{ width: '50%' }} />
-                                        <div className="bg-[#F59E0B] h-full" style={{ width: '40%' }} />
-                                        <div className="bg-[#10B981] h-full" style={{ width: '10%' }} />
-                                    </div>
-                                    <p className="text-[9px] text-[#0B1F38]/40 mt-1.5 italic">{critereAdvice}</p>
-                                </div>
+                                {renderCriteresCard()}
 
                                 {/* Carte 4 — Prochain jalon */}
                                 <div className="bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all cursor-pointer" onClick={() => setShowRetroplanningModal(true)}>
@@ -3283,11 +3415,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         <button onClick={() => setShowContextEditModal(true)} className="text-[10px] font-bold text-[#00A3E0] hover:underline">Voir tout →</button>
                                     </div>
                                     <div className="space-y-2 text-[11px]">
-                                        {/* Référence : indépendante du lien (elle disparaissait avec lui auparavant) */}
-                                        {tenderId && (
+                                        {/* Référence : celle de l'acheteur si connue, sinon l'identifiant
+                                            technique Filao en repli explicite. Indépendante du lien
+                                            (les deux disparaissaient ensemble auparavant). */}
+                                        {(formData.reference_marche || tenderId) && (
                                             <div className="flex justify-between">
                                                 <span className="text-[#0B1F38]/40">Référence</span>
-                                                <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[140px]" title={tenderId}>{tenderId.substring(0, 16) + '…'}</span>
+                                                {formData.reference_marche ? (
+                                                    <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[140px]" title={formData.reference_marche}>{formData.reference_marche}</span>
+                                                ) : (
+                                                    <span className="text-[#0B1F38]/50 font-medium truncate ml-2 max-w-[140px]" title={`Identifiant Filao : ${tenderId}`}>
+                                                        Réf. interne
+                                                    </span>
+                                                )}
                                             </div>
                                         )}
                                         {formData.date_publication && (
@@ -3298,6 +3438,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         )}
                                         {formData.mode_passation && (
                                             <div className="flex justify-between"><span className="text-[#0B1F38]/40">Mode</span><span className="text-[#0B1F38] font-medium">{formData.mode_passation === 'RESTREINT' ? 'AO restreint' : (HANDOVER_TYPES_LABELS as any)[formData.mode_passation] || formData.mode_passation}</span></div>
+                                        )}
+                                        {/* Codes CPV — nomenclature européenne de l'objet du marché. */}
+                                        {formData.cpv_codes?.length > 0 && (
+                                            <div className="pt-1">
+                                                <span className="text-[#0B1F38]/40 block mb-1">Codes CPV</span>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {formData.cpv_codes.slice(0, 4).map(code => (
+                                                        <span key={code} className="text-[10px] font-mono font-bold text-[#0B1F38]/70 bg-[#0B1F38]/5 px-1.5 py-0.5 rounded" title={`Code CPV ${code}`}>
+                                                            {formatCpv(code)}
+                                                        </span>
+                                                    ))}
+                                                    {formData.cpv_codes.length > 4 && (
+                                                        <span className="text-[10px] font-bold text-[#0B1F38]/40 px-1 py-0.5" title={formData.cpv_codes.slice(4).join(', ')}>
+                                                            +{formData.cpv_codes.length - 4}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
                                         )}
                                         {formData.lien_telechargement ? (
                                             <a href={formData.lien_telechargement} target="_blank" rel="noopener noreferrer" title={formData.lien_telechargement} className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded">
@@ -3420,6 +3578,173 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     // ==========================================
     //           CONTEXT EDIT MODAL
     // ==========================================
+    /** Ouvre la modale en amorçant le brouillon depuis les données existantes. */
+    const openCriteresModal = () => {
+        const crit = formData.criteres_attribution;
+        if (crit && (crit.kind === 'ponderes' || crit.kind === 'priorites') && crit.criteres.length > 0) {
+            // Depuis la forme `priorites` on reprend les libellés sans inventer
+            // de poids : l'acheteur ne les a pas publiés.
+            setCriteresDraft(crit.criteres.map(c => ({ libelle: c.libelle, poids: c.poids })));
+        } else {
+            setCriteresDraft([{ libelle: '', poids: undefined }]);
+        }
+        setShowCriteresModal(true);
+    };
+
+    /** Convertit le brouillon en donnée persistable. */
+    const buildCriteres = (lignes: { libelle: string; poids?: number }[]): CriteresAttribution => {
+        const nettoyees = lignes
+            .map(l => ({ libelle: l.libelle.trim(), poids: l.poids }))
+            .filter(l => l.libelle.length > 0);
+        const total = nettoyees.reduce((s, l) => s + (l.poids ?? 0), 0);
+        return {
+            kind: nettoyees.length > 0 ? 'ponderes' : 'absent',
+            criteres: nettoyees,
+            poidsSontDesPourcentages: Math.abs(total - 100) < 0.5,
+            source: 'manuel'
+        };
+    };
+
+    /**
+     * Modale de saisie des critères d'attribution.
+     *
+     * Elle existe parce que la majorité des avis BOAMP ne publie pas de
+     * pondération exploitable : l'utilisateur doit pouvoir reprendre à la main
+     * ce qu'il lit dans le règlement de consultation.
+     */
+    const renderCriteresModal = () => {
+        if (!showCriteresModal) return null;
+
+        const crit = formData.criteres_attribution;
+        const total = criteresDraft.reduce((s, l) => s + (l.poids ?? 0), 0);
+        const editable = isOwner && !isLocked;
+
+        const majLigne = (index: number, patch: Partial<{ libelle: string; poids?: number }>) =>
+            setCriteresDraft(prev => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+
+        return (
+            <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowCriteresModal(false)}></div>
+                <div className="relative bg-white rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+
+                    <div className="p-6 border-b border-[#0B1F38]/5 flex justify-between items-center shrink-0">
+                        <div>
+                            <h3 className="text-lg font-bold text-[#0B1F38]">Critères d'attribution</h3>
+                            <p className="text-xs text-[#0B1F38]/50">Tels qu'annoncés dans le règlement de consultation.</p>
+                        </div>
+                        <button onClick={() => setShowCriteresModal(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors">
+                            <X size={20} className="text-[#0B1F38]/40" />
+                        </button>
+                    </div>
+
+                    <div className="p-6 overflow-y-auto flex-1">
+                        {crit?.kind === 'libre' && crit.texte && (
+                            <div className="mb-5 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
+                                <p className="text-[11px] font-bold text-[#0B1F38]/50 uppercase tracking-wider mb-1.5">Texte publié par l'acheteur</p>
+                                <p className="text-[13px] text-[#0B1F38]/70 leading-relaxed">{crit.texte}</p>
+                            </div>
+                        )}
+                        {crit?.kind === 'cctp' && (
+                            <div className="mb-5 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
+                                <p className="text-[13px] text-[#0B1F38]/70">
+                                    L'acheteur renvoie au règlement de consultation. Reportez ici les critères qui y figurent.
+                                </p>
+                            </div>
+                        )}
+
+                        <fieldset disabled={!editable} className="border-0 p-0 m-0">
+                            {/* En-têtes : sans eux, deux champs côte à côte dont l'un
+                                attend un nombre ne s'expliquent pas d'eux-mêmes. */}
+                            <div className="grid grid-cols-[1fr_7rem_2rem] gap-2 items-center px-1 mb-1.5">
+                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Critère</span>
+                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Poids</span>
+                                <span className="sr-only">Actions</span>
+                            </div>
+                            <div className="space-y-2">
+                                {criteresDraft.map((ligne, i) => (
+                                    <div key={i} className="grid grid-cols-[1fr_7rem_2rem] gap-2 items-center">
+                                        <input
+                                            type="text"
+                                            value={ligne.libelle}
+                                            onChange={(e) => majLigne(i, { libelle: e.target.value })}
+                                            placeholder="ex. Valeur technique"
+                                            aria-label={`Intitulé du critère ${i + 1}`}
+                                            className={`${inputGlassPlain} w-full min-w-0`}
+                                        />
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            step="any"
+                                            value={ligne.poids ?? ''}
+                                            onChange={(e) => {
+                                                const v = parseFloat(e.target.value);
+                                                majLigne(i, { poids: Number.isFinite(v) ? v : undefined });
+                                            }}
+                                            placeholder="ex. 50"
+                                            aria-label={`Poids du critère ${i + 1}`}
+                                            className={`${inputGlassPlain} w-full min-w-0`}
+                                        />
+                                        {editable && criteresDraft.length > 1 ? (
+                                            <button
+                                                onClick={() => setCriteresDraft(prev => prev.filter((_, idx) => idx !== i))}
+                                                aria-label={`Supprimer le critère ${i + 1}`}
+                                                className="p-2 text-[#0B1F38]/30 hover:text-red-500 transition-colors justify-self-center"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        ) : <span />}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {editable && (
+                                <button
+                                    onClick={() => setCriteresDraft(prev => [...prev, { libelle: '', poids: undefined }])}
+                                    className="mt-3 w-full py-2.5 border border-dashed border-[#0B1F38]/15 rounded-xl text-[#0B1F38]/50 font-bold text-xs hover:border-[#00A3E0] hover:text-[#00A3E0] transition-all flex items-center justify-center gap-1.5"
+                                >
+                                    <Plus size={14} /> Ajouter un critère
+                                </button>
+                            )}
+                        </fieldset>
+
+                        {/* Le total n'a pas à valoir 100 : les acheteurs publient
+                            indifféremment des pourcentages ou des coefficients. On
+                            informe sans bloquer la saisie. */}
+                        <div className="mt-4 flex items-start gap-2 text-[12px]">
+                            <Info size={14} className="text-[#0B1F38]/40 shrink-0 mt-0.5" />
+                            <span className="text-[#0B1F38]/60">
+                                Total : <strong className="text-[#0B1F38]">{Math.round(total * 10) / 10}</strong>
+                                {total === 0
+                                    ? " — sans poids, les critères sont enregistrés sans pondération."
+                                    : Math.abs(total - 100) < 0.5
+                                        ? ' — interprété comme des pourcentages.'
+                                        : " — interprété comme des coefficients, converti en % à l'affichage."}
+                            </span>
+                        </div>
+                    </div>
+
+                    {editable && (
+                        <div className="p-6 border-t border-[#0B1F38]/5 bg-[#F8FAFC] flex justify-end shrink-0">
+                            <button
+                                onClick={async () => {
+                                    const next = buildCriteres(criteresDraft);
+                                    setFormData(prev => ({ ...prev, criteres_attribution: next }));
+                                    setShowCriteresModal(false);
+                                    // setFormData est asynchrone : on transmet la valeur
+                                    // explicitement plutôt que de lire un state périmé.
+                                    if (tenderId) await saveTenderContext({ criteres_attribution: next });
+                                }}
+                                className="px-8 py-3 bg-[#0B1F38] text-white font-bold rounded-xl hover:bg-[#00A3E0] transition-all shadow-lg"
+                            >
+                                {loading ? <Loader2 size={20} className="animate-spin" /> : 'Enregistrer'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
     const renderContextEditModal = () => {
         if (!showContextEditModal) return null;
 
@@ -3657,6 +3982,46 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </div>
                             </div>
 
+
+                            <div className="grid grid-cols-2 gap-4 md:col-span-2">
+                                <div>
+                                    <label htmlFor="tender-reference-marche" className={labelStyle}>Référence du marché</label>
+                                    <input
+                                        id="tender-reference-marche"
+                                        type="text"
+                                        value={formData.reference_marche || ''}
+                                        onChange={(e) => setFormData({ ...formData, reference_marche: e.target.value })}
+                                        placeholder="ex. AOO 25-02"
+                                        className={`${inputGlassPlain} w-full`}
+                                    />
+                                    <p className="text-[10px] text-[#0B1F38]/40 mt-1">Référence attribuée par l'acheteur.</p>
+                                </div>
+
+                                <div>
+                                    <label htmlFor="tender-cpv" className={labelStyle}>Codes CPV</label>
+                                    <input
+                                        id="tender-cpv"
+                                        type="text"
+                                        inputMode="numeric"
+                                        defaultValue={(formData.cpv_codes || []).join(', ')}
+                                        // onBlur plutôt que onChange : la saisie passe par une chaîne
+                                        // libre, la découper à chaque frappe rendrait le champ
+                                        // inutilisable dès qu'on tape une virgule.
+                                        onBlur={(e) => {
+                                            const codes = e.target.value
+                                                .split(/[\s,;]+/)
+                                                .map(c => c.trim())
+                                                .filter(c => /^\d{8}$/.test(c));
+                                            setFormData({ ...formData, cpv_codes: Array.from(new Set(codes)) });
+                                        }}
+                                        placeholder="45213000, 71000000"
+                                        className={`${inputGlassPlain} w-full`}
+                                    />
+                                    <p className="text-[10px] text-[#0B1F38]/40 mt-1">
+                                        8 chiffres, séparés par des virgules. Les valeurs non conformes sont ignorées.
+                                    </p>
+                                </div>
+                            </div>
 
                             <div className="md:col-span-2">
                                 <label className={labelStyle}>Description / Objet du marché</label>
@@ -5127,6 +5492,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 {renderGroupementTypeModal()}
                 {renderAddManualModal()}
                 {renderContextEditModal()}
+                {renderCriteresModal()}
                 {renderRetroplanningModal()}
                 {renderDCEPiecesModal()}
                 {renderCompanyDocPicker()}

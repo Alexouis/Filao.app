@@ -1,3 +1,5 @@
+import type { CriteresAttribution } from '../helpers/boampHelpers';
+
 export type NavItem = 'dashboard' | 'tenders' | 'calendar' | 'collaborators' | 'company' | 'finance' | 'profile' | 'settings' | 'notifications' | 'pricing' | 'chat';
 
 
@@ -164,6 +166,12 @@ export interface TenderFormData {
     montant_estime: number;
     lien_telechargement: string;
     lien_depot?: string;
+    /** Codes CPV à 8 chiffres (nomenclature UE). */
+    cpv_codes: string[];
+    /** Critères d'attribution et pondérations — voir helpers/boampHelpers. */
+    criteres_attribution?: CriteresAttribution | null;
+    /** Référence du marché côté acheteur (≠ id technique Filao). */
+    reference_marche?: string;
     type_groupement?: 'solidaire' | 'conjoint';
     required_skills: string[];
     required_specialty_ids: string[];

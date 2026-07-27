@@ -2,6 +2,7 @@
 // Edit this file to change global settings, logo, and theme variables.
 import React from 'react';
 import { NavItem } from './types';
+import type { CriteresAttribution } from '../helpers/boampHelpers';
 
 export const APP_CONFIG = {
   appName: "Filao",
@@ -740,6 +741,12 @@ export interface TenderFormData {
   montant_estime: number;
   lien_telechargement: string;
   lien_depot: string;
+  // ⚠️ Doublon de TenderFormData dans types.ts — les deux wizards manipulent le
+  // même objet via deux définitions distinctes. Garder les deux synchronisées
+  // tant que la fusion n'est pas faite.
+  cpv_codes: string[];
+  criteres_attribution?: CriteresAttribution | null;
+  reference_marche?: string;
   type_groupement?: 'solidaire' | 'conjoint';
   required_skills: string[];
   required_specialty_ids: string[];
