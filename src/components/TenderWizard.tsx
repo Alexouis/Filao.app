@@ -1874,6 +1874,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 date_depot_souhaitee: formData.date_depot_souhaitee || null,
                 type_groupement: type, // PERSISTED FIELD
                 montant_estime: formData.montant_estime || 0,
+                // Liens du marché — doivent être persistés dès la création du brouillon.
+                // Sans cela, l'URL récupérée du BOAMP (selectTenderFromSearch) ne vivait
+                // qu'en state local et disparaissait au premier rechargement.
+                lien_telechargement: formData.lien_telechargement || '',
+                lien_depot: formData.lien_depot || '',
                 nb_collaborateurs: groupementMembers.filter(m => !m.deleted).length, // Map count from active members only
                 nombre_pj_attendues: 0, // Default or calc
                 // collaborateurs: formData.collaborateurs, // Removed
@@ -3278,8 +3283,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         <button onClick={() => setShowContextEditModal(true)} className="text-[10px] font-bold text-[#00A3E0] hover:underline">Voir tout →</button>
                                     </div>
                                     <div className="space-y-2 text-[11px]">
-                                        {formData.lien_telechargement && (
-                                            <div className="flex justify-between"><span className="text-[#0B1F38]/40">Référence</span><span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[140px]">{tenderId ? tenderId.substring(0, 16) + '...' : '—'}</span></div>
+                                        {/* Référence : indépendante du lien (elle disparaissait avec lui auparavant) */}
+                                        {tenderId && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[#0B1F38]/40">Référence</span>
+                                                <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[140px]" title={tenderId}>{tenderId.substring(0, 16) + '…'}</span>
+                                            </div>
                                         )}
                                         {formData.date_publication && (
                                             <div className="flex justify-between"><span className="text-[#0B1F38]/40">Publication</span><span className="text-[#0B1F38] font-medium">{new Date(formData.date_publication).toLocaleDateString('fr-FR')}</span></div>
@@ -3290,10 +3299,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         {formData.mode_passation && (
                                             <div className="flex justify-between"><span className="text-[#0B1F38]/40">Mode</span><span className="text-[#0B1F38] font-medium">{formData.mode_passation === 'RESTREINT' ? 'AO restreint' : (HANDOVER_TYPES_LABELS as any)[formData.mode_passation] || formData.mode_passation}</span></div>
                                         )}
-                                        {formData.lien_telechargement && (
-                                            <a href={formData.lien_telechargement} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px]">
+                                        {formData.lien_telechargement ? (
+                                            <a href={formData.lien_telechargement} target="_blank" rel="noopener noreferrer" title={formData.lien_telechargement} className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded">
                                                 <Link size={12} /> Lien vers l'appel d'offres →
                                             </a>
+                                        ) : (
+                                            /* Le lien doit être joignable "dans tous les cas" : si absent, on propose
+                                               la saisie au lieu de masquer silencieusement la ligne. */
+                                            <button
+                                                onClick={() => setShowContextEditModal(true)}
+                                                disabled={!isOwner || isLocked}
+                                                className="flex items-center gap-1 text-[#0B1F38]/40 font-bold hover:text-[#00A3E0] hover:underline mt-1 text-[11px] disabled:hover:no-underline disabled:hover:text-[#0B1F38]/40 disabled:cursor-default"
+                                            >
+                                                <Link size={12} /> {(!isOwner || isLocked) ? "Aucun lien renseigné" : "Ajouter le lien vers l'appel d'offres"}
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -3427,6 +3446,40 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                     {/* Form Content */}
                     <div className="p-8 overflow-y-auto custom-scrollbar-dark flex-1">
+
+                        {/* Lecture seule : le fieldset ci-dessous est désactivé, ce qui rendait la
+                            modale muette (frappe ignorée, pas de bouton de validation). On explicite
+                            la raison au lieu de laisser l'utilisateur croire à un bug de saisie. */}
+                        {(!isOwner || isLocked) && (
+                            <div role="status" className="mb-6 flex items-start gap-3 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
+                                <ShieldAlert size={18} className="text-[#0B1F38]/50 shrink-0 mt-0.5" />
+                                <div className="text-[13px] leading-relaxed">
+                                    <p className="font-bold text-[#0B1F38]">Consultation seule</p>
+                                    <p className="text-[#0B1F38]/60">
+                                        {isLocked
+                                            ? "Ce dossier a été finalisé : ses informations sont verrouillées et ne peuvent plus être modifiées."
+                                            : "Seul le créateur de l'appel d'offres peut modifier ces informations."}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Le champ ci-dessous étant désactivé en lecture seule, on expose le lien
+                            sous forme d'ancre pour qu'il reste cliquable "dans tous les cas". */}
+                        {(!isOwner || isLocked) && formData.lien_telechargement && (
+                            <div className="mb-6 flex items-center gap-2 text-[13px]">
+                                <Link size={14} className="text-[#00A3E0] shrink-0" />
+                                <a
+                                    href={formData.lien_telechargement}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#00A3E0] font-bold hover:underline truncate focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
+                                >
+                                    Ouvrir l'appel d'offres
+                                </a>
+                            </div>
+                        )}
+
                         <fieldset disabled={!isOwner || isLocked} className="grid grid-cols-1 md:grid-cols-2 gap-6 border-0 p-0 m-0 min-w-0">
                             <div className="md:col-span-2">
                                 <label className={labelStyle}>Nom de l'appel d'offres *</label>
@@ -3562,11 +3615,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                             <div className="grid grid-cols-2 gap-4 md:col-span-2">
                                 <div>
-                                    <label className={labelStyle}>Lien vers l'appel d'offres</label>
+                                    <div className="flex items-baseline justify-between gap-2">
+                                        <label htmlFor="tender-lien-telechargement" className={labelStyle}>Lien vers l'appel d'offres</label>
+                                        {formData.lien_telechargement && (
+                                            <a
+                                                href={formData.lien_telechargement}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] font-bold text-[#00A3E0] hover:underline shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
+                                            >
+                                                Ouvrir →
+                                            </a>
+                                        )}
+                                    </div>
                                     <div className="relative">
                                         <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
                                         <input
-                                            type="text"
+                                            id="tender-lien-telechargement"
+                                            type="url"
+                                            inputMode="url"
                                             value={formData.lien_telechargement}
                                             onChange={(e) => setFormData({ ...formData, lien_telechargement: e.target.value })}
                                             placeholder="https://..."

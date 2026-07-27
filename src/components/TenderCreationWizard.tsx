@@ -414,6 +414,38 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                 <p style={{ fontSize: 12, color: "#999", margin: 0 }}>ou cliquez pour parcourir · PDF, DOCX, XLSX, ZIP</p>
             </div>
             <p style={{ fontSize: 11, color: "#999", textAlign: "center", marginTop: 12 }}>Vous pourrez compléter les pièces à tout moment depuis le dossier.</p>
+
+            {/* Lien vers l'avis : jusqu'ici saisissable uniquement après création, via la
+                modale Détails. En saisie manuelle, le dossier naissait donc sans lien. */}
+            <div style={{ marginTop: 18, paddingTop: 16, borderTop: "0.5px solid #ebebeb" }}>
+                <label
+                    htmlFor="creation-lien-telechargement"
+                    style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#1a1a1a", marginBottom: 6 }}
+                >
+                    Lien vers l'appel d'offres
+                </label>
+                <input
+                    id="creation-lien-telechargement"
+                    type="url"
+                    inputMode="url"
+                    value={formData.lien_telechargement || ""}
+                    onChange={(e) => setFormData(prev => ({ ...prev, lien_telechargement: e.target.value }))}
+                    placeholder="https://..."
+                    style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                        border: "1.5px solid #e5e5e5",
+                        borderRadius: 12,
+                        padding: "11px 14px",
+                        fontSize: 13,
+                        color: "#1a1a1a",
+                        outlineColor: T
+                    }}
+                />
+                <p style={{ fontSize: 11, color: "#999", margin: "6px 0 0" }}>
+                    Facultatif — page de l'avis sur le profil d'acheteur. Restera accessible depuis le dossier.
+                </p>
+            </div>
         </>
     );
 
