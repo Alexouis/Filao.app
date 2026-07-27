@@ -27,6 +27,13 @@ import {
     formatCpv,
     type CriteresAttribution
 } from '../helpers/boampHelpers';
+import {
+    coerceModePassation,
+    coerceSecteurActivite,
+    coerceStatut,
+    champsManquants,
+    messageErreurBase
+} from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
 import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
@@ -1562,6 +1569,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const saveTenderContext = async (overrides?: Partial<TenderFormData>) => {
         if (!tenderId) return;
         const data = { ...formData, ...overrides };
+
+        // `date_limite` est NOT NULL en base : envoyer null ferait échouer
+        // l'UPDATE entier, y compris les champs correctement remplis.
+        if (!data.date_limite) {
+            showToast("La date limite est obligatoire.", "warning");
+            return;
+        }
+
         setLoading(true);
         try {
             const { error } = await supabase
@@ -1571,8 +1586,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     organisme_acheteur: data.organisme_acheteur,
                     lieu_execution: data.lieu_execution,
                     type_marche: data.type_marche,
-                    secteur_activite: data.secteur_activite,
-                    mode_passation: data.mode_passation,
+                    secteur_activite: coerceSecteurActivite(data.secteur_activite),
+                    mode_passation: coerceModePassation(data.mode_passation),
                     date_publication: data.date_publication || null,
                     date_limite: data.date_limite || null,
                     date_depot_souhaitee: data.date_depot_souhaitee || null,
@@ -1593,7 +1608,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (onTenderUpdate) onTenderUpdate();
         } catch (err) {
             console.error("Error saving context:", err);
-            showToast("Erreur lors de la sauvegarde", "error");
+            showToast(messageErreurBase(err) ?? "Erreur lors de la sauvegarde", "error");
         } finally {
             setLoading(false);
         }
@@ -1839,12 +1854,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             organisme_acheteur: tender.nomacheteur || 'Anonyme',
             lieu_execution: departments || [],
             type_marche: tender.type_marche,
-            mode_passation: tender.type_procedure || '',
+            // `type_procedure` est null sur une partie des avis BOAMP, et ''
+            // n'est pas une valeur de mode_passation_enum : l'insert échouait.
+            mode_passation: coerceModePassation(tender.type_procedure),
             date_publication: tender.dateparution || new Date().toISOString(),
             date_limite: tender.datelimitereponse ? new Date(tender.datelimitereponse).toISOString() : '',
             date_depot_souhaitee: tender.datefindiffusion || tender.datelimitereponse || new Date().toISOString(),
             montant_estime: tender.montant || 0,
-            secteur_activite: "Autres",
+            secteur_activite: coerceSecteurActivite("Autres"),
             lien_telechargement: tender.url_avis || '',
             description: tender.objet || '',
             // Les CPV, critères et référence vivent dans `tender.donnees`, une
@@ -1880,6 +1897,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const handleGoToVerification = async (typeOverride?: 'solidaire' | 'conjoint', updatedMembers?: UIGroupementMember[]) => {
         const activeMembers = groupementMembers.filter(m => !m.deleted);
 
+        // Contrairement à handleManualSubmit, ce chemin n'avait aucune garde.
+        // Or plusieurs colonnes écrites ici sont NOT NULL : un champ vide
+        // faisait échouer l'insert en base, sans indication de la cause côté UI.
+        const manquants = champsManquants(formData);
+        if (manquants.length > 0) {
+            showToast(`Champs obligatoires à renseigner : ${manquants.join(', ')}.`, 'warning');
+            setShowContextEditModal(true);
+            return;
+        }
+
         // If "Réponse individuelle" (only 1 member), we skip the modal and proceed with null type.
         // We only show the modal if multiple members and type is not set.
         let type = typeOverride || formData.type_groupement;
@@ -1911,9 +1938,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 description: formData.description,
                 organisme_acheteur: formData.organisme_acheteur,
                 lieu_execution: formData.lieu_execution,
-                secteur_activite: formData.secteur_activite,
+                secteur_activite: coerceSecteurActivite(formData.secteur_activite),
                 type_marche: formData.type_marche,
-                mode_passation: formData.mode_passation,
+                mode_passation: coerceModePassation(formData.mode_passation),
                 date_publication: formData.date_publication || null, // Send null if empty
                 date_limite: formData.date_limite || null,
                 date_depot_souhaitee: formData.date_depot_souhaitee || null,
@@ -1940,7 +1967,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     const coveredCount = formData.required_skills.filter(s => covered.includes(s)).length;
                     return Math.round(40 + (coveredCount / req) * 55);
                 })(),
-                statut: 'En cours',
+                statut: coerceStatut('En cours'),
                 etape: 2,
                 modified_at: new Date().toISOString()
             };
@@ -1979,7 +2006,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (onTenderUpdate) onTenderUpdate();
         } catch (error) {
             console.error('Final Catch in handleGoToVerification:', error);
-            showToast("Erreur lors de l'initialisation du dossier. (Voir console)", 'error');
+            // « Voir console » n'est actionnable pour personne. Les erreurs
+            // d'enum et de NOT NULL désignent précisément un champ : on le dit.
+            showToast(
+                messageErreurBase(error) ?? "Erreur lors de l'initialisation du dossier.",
+                'error'
+            );
         } finally {
             setLoading(false);
         }
@@ -2613,8 +2645,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
 
     const handleManualSubmit = async () => {
-        if (!formData.titre || !formData.organisme_acheteur || !formData.date_limite || formData.type_marche.length === 0 || !formData.mode_passation || !formData.secteur_activite) {
-            showToast("Veuillez remplir les champs obligatoires.", "warning");
+        // Garde alignée sur les colonnes NOT NULL de reponses_ao — la version
+        // précédente omettait lieu_execution, également NOT NULL.
+        const manquants = champsManquants(formData);
+        if (manquants.length > 0) {
+            showToast(`Champs obligatoires à renseigner : ${manquants.join(', ')}.`, "warning");
             return;
         }
 
