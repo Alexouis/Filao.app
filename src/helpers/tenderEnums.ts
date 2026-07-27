@@ -229,6 +229,7 @@ const DIVISION_CPV_VERS_SECTEUR: Record<string, SecteurActivite> = {
     '51': 'Services_Entreprises',
     '55': 'Services_Entreprises',
     '66': 'Services_Entreprises',
+    '70': 'Services_Entreprises',
     '75': 'Services_Entreprises',
     '79': 'Services_Entreprises',
     '80': 'Services_Entreprises',

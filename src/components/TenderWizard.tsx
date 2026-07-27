@@ -3482,8 +3482,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         {formData.date_depot_souhaitee && (
                                             <div className="flex justify-between"><span className="text-[#0B1F38]/40">Dépôt souhaité</span><span className="text-[#0B1F38] font-medium">{new Date(formData.date_depot_souhaitee).toLocaleDateString('fr-FR')}</span></div>
                                         )}
-                                        {formData.mode_passation && (
-                                            <div className="flex justify-between"><span className="text-[#0B1F38]/40">Mode</span><span className="text-[#0B1F38] font-medium">{formData.mode_passation === 'RESTREINT' ? 'AO restreint' : (HANDOVER_TYPES_LABELS as any)[formData.mode_passation] || formData.mode_passation}</span></div>
+                                        {/* Le mode de passation est déjà affiché dans l'en-tête de
+                                            l'AO ; cette ligne sert donc au secteur, qui n'apparaissait
+                                            nulle part alors que la fiche le demande. Taille de carte
+                                            inchangée. */}
+                                        {formData.secteur_activite && (
+                                            <div className="flex justify-between">
+                                                <span className="text-[#0B1F38]/40">Secteur</span>
+                                                <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[150px]">
+                                                    {(SECTORS_LABELS as any)[formData.secteur_activite] || formData.secteur_activite}
+                                                </span>
+                                            </div>
                                         )}
                                         {/* Codes CPV — nomenclature européenne de l'objet du marché. */}
                                         {formData.cpv_codes?.length > 0 && (
@@ -4243,6 +4252,62 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </div>
                             )}
                         </div>
+
+                        {/* Suggestions issues des codes CPV de l'avis.
+                            Volontairement non présélectionnées : un CPV décrit l'objet
+                            du marché, pas les compétences attendues. Les écrire d'office
+                            polluerait reponses_ao_specialties et fausserait le score de
+                            couverture, qui se calcule sur required_specialty_ids. */}
+                        {(() => {
+                            const domaines = suggererDomainesDepuisCpv(formData.cpv_codes).slice(0, 2);
+                            if (domaines.length === 0) return null;
+
+                            const proposees = refSpecialties
+                                .filter(s => domaines.includes(s.domain_id))
+                                .filter(s => !formData.required_specialty_ids?.includes(s.id))
+                                .filter(s => {
+                                    if (!selectedNature) return true;
+                                    const d = refDomains.find(rd => rd.id === s.domain_id);
+                                    return d?.natures.includes(selectedNature);
+                                })
+                                // Les domaines les plus probables d'abord, comme dans le sélecteur.
+                                .sort((a, b) => domaines.indexOf(a.domain_id) - domaines.indexOf(b.domain_id))
+                                .slice(0, 8);
+
+                            if (proposees.length === 0) return null;
+
+                            return (
+                                <div className="space-y-1.5 mb-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[9px] font-bold text-[#0B1F38]/30 uppercase tracking-wider">
+                                            Suggéré d'après les codes CPV
+                                        </p>
+                                        <button
+                                            onClick={() => proposees.forEach(addComp)}
+                                            className="text-[9px] font-bold text-[#00A3E0] hover:underline shrink-0"
+                                        >
+                                            Tout ajouter
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {proposees.map(s => {
+                                            const domaine = refDomains.find(rd => rd.id === s.domain_id);
+                                            return (
+                                                <button
+                                                    key={s.id}
+                                                    onClick={() => addComp(s)}
+                                                    title={domaine ? `${domaine.label} — ajouter` : 'Ajouter'}
+                                                    aria-label={`Ajouter la spécialité ${s.label}`}
+                                                    className="flex items-center gap-1 px-2 py-1 rounded-full border border-dashed border-[#00A3E0]/40 text-[10px] font-bold text-[#0B1F38]/60 hover:bg-[#00A3E0]/5 hover:text-[#00A3E0] hover:border-solid transition-all"
+                                                >
+                                                    <Plus size={10} /> {s.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         {/* Selected Skills List */}
                         <div className="space-y-1.5">

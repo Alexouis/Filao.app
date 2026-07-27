@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TenderFormData, UserProfile, SKILLS } from '../config';
+import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
 import { supabase } from '../lib/supabaseClient';
 
 // Reference Colors & Constants from filao-wizard-workflow.jsx
@@ -588,6 +589,56 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* Suggestions issues des codes CPV de l'avis. Cette étape est
+                bloquante (au moins une compétence requise pour continuer), donc
+                c'est ici que le coup de pouce a le plus de valeur.
+                Rien n'est présélectionné : un CPV décrit l'objet du marché, pas
+                les compétences attendues. */}
+            {(() => {
+                const domaines = suggererDomainesDepuisCpv(formData.cpv_codes).slice(0, 2);
+                if (domaines.length === 0) return null;
+
+                const proposees = refSpecialties
+                    .filter(s => domaines.includes(s.domain_id))
+                    .filter(s => !formData.required_specialty_ids?.includes(s.id))
+                    .sort((a, b) => domaines.indexOf(a.domain_id) - domaines.indexOf(b.domain_id))
+                    .slice(0, 8);
+
+                if (proposees.length === 0) return null;
+
+                return (
+                    <div style={{ marginBottom: 14 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop:12, marginBottom: 8 }}>
+                            <p style={{ fontSize: 11, color: "#999", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                Suggéré d'après les codes CPV
+                            </p>
+                            <button
+                                onClick={() => proposees.forEach(addComp)}
+                                style={{ fontSize: 11, fontWeight: 500, color: T, background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}
+                            >
+                                Tout ajouter
+                            </button>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {proposees.map(s => (
+                                <button
+                                    key={s.id}
+                                    onClick={() => addComp(s)}
+                                    aria-label={`Ajouter la spécialité ${s.label}`}
+                                    style={{
+                                        display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
+                                        padding: "6px 12px", borderRadius: 20, background: "transparent",
+                                        border: `1.5px dashed ${T}66`, color: "#666", fontWeight: 500, cursor: "pointer"
+                                    }}
+                                >
+                                    <Icon type="plus" size={10} color={T} sw={2.5} /> {s.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {(formData.required_specialty_ids?.length || 0) > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
                 {formData.required_specialty_ids?.map(sid => {
