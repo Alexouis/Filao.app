@@ -547,17 +547,31 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 sourcePath = docUrl;
             }
 
-            // Copy file in storage
-            const { error: copyError } = await supabase.storage
-                .from('documents')
-                .copy(sourcePath, targetPath);
+            // La copie passe par une fonction serveur : elle exige un droit
+            // d'écriture sur le bucket, que la migration 037 a retiré au client.
+            // L'appel direct échouait avec « Object not found », message
+            // trompeur — la source existe, c'est la création de la destination
+            // qui est refusée.
+            const { data: copie, error: copyError } = await supabase.functions.invoke('copy-document', {
+                body: { source: sourcePath, nomCible: fileName },
+            });
 
-            if (copyError) throw copyError;
+            if (copyError || copie?.error) {
+                let detail = copie?.error ?? copyError?.message ?? 'Copie impossible.';
+                try {
+                    const reponse = (copyError as any)?.context;
+                    if (reponse && typeof reponse.json === 'function') {
+                        const corps = await reponse.json();
+                        if (corps?.error) detail = corps.error;
+                    }
+                } catch { /* corps illisible */ }
+                throw new Error(detail);
+            }
 
             // Le chemin est mémorisé : l'export ZIP le relit ici plutôt que de
             // le reconstruire, la pièce copiée vivant dans le dossier de celui
             // qui l'a rattachée.
-            setUploadedFilePaths(prev => ({ ...prev, [`${targetDocType}-${collabId}`]: targetPath }));
+            setUploadedFilePaths(prev => ({ ...prev, [`${targetDocType}-${collabId}`]: copie?.chemin ?? targetPath }));
 
             // Update local state
             const fakeFile = new File([], label);
@@ -575,7 +589,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             setTargetDocType(null);
         } catch (err: any) {
             console.error('Error copying company doc:', err);
-            showToast("Erreur lors de la récupération du document", 'error');
+            // Le message du serveur nomme la cause : document introuvable,
+            // n'appartenant pas à l'appelant, ou copie refusée.
+            showToast(err?.message || "Erreur lors de la récupération du document", 'error');
         } finally {
             setIsCopyingDoc(false);
         }
