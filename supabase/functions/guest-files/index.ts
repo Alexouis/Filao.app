@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { lirePieceCollaborateur, concernePiece } from "../_shared/documentNaming.ts";
 
 /**
  * Accès en lecture aux fichiers d'un partenaire non inscrit.
@@ -71,15 +72,23 @@ Deno.serve(async (req: Request) => {
       // Restreint à l'appel d'offres de l'invitation : le dossier de l'invité
       // peut contenir des pièces déposées pour d'autres AO, qui ne regardent
       // pas le porteur de ce jeton.
+      // Convention partagée : voir _shared/documentNaming. Un `split('-')`
+      // suffisait pour le type, mais découpait un UUID en morceaux dès qu'on
+      // voulait autre chose — et divergeait de la lecture faite par TenderWizard.
       const fichiers = (data ?? [])
-        .filter((o) => o.name.includes(idAo))
-        .map((o) => ({
-          name: o.name,
-          docType: o.name.split("-")[0],
-          created_at: o.created_at,
-          updated_at: o.updated_at,
-          metadata: o.metadata,
-        }));
+        .filter((o) => concernePiece(o.name, idAo))
+        .map((o) => {
+          const piece = lirePieceCollaborateur(o.name, idAo);
+          return {
+            name: o.name,
+            docType: piece?.docType ?? "",
+            collabId: piece?.collabId ?? "",
+            created_at: o.created_at,
+            updated_at: o.updated_at,
+            metadata: o.metadata,
+          };
+        })
+        .filter((f) => f.docType);
 
       return json({ ok: true, fichiers });
     }
@@ -88,7 +97,7 @@ Deno.serve(async (req: Request) => {
       const nom = String(fichier ?? "");
       // Le chemin est reconstruit à partir de l'identité vérifiée : accepter
       // celui fourni par l'appelant permettrait de signer n'importe quel objet.
-      if (!nom || nom.includes("/") || !nom.includes(idAo)) {
+      if (!nom || nom.includes("/") || !concernePiece(nom, idAo)) {
         return json({ error: "Fichier non autorisé." }, 403);
       }
 

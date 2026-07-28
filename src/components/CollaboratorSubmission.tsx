@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { deposerFichier } from '../helpers/uploadHelpers';
+import { nomPieceCollaborateur } from '../helpers/documentNaming';
 import { useToast } from './ui/Toast';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
@@ -354,7 +355,7 @@ export const CollaboratorSubmission: React.FC = () => {
          const userIdentifier = myCollabData.email;
          // Filename format: TYPE-COLLABID-TENDERID
          // This matches the parsing logic in TenderWizard.tsx
-         const fileName = `${docType}-${myCollabData.id}-${tender.id}`;
+         const fileName = nomPieceCollaborateur({ docType, collabId: myCollabData.id, tenderId: tender.id });
          const folderPath = userIdentifier;
 
          // Check if a file with this name already exists to calculate the Delta

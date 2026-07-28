@@ -22,6 +22,7 @@ import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument } from '../helpers/storageHelpers';
+import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -899,21 +900,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
 
                 data?.forEach(fileData => {
-                    // Expected format: DOC_TYPE-COLLAB_ID-TENDER_ID
-                    if (fileData.name.endsWith(tId)) {
-                        const prefix = fileData.name.slice(0, -(tId.length + 1));
-                        const parts = prefix.split('-');
+                    // Convention partagée : voir helpers/documentNaming.
+                    const piece = lirePieceCollaborateur(fileData.name, tId);
+                    if (!piece) return;
 
-                        if (parts.length >= 2) {
-                            const type = parts[0];
-                            const cId = parts.slice(1).join('-');
-                            // Store under the primary lookup key, preserve mimetype for ZIP downloads
-                            const primaryKey = `${type}-${cId}`;
-                            const mimetype = fileData.metadata?.mimetype || '';
-                            allFiles[primaryKey] = new File([], fileData.name, { type: mimetype });
-                            allProgress[primaryKey] = 100;
-                        }
-                    }
+                    // Clé de correspondance, mimetype conservé pour l'export ZIP.
+                    const primaryKey = clePieceCollaborateur(piece.docType, piece.collabId);
+                    const mimetype = fileData.metadata?.mimetype || '';
+                    allFiles[primaryKey] = new File([], fileData.name, { type: mimetype });
+                    allProgress[primaryKey] = 100;
                 });
             });
 
@@ -2321,7 +2316,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('No user');
 
-            const fileName = `${docType}-${collabId}-${tenderId}`;
+            const fileName = nomPieceCollaborateur({ docType, collabId, tenderId: tenderId as string });
             const folderPath = user.email; // We store in owner's folder or member's? 
             // Standard: each user stores in their own folder, but owner can read if they share the path
             // For now, let's stick to the current logic: the user who uploads stores in THEIR folder.
