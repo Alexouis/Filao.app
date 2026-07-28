@@ -527,16 +527,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const currentUserIdx = groupementMembers.findIndex(c => c === currentUserCollab);
             const collabId = currentUserCollab?.id || currentUserIdx.toString();
 
-            const fileName = `${targetDocType}-${collabId}-${currentTenderId}`;
+            const fileName = nomPieceCollaborateur({
+                docType: targetDocType,
+                collabId,
+                tenderId: currentTenderId,
+            });
             const targetPath = `${user.email}/${fileName}`;
 
-            // Extract relative path from source URL
-            // URLs are like: https://.../storage/v1/object/public/documents/USER_EMAIL/FILE_NAME
-            // Or for custom docs: .../documents/entreprise_id/FILE_NAME
-            const urlObj = new URL(docUrl);
-            const pathParts = urlObj.pathname.split('/documents/');
-            if (pathParts.length < 2) throw new Error("Format d'URL de document invalide");
-            const sourcePath = decodeURIComponent(pathParts[1]);
+            // Le coffre-fort stocke désormais un CHEMIN, plus une URL publique
+            // (le bucket est privé). `new URL()` échouait donc sur ces valeurs.
+            // Les lignes antérieures à la migration 039a contiennent encore une
+            // URL : les deux formes sont acceptées.
+            let sourcePath: string;
+            if (/^https?:\/\//i.test(docUrl)) {
+                const pathParts = new URL(docUrl).pathname.split('/documents/');
+                if (pathParts.length < 2) throw new Error("Format d'URL de document invalide");
+                sourcePath = decodeURIComponent(pathParts[1]);
+            } else {
+                sourcePath = docUrl;
+            }
 
             // Copy file in storage
             const { error: copyError } = await supabase.storage
@@ -544,6 +553,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .copy(sourcePath, targetPath);
 
             if (copyError) throw copyError;
+
+            // Le chemin est mémorisé : l'export ZIP le relit ici plutôt que de
+            // le reconstruire, la pièce copiée vivant dans le dossier de celui
+            // qui l'a rattachée.
+            setUploadedFilePaths(prev => ({ ...prev, [`${targetDocType}-${collabId}`]: targetPath }));
 
             // Update local state
             const fakeFile = new File([], label);
