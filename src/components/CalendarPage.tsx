@@ -442,7 +442,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             <div
                                 key={idx}
                                 className={`
-                                relative p-2 md:p-3 rounded-2xl border transition-all flex flex-col gap-1 min-h-[100px] group
+                                relative p-2 md:p-3 rounded-2xl border transition-all flex flex-col gap-1 min-h-[100px] max-h-[150px] overflow-hidden group
                                 ${d.currentMonth ? 'cursor-pointer' : 'opacity-40'}
                                 ${isToday
                                         ? 'bg-white shadow-xl shadow-[#00A3E0]/10 border-[#00A3E0] ring-1 ring-[#00A3E0]/20 z-10 scale-[1.02]'
@@ -457,7 +457,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     {dayEvents.length > 0 && !isToday && <div className="w-2 h-2 bg-[#FF8D6D] rounded-full"></div>}
                                 </div>
 
-                                <div className="flex flex-col gap-1.5 overflow-x-hidden overflow-y-scroll flex-1">
+                                <div className="flex flex-col gap-1.5 overflow-x-hidden overflow-y-auto flex-1 min-h-0 custom-scrollbar-dark">
                                     {dayEvents.slice(0, 3).map((evt: any, i) => (
                                         <div
                                             key={i}
@@ -470,9 +470,11 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                             <div className="flex justify-between items-center w-full">
                                                 <span className={`truncate text-xs font-bold ${evt.type === 'google_event' ? 'text-[#00A3E0]' : 'text-[#0B1F38]'}`}>{evt.label}</span>
                                                 {/* Progress Number displayed as in dashboard */}
-                                                {evt.type !== 'google_event' && <span className="font-bold text-[#0B1F38] text-[9px]">{evt.progress}%</span>}
+                                                {evt.type !== 'google_event' && evt.type !== 'jalon' && (
+                                                    <span className="font-bold text-[#0B1F38] text-[9px] shrink-0">{evt.progress}%</span>
+                                                )}
                                             </div>
-                                            {evt.type !== 'google_event' && (
+                                            {evt.type !== 'google_event' && evt.type !== 'jalon' && (
                                                 <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-0.5 overflow-hidden">
                                                     <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress}%` }}></div>
                                                 </div>
@@ -515,7 +517,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     <div className="text-xs font-bold text-[#0B1F38]/40 uppercase mb-1">{weekDays[i]}</div>
                                     <div className={`text-2xl font-bold ${isToday ? 'text-[#00A3E0]' : 'text-[#0B1F38]'}`}>{d.day}</div>
                                 </div>
-                                <div className="flex flex-col gap-2 flex-1 overflow-y-auto custom-scrollbar-dark">
+                                {/* `min-h-0` : même défaut que la vue Mois, sans quoi le
+                                    conteneur s'étire au lieu de défiler. */}
+                                <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar-dark">
                                     {dayEvents.map((evt, idx) => (
                                         <div
                                             key={idx}
@@ -524,14 +528,24 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                         >
                                             <div className="flex justify-between items-start">
                                                 <span className="font-bold text-[#0B1F38] text-sm truncate leading-tight">{evt.label}</span>
-                                                <span className="font-bold text-[#0B1F38] text-xs">{evt.progress}%</span>
+                                                {evt.type !== 'jalon' && <span className="font-bold text-[#0B1F38] text-xs shrink-0">{evt.progress}%</span>}
                                             </div>
-                                            <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
-                                                <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress}%` }}></div>
-                                            </div>
-                                            <div className="flex items-center gap-1 mt-1 text-[10px] text-[#0B1F38]/60">
-                                                <Clock size={10} /> {evt.time}
-                                            </div>
+                                            {/* Un jalon n'a pas d'avancement chiffré : la barre
+                                                afficherait une progression inventée. */}
+                                            {evt.type !== 'jalon' && (
+                                                <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
+                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress}%` }}></div>
+                                                </div>
+                                            )}
+                                            {evt.type === 'jalon' ? (
+                                                <div className="flex items-center gap-1 mt-1 text-[10px] text-[#0B1F38]/60 truncate">
+                                                    {evt.tenderTitle}
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center gap-1 mt-1 text-[10px] text-[#0B1F38]/60">
+                                                    <Clock size={10} /> {evt.time}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -663,12 +677,16 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             donc un dossier remis dans six semaines n'apparaissait nulle
                             part alors que sa deadline questions tombait sous huit jours. */}
                         {upcomingJalons.length > 0 && (
-                            <div className="shrink-0">
-                                <h3 className="text-lg font-bold text-[#0B1F38] mb-3 flex items-center gap-2">
+                            /* Hauteur plafonnée : sans elle, six jalons occupent toute la
+                               colonne et repoussent « Prochains jours » hors de l'écran.
+                               Le titre reste fixe, seule la liste défile. */
+                            <div className="shrink-0 flex flex-col max-h-[160px] min-h-0">
+                                <h3 className="text-lg font-bold text-[#0B1F38] mb-3 flex items-center gap-2 shrink-0">
                                     <Clock size={18} className="text-[#0B8FAC]" />
                                     Jalons à venir
+                                    <span className="ml-auto text-xs font-bold text-[#0B1F38]/40">{upcomingJalons.length}</span>
                                 </h3>
-                                <div className="space-y-2">
+                                <div className="space-y-2 overflow-y-auto min-h-0 custom-scrollbar-dark pr-1">
                                     {upcomingJalons.map((j: any, idx: number) => {
                                         const d = new Date(j.date);
                                         return (
