@@ -49,6 +49,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const [hasGoogleCalendar, setHasGoogleCalendar] = useState(false);
     const [googleEvents, setGoogleEvents] = useState<any[]>([]);
     const [googleSyncError, setGoogleSyncError] = useState<string | null>(null);
+    // Dépliage des listes au-delà de l'horizon de 30 jours.
+    const [jalonsDeplies, setJalonsDeplies] = useState(false);
+    const [echeancesDepliees, setEcheancesDepliees] = useState(false);
 
     // Constants
     const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
@@ -367,6 +370,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
      */
     const DOSSIERS_CLOS = ['Déposé', 'Gagné', 'Perdu'];
     const estActif = (t: any) => !DOSSIERS_CLOS.includes(t?.statut);
+
+    /**
+     * Horizon des panneaux latéraux. Les deux listes annoncent le court terme ;
+     * sans borne, une échéance à huit mois s'y affichait au même titre que celle
+     * de demain. On ne masque rien pour autant : ce qui dépasse l'horizon est
+     * compté et dépliable, plutôt que silencieusement absent.
+     */
+    const HORIZON_JOURS = 30;
+    const dansHorizon = (date: any) => {
+        const limite = new Date(new Date().toDateString());
+        limite.setDate(limite.getDate() + HORIZON_JOURS);
+        return new Date(date) <= limite;
+    };
 
     const upcomingEvents = useMemo(() => {
         const today = new Date();
@@ -705,7 +721,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     <span className="ml-auto text-xs font-bold text-[#0B1F38]/40">{upcomingJalons.length}</span>
                                 </h3>
                                 <div className="space-y-2 overflow-y-auto min-h-0 custom-scrollbar-dark pr-1">
-                                    {upcomingJalons.map((j: any, idx: number) => {
+                                    {(jalonsDeplies ? upcomingJalons : upcomingJalons.filter((j: any) => dansHorizon(j.date))).map((j: any, idx: number) => {
                                         const d = new Date(j.date);
                                         return (
                                             <button
@@ -724,6 +740,20 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                             </button>
                                         );
                                     })}
+                                    {(() => {
+                                        const auDela = upcomingJalons.filter((j: any) => !dansHorizon(j.date)).length;
+                                        if (auDela === 0) return null;
+                                        return (
+                                            <button
+                                                onClick={() => setJalonsDeplies(v => !v)}
+                                                className="w-full text-center text-[10px] font-bold text-[#0B1F38]/45 hover:text-[#0B8FAC] py-1.5 transition-colors"
+                                            >
+                                                {jalonsDeplies
+                                                    ? "Réduire"
+                                                    : `+ ${auDela} autre${auDela > 1 ? 's' : ''} au-delà de ${HORIZON_JOURS} jours`}
+                                            </button>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         )}
@@ -741,7 +771,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             </h3>
 
                             <div className="space-y-3 overflow-y-auto custom-scrollbar-dark pr-2 flex-1 min-h-0 pb-4">
-                                {upcomingEvents.length > 0 ? upcomingEvents.map((tender, idx) => {
+                                {upcomingEvents.length > 0 ? (echeancesDepliees ? upcomingEvents : upcomingEvents.filter(t => dansHorizon(t.date_limite))).map((tender, idx) => {
                                     const dateObj = new Date(tender.date_limite);
                                     const dayNum = dateObj.getDate();
                                     const monthStr = monthNames[dateObj.getMonth()].substring(0, 3);
