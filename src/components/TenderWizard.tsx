@@ -24,6 +24,7 @@ import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
+import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -51,6 +52,31 @@ import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useChat } from '../context/ChatContext';
 
 // --- STYLES ---
+
+/**
+ * Extension de fichier à partir du type détecté dans le contenu.
+ *
+ * Sert à nommer les pièces de l'export ZIP. Le mimetype déclaré étant souvent
+ * absent ou inconnu, s'y fier produisait des « .bin » que l'acheteur public ne
+ * peut pas ouvrir.
+ */
+const EXTENSIONS_PAR_TYPE: Partial<Record<TypeFichier, string>> = {
+    pdf: 'pdf', png: 'png', jpeg: 'jpg', gif: 'gif', webp: 'webp',
+    docx: 'docx', xlsx: 'xlsx', pptx: 'pptx', doc: 'doc', xls: 'xls',
+    odt: 'odt', ods: 'ods', zip: 'zip',
+};
+
+/** Repli sur le mimetype déclaré quand la signature n'est pas reconnue. */
+const EXTENSIONS_PAR_MIME: Record<string, string> = {
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg',
+    'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'text/plain': 'txt', 'text/csv': 'csv',
+};
 
 const inputGlass = "w-full pl-10 pr-4 py-3 rounded-xl border border-white/60 bg-white/50 focus:bg-white focus:ring-2 focus:ring-[#00A3E0] focus:outline-none transition-all text-sm font-medium text-[#0B1F38] placeholder-[#0B1F38]/40";
 // Variante sans `pl-10` : cette réserve de 40px sert à loger une icône absolue.
@@ -659,20 +685,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             manquants.push(`${member.name || member.email} — ${docDef.label}`);
                         }
                         if (!dlError && fileData) {
-                            const folderName = member.name || member.email;
-                            // Derive extension from mimetype stored in File.type
-                            const mimeToExt: Record<string, string> = {
-                                'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg',
-                                'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg',
-                                'application/pdf': 'pdf',
-                                'application/msword': 'doc',
-                                'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-                                'application/vnd.ms-excel': 'xls',
-                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-                                'text/plain': 'txt', 'text/csv': 'csv',
-                            };
-                            const ext = fileObj.type ? (mimeToExt[fileObj.type] || 'bin') : 'bin';
-                            zip.file(`${folderName}/${docDef.label}.${ext}`, fileData);
+                            const folderName = nettoyerTexteLibre(member.name || member.email, 60) || 'Membre';
+
+                            // L'extension est déduite du CONTENU, pas du mimetype
+                            // déclaré. Ce dernier valait souvent vide ou une valeur
+                            // inconnue, et le repli produisait un « .bin » — un
+                            // fichier que l'acheteur public ne peut pas ouvrir, alors
+                            // que le critère de recette porte précisément sur la
+                            // lisibilité de l'archive.
+                            const debut = new Uint8Array(await fileData.slice(0, OCTETS_A_LIRE).arrayBuffer());
+                            const type = detecterType(debut);
+                            const ext = EXTENSIONS_PAR_TYPE[type] ?? EXTENSIONS_PAR_MIME[fileObj.type] ?? '';
+
+                            // Nom lisible par un acheteur : « 02 - Attestation URSSAF.pdf ».
+                            // Le numéro d'ordre préserve l'ordre de la checklist, qu'un
+                            // tri alphabétique casserait.
+                            const rang = String(docs.indexOf(docDef) + 1).padStart(2, '0');
+                            const libelle = nettoyerTexteLibre(docDef.label, 60).replace(/[\\/:*?"<>|]/g, '-');
+                            zip.file(`${folderName}/${rang} - ${libelle}${ext ? '.' + ext : ''}`, fileData);
                         }
                     }
                 });
