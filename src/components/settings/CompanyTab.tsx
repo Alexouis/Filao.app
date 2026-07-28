@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { ouvrirDocument, oublierUrl } from '../../helpers/storageHelpers';
 import { deposerFichier } from '../../helpers/uploadHelpers';
 import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Search, ShieldCheck, ShieldAlert, PenLine, Upload, Calendar as CalendarIcon, MapPin, Hash, Globe, Eye, EyeOff, Award, Users, Cpu, FileStack, ExternalLink, FileText, Leaf, Map, ChevronDown } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
@@ -671,13 +672,15 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
-            setFormData(prev => ({ ...prev, [dbField]: publicUrl }));
+            // Le bucket `documents` étant privé, on conserve le CHEMIN : une URL
+            // signée expire au bout d'une heure et ne peut pas être persistée.
+            setFormData(prev => ({ ...prev, [dbField]: chemin }));
+            oublierUrl(chemin);
 
             const now = new Date().toISOString();
             const newStatuses = { ...docStatuses, [dbField]: { status: 'valide' as DocStatus, uploaded_at: now } };
             setDocStatuses(newStatuses);
-            await supabase.from('utilisateurs').update({ [dbField]: publicUrl, document_statuses: newStatuses }).eq('id', userProfile.id);
+            await supabase.from('utilisateurs').update({ [dbField]: chemin, document_statuses: newStatuses }).eq('id', userProfile.id);
             onUpdate();
         } catch (err: any) {
             setError(err.message);
@@ -706,11 +709,9 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
-
             const { data: inserted, error: insertError } = await supabase
                 .from('documents_candidature')
-                .insert({ entreprise_id: entrepriseData.id, uploaded_by: userProfile.id, label: labelToUse, url: publicUrl, statut: 'valide', categorie })
+                .insert({ entreprise_id: entrepriseData.id, uploaded_by: userProfile.id, label: labelToUse, url: chemin, statut: 'valide', categorie })
                 .select('id, label, url, statut, categorie, created_at, uploaded_by')
                 .single();
 
@@ -731,15 +732,17 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Find doc to get path
             const doc = customDocs.find(d => d.id === docId);
             if (doc && doc.url) {
-                // Extract path from publicUrl if possible, or construct it if standard format
-                // Format: .../documents/ENT_ID/FILENAME
-                // We'll try to extract the relative path after '/documents/'
-                const pathParts = doc.url.split('/documents/');
-                if (pathParts.length > 1) {
-                    const relativePath = pathParts[1];
-                    const { error: storageError } = await supabase.storage.from('documents').remove([relativePath]);
-                    if (storageError) console.error('Storage delete error:', storageError);
-                }
+                // `url` contient désormais un chemin ; les lignes antérieures à la
+                // migration 039a contiennent encore une URL publique. Découper sur
+                // « /documents/ » ne fonctionnait que pour la seconde forme : sur un
+                // chemin, la suppression du fichier était silencieusement ignorée et
+                // seule la ligne en base disparaissait.
+                const relativePath = doc.url.includes('/object/public/documents/')
+                    ? decodeURIComponent(doc.url.split('/object/public/documents/')[1].split('?')[0])
+                    : doc.url;
+                const { error: storageError } = await supabase.storage.from('documents').remove([relativePath]);
+                if (storageError) console.error('Storage delete error:', storageError);
+                oublierUrl(relativePath);
             }
 
             const { error } = await supabase.from('documents_candidature').delete().eq('id', docId);
@@ -774,9 +777,9 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
-            const { error: updateError } = await supabase.from('documents_candidature').update({ url: publicUrl, statut: 'en_attente', updated_at: new Date().toISOString() }).eq('id', docId);
-            if (!updateError) setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, url: publicUrl, statut: 'en_attente' } : d));
+            const { error: updateError } = await supabase.from('documents_candidature').update({ url: chemin, statut: 'en_attente', updated_at: new Date().toISOString() }).eq('id', docId);
+            if (!updateError) setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, url: chemin, statut: 'en_attente' } : d));
+            oublierUrl(chemin);
         } catch (err: any) {
             console.error(err);
             setError('Erreur lors de la mise à jour du document');
@@ -1422,12 +1425,20 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                 du `truncate` CSS : « Attestation_vigilan » au lieu de
                                                 « Attestation_vigilance_URSSAF_2026.pdf ». On laisse le
                                                 CSS gérer, et le nom complet reste lisible au survol. */}
-                                            <span
-                                                className="text-xs text-gray-500 flex-1 truncate"
-                                                title={url ? decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '') : undefined}
-                                            >
-                                                {url ? decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '') : 'Aucun fichier'}
-                                            </span>
+                                            {/* Le document n'était consultable nulle part : on pouvait
+                                                le déposer et le remplacer, jamais le relire. L'URL signée
+                                                est demandée au clic, elle n'est valable qu'une heure. */}
+                                            {url ? (
+                                                <button
+                                                    onClick={() => ouvrirDocument(url)}
+                                                    className="text-xs text-blue-600 flex-1 truncate text-left hover:underline"
+                                                    title={`Ouvrir ${decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '')}`}
+                                                >
+                                                    {decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '')}
+                                                </button>
+                                            ) : (
+                                                <span className="text-xs text-gray-500 flex-1 truncate">Aucun fichier</span>
+                                            )}
                                             <label className={`px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer transition-all shrink-0 ${uploadingField === slot.field ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
                                                 }`}>
                                                 {uploadingField === slot.field ? <Loader2 size={12} className="animate-spin" /> : <><Upload size={10} className="inline mr-1" />{url ? 'Modifier' : 'Ajouter'}</>}
