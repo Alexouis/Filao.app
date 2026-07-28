@@ -135,7 +135,7 @@ export const CollaboratorSubmission: React.FC = () => {
          setStep('workspace');
 
          // Load files
-         fetchTenderFiles(tenderData.id, invite.email);
+         fetchTenderFiles({ token: tokenParam });
 
       } catch (err: any) {
          console.error(err);
@@ -199,7 +199,7 @@ export const CollaboratorSubmission: React.FC = () => {
          setStep('workspace');
 
          // Load files immediately (using email as folder for guests)
-         fetchTenderFiles(tenderData.id, invite.email);
+         fetchTenderFiles({ tenderId: tenderIdParam, email: emailInput, accessCode: codeInput });
 
       } catch (err: any) {
          console.error(err);
@@ -211,18 +211,37 @@ export const CollaboratorSubmission: React.FC = () => {
 
    // --- 2. WORKSPACE LOGIC ---
 
-   const fetchTenderFiles = async (tId: string, ownerEmail: string) => {
+   /**
+    * Secret d'invitation à rejouer côté serveur. Un invité n'étant pas
+    * authentifié, il n'a aucun droit de lecture sur le bucket depuis que
+    * celui-ci est privé : c'est ce secret qui tient lieu d'identité.
+    */
+   const identifiantsInvite = () =>
+      guestAuth?.mode === 'token'
+         ? { token: guestAuth.token }
+         : guestAuth?.mode === 'code'
+            ? { tenderId: tenderIdParam ?? tender?.id, email: guestAuth.email, accessCode: guestAuth.code }
+            : {};
 
-      const { data, error } = await supabase.storage
-         .from('documents')
-         .list(`${ownerEmail}`); // Adjust this path match your bucket structure
+   /**
+    * @param secret identifiants à utiliser. Transmis explicitement par les
+    *   appels d'ouverture de session : `setGuestAuth` étant asynchrone, lire
+    *   l'état à ce moment-là renverrait encore null.
+    */
+   const fetchTenderFiles = async (secret?: Record<string, any>) => {
+      // `storage.list()` renvoyait une liste vide sans erreur pour un appelant
+      // anonyme : le fichier venait d'être déposé, mais l'emplacement restait
+      // affiché « en attente ». La lecture passe donc par une fonction serveur
+      // qui vérifie le secret puis agit avec la clé de service.
+      const { data, error } = await supabase.functions.invoke('guest-files', {
+         body: { action: 'list', ...(secret ?? identifiantsInvite()) },
+      });
 
-      if (!error && data) {
-         // Filter files belonging to THIS tender
-         const relevantFiles = data.filter(f => f.name.includes(tId));
-
-         setTenderFiles(relevantFiles.map(f => ({ ...f, docType: f.name.split('-')[0] })));
+      if (error || data?.error) {
+         console.error('guest-files (list):', error ?? data?.error);
+         return;
       }
+      setTenderFiles(data?.fichiers ?? []);
    };
 
    const handleStatusChange = async (newStatus: 'approved' | 'refused') => {
@@ -293,19 +312,26 @@ export const CollaboratorSubmission: React.FC = () => {
 
     const handleDownload = async (fileName: string) => {
       if (!myCollabData?.email) return;
-      const fullPath = `${myCollabData.email}/${fileName}`;
-      
-      const { data, error } = await supabase.storage
-         .from('documents')
-         .createSignedUrl(fullPath, 60); // 1 minute link
 
-      if (error) {
-         console.error("Download error:", error);
-         // If toast isn't imported, we'll use a simple alert or just log
-         alert("Erreur lors de l'accès au fichier. Veuillez réessayer.");
-      } else if (data?.signedUrl) {
-         window.open(data.signedUrl, '_blank');
+      // L'onglet est ouvert avant l'appel : après un `await`, le navigateur le
+      // bloquerait comme fenêtre surgissante.
+      const onglet = window.open('', '_blank');
+
+      // `createSignedUrl` exige un droit de lecture qu'un invité anonyme n'a
+      // plus : la signature est demandée au serveur, qui vérifie le secret.
+      const { data, error } = await supabase.functions.invoke('guest-files', {
+         body: { action: 'sign', fichier: fileName, ...identifiantsInvite() },
+      });
+
+      if (error || !data?.url) {
+         console.error('guest-files (sign):', error ?? data?.error);
+         onglet?.close();
+         showToast("Impossible d'ouvrir ce fichier. Rechargez la page et réessayez.", 'error');
+         return;
       }
+
+      if (onglet) onglet.location.href = data.url;
+      else window.location.href = data.url;
    };
 
    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, docType: string) => {
@@ -330,7 +356,6 @@ export const CollaboratorSubmission: React.FC = () => {
          // This matches the parsing logic in TenderWizard.tsx
          const fileName = `${docType}-${myCollabData.id}-${tender.id}`;
          const folderPath = userIdentifier;
-         const fullPath = `${folderPath}/${fileName}`;
 
          // Check if a file with this name already exists to calculate the Delta
          let oldFileSize = 0;
@@ -370,6 +395,14 @@ export const CollaboratorSubmission: React.FC = () => {
             dossier: myCollabData.email,
             point: 'depot_partenaire',
             upsert: true,
+            // Nom imposé : `fetchTenderFiles` retrouve les pièces déposées en
+            // filtrant sur l'identifiant de l'AO et déduit le type de document
+            // du préfixe (`f.name.split('-')[0]`). Sans lui, le fichier partait
+            // sous son nom d'origine : il arrivait bien dans le bucket, mais
+            // l'interface ne le reconnaissait pas et l'emplacement restait « en
+            // attente ». C'est aussi ce qui permet à un nouvel envoi d'écraser
+            // le précédent au lieu de l'empiler.
+            nom: fileName,
             ...(guestAuth?.mode === 'token'
                ? { token: guestAuth.token }
                : guestAuth?.mode === 'code'
@@ -408,7 +441,7 @@ export const CollaboratorSubmission: React.FC = () => {
          }
 
          // --- 6. REFRESH UI & NOTIFY ---
-         await fetchTenderFiles(tender.id, userIdentifier);
+         await fetchTenderFiles();
 
          await notifyDocumentAdded(
             [tender.createur_id],
