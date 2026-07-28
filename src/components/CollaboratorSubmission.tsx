@@ -30,6 +30,12 @@ export const CollaboratorSubmission: React.FC = () => {
    // Verification Form
    const [emailInput, setEmailInput] = useState('');
    const [codeInput, setCodeInput] = useState('');
+   // Secret ayant servi à ouvrir la session invité. Les fonctions SECURITY
+   // DEFINER l'exigent à nouveau pour toute écriture : il n'y a plus d'UPDATE
+   // direct sur `invitations` depuis le client.
+   const [guestAuth, setGuestAuth] = useState<
+      { mode: 'token'; token: string } | { mode: 'code'; email: string; code: string } | null
+   >(null);
 
    // Workspace Data
    const [tender, setTender] = useState<Tender | null>(null);
@@ -45,25 +51,57 @@ export const CollaboratorSubmission: React.FC = () => {
       }
    }, [tokenParam]);
 
+   /**
+    * Les fonctions SECURITY DEFINER de la migration 034 renvoient un
+    * enregistrement à plat. On reconstitue ici la forme attendue par l'écran,
+    * qui recevait auparavant `tender:reponses_ao (*)` — donc toutes les
+    * colonnes, y compris celles qu'il n'affiche pas.
+    */
+   const mapInvitationRow = (row: any) => ({
+      invite: {
+         id: row.invitation_id,
+         email: row.email,
+         role: row.role,
+         status: row.status,
+         expires_at: row.expires_at
+      },
+      tender: {
+         id: row.tender_id,
+         titre: row.titre,
+         organisme_acheteur: row.organisme_acheteur,
+         date_limite: row.date_limite,
+         date_publication: row.date_publication,
+         date_depot_souhaitee: row.date_depot_souhaitee,
+         montant_estime: row.montant_estime,
+         lieu_execution: row.lieu_execution,
+         secteur_activite: row.secteur_activite,
+         type_marche: row.type_marche,
+         type_groupement: row.type_groupement,
+         mode_passation: row.mode_passation,
+         description: row.description,
+         lien_telechargement: row.lien_telechargement,
+         statut: row.statut,
+         createur_id: row.createur_id
+      }
+   });
+
    const handleTokenAuth = async () => {
       setLoading(true);
       setError(null);
       try {
          // 1. Validate Token & Fetch Tender
-         const { data: invite, error: inviteError } = await supabase
-            .from('invitations')
-            .select(`
-                *,
-                tender:reponses_ao (*)
-            `)
-            .eq('token', tokenParam)
-            .single();
+         // `invitations` n'est plus lisible directement (migration 034) : le
+         // token est exigé en paramètre de la fonction.
+         const { data: rows, error: inviteError } = await supabase
+            .rpc('get_invitation_by_token', { p_token: tokenParam });
 
-         if (inviteError || !invite) throw new Error("Invitation invalide ou expirée.");
-         if (new Date(invite.expires_at) < new Date()) throw new Error("Invitation expirée.");
+         const row = rows?.[0];
+         if (inviteError || !row) throw new Error("Invitation invalide ou expirée.");
+         if (row.expires_at && new Date(row.expires_at) < new Date()) throw new Error("Invitation expirée.");
 
-         const tenderData = (invite as any).tender;
-         if (!tenderData) throw new Error("Appel d'offres introuvable.");
+         const { invite, tender: tenderData } = mapInvitationRow(row);
+         if (!tenderData.id) throw new Error("Appel d'offres introuvable.");
+         setGuestAuth({ mode: 'token', token: tokenParam as string });
 
          // 2. Fetch Owner
          const { data: creatorProfile } = await supabase
@@ -114,21 +152,21 @@ export const CollaboratorSubmission: React.FC = () => {
 
       try {
          // 1. Fetch the Invitation linked to this tender and email
-         const { data: invite, error: inviteError } = await supabase
-            .from('invitations')
-            .select(`
-                *,
-                tender:reponses_ao (*)
-            `)
-            .eq('tender_id', tenderIdParam)
-            .ilike('email', emailInput.toLowerCase().trim())
-            .eq('access_code', codeInput.trim().toUpperCase())
-            .single();
+         // Le code d'accès est vérifié côté base : tant que `invitations` était
+         // lisible par tous, il ne protégeait rien.
+         const { data: rows, error: inviteError } = await supabase
+            .rpc('get_invitation_by_code', {
+               p_tender_id: tenderIdParam,
+               p_email: emailInput,
+               p_code: codeInput
+            });
 
-         if (inviteError || !invite) throw new Error("Identifiants incorrects ou accès révoqué.");
+         const row = rows?.[0];
+         if (inviteError || !row) throw new Error("Identifiants incorrects ou accès révoqué.");
 
-         const tenderData = (invite as any).tender;
-         if (!tenderData) throw new Error("Appel d'offres introuvable.");
+         const { invite, tender: tenderData } = mapInvitationRow(row);
+         if (!tenderData.id) throw new Error("Appel d'offres introuvable.");
+         setGuestAuth({ mode: 'code', email: emailInput, code: codeInput });
 
          // 2. Fetch Owner (Creator) Info via RPC to avoid RLS circular dependency
          const { data: ownerResults, error: ownerErr } = await supabase.rpc('get_tender_owner_info', { 
@@ -214,12 +252,24 @@ export const CollaboratorSubmission: React.FC = () => {
                answer["status"] = 'refused';
                answer["refused_at"] = new Date().toISOString();
             }
-            const { error: inviteError } = await supabase
-               .from('invitations')
-               .update(answer)
-               .eq('id', myCollabData.id);
+            const nouveauStatut = newStatus === 'approved' ? 'accepted' : 'refused';
+
+            const { data: ok, error: inviteError } = guestAuth?.mode === 'token'
+               ? await supabase.rpc('respond_to_invitation', {
+                    p_token: guestAuth.token, p_status: nouveauStatut })
+               : await supabase.rpc('respond_to_invitation_by_code', {
+                    p_tender_id: tenderIdParam ?? tender?.id,
+                    p_email: guestAuth?.mode === 'code' ? guestAuth.email : myCollabData.email,
+                    p_code: guestAuth?.mode === 'code' ? guestAuth.code : '',
+                    p_status: nouveauStatut });
 
             if (inviteError) throw inviteError;
+            if (!ok) {
+               // La fonction refuse si l'invitation n'est plus `pending` ou a
+               // expiré ; l'UPDATE direct l'acceptait silencieusement.
+               showToast("Cette invitation a déjà reçu une réponse ou a expiré.", 'warning');
+               return;
+            }
          }
 
          // 2. Update Local State

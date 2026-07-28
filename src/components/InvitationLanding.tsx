@@ -58,20 +58,41 @@ export const InvitationLanding: React.FC = () => {
     const fetchInvitation = async (inviteToken: string) => {
         try {
             // Fetch invitation with tender and creator info
-            const { data, error: fetchError } = await supabase
-                .from('invitations')
-                .select(`
-          *,
-          tender:reponses_ao (id, titre, organisme_acheteur, date_limite, montant_estime, lieu_execution, secteur_activite, type_marche, type_groupement, createur_id),
-          creator:utilisateurs!invitations_created_by_fkey (nom, prenom, entreprise)
-        `)
-                .eq('token', inviteToken)
-                .single();
+            // Passe par une fonction SECURITY DEFINER : la table `invitations`
+            // n'est plus lisible directement (migration 034). Le token exigé en
+            // paramètre remplace la policy `USING (true)` qui exposait tous les
+            // tokens et codes d'accès de la base.
+            const { data: rows, error: fetchError } = await supabase
+                .rpc('get_invitation_by_token', { p_token: inviteToken });
 
-            if (fetchError || !data) {
+            const row = rows?.[0];
+            if (fetchError || !row) {
                 setError('Invitation introuvable ou expirée.');
                 return;
             }
+
+            // La fonction renvoie un enregistrement à plat ; on reconstitue la
+            // forme imbriquée attendue par le rendu.
+            const data = {
+                ...row,
+                id: row.invitation_id,
+                tender_id: row.tender_id,
+                tender: {
+                    id: row.tender_id,
+                    titre: row.titre,
+                    organisme_acheteur: row.organisme_acheteur,
+                    date_limite: row.date_limite,
+                    montant_estime: row.montant_estime,
+                    lieu_execution: row.lieu_execution,
+                    secteur_activite: row.secteur_activite,
+                    type_marche: row.type_marche,
+                    type_groupement: row.type_groupement,
+                    createur_id: row.createur_id
+                },
+                creator: row.createur_nom
+                    ? { nom: row.createur_nom, prenom: row.createur_prenom, entreprise: row.createur_entreprise }
+                    : null
+            };
 
             // Check expiration
             if (new Date(data.expires_at) < new Date()) {
@@ -99,13 +120,16 @@ export const InvitationLanding: React.FC = () => {
         setActionLoading(true);
 
         try {
-            await supabase
-                .from('invitations')
-                .update({
-                    status: 'refused',
-                    refused_at: new Date().toISOString()
-                })
-                .eq('id', invitation.id);
+            const { data: ok, error: rpcError } = await supabase
+                .rpc('respond_to_invitation', { p_token: token, p_status: 'refused' });
+
+            if (rpcError) throw rpcError;
+            if (!ok) {
+                // La fonction refuse si l'invitation n'est plus `pending` ou a
+                // expiré — cas qu'un UPDATE direct laissait passer.
+                setError("Cette invitation a déjà reçu une réponse ou a expiré.");
+                return;
+            }
 
             setError('Invitation refusée. Vous pouvez fermer cette page.');
         } catch (err) {
