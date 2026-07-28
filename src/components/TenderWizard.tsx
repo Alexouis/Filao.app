@@ -23,6 +23,7 @@ import { estEnRetard } from '../helpers/jalonHelpers';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
+import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -89,6 +90,11 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
         company: ''
     });
 
+    // Le message d'erreur n'apparaît qu'une fois quelque chose saisi : le
+    // signaler sur un champ encore vide est du bruit.
+    const emailSaisiInvalide = newCollaborator.email.trim().length > 0
+        && !emailValide(newCollaborator.email);
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
@@ -135,8 +141,15 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
                             value={newCollaborator.email}
                             onChange={(e) => setNewCollaborator(prev => ({ ...prev, email: e.target.value }))}
                             placeholder="contact@partenaire.com"
-                            className="w-full bg-[#f4f6f9] border-none rounded-xl px-4 py-3 text-sm font-bold text-[#0B1F38] focus:ring-2 focus:ring-[#00A3E0]"
+                            aria-invalid={emailSaisiInvalide}
+                            className={`w-full bg-[#f4f6f9] border rounded-xl px-4 py-3 text-sm font-bold text-[#0B1F38] focus:ring-2 focus:ring-[#00A3E0] ${emailSaisiInvalide ? 'border-red-400' : 'border-transparent'}`}
                         />
+                        {/* `type="email"` ne valide rien ici : le champ n'est pas dans
+                            un <form>, la validation native du navigateur ne se
+                            déclenche jamais. D'où ce contrôle explicite. */}
+                        {emailSaisiInvalide && (
+                            <p className="text-[11px] text-red-600 mt-1">Adresse e-mail invalide.</p>
+                        )}
                     </div>
 
                     {/* Skills */}
@@ -156,8 +169,15 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
                 <div className="p-4 bg-[#f4f6f9] flex justify-end gap-3 rounded-b-2xl">
                     <button onClick={onClose} className="px-4 py-2 text-sm font-bold text-[#0B1F38]/60 hover:text-[#0B1F38]">Annuler</button>
                     <button
-                        disabled={!newCollaborator.name || !newCollaborator.email}
-                        onClick={() => onAdd({ ...newCollaborator, email: newCollaborator.email.toLowerCase() })}
+                        disabled={!newCollaborator.name.trim() || !emailValide(newCollaborator.email)}
+                        onClick={() => onAdd({
+                            ...newCollaborator,
+                            // Balises et caractères de contrôle retirés dès la saisie :
+                            // ce nom repart dans l'e-mail d'invitation, où il serait
+                            // interprété comme du HTML.
+                            name: nettoyerTexteLibre(newCollaborator.name),
+                            email: newCollaborator.email.trim().toLowerCase(),
+                        })}
                         className="px-6 py-2 bg-[#00A3E0] text-white font-bold text-sm rounded-xl hover:bg-[#008CC1] disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
                     >
                         Ajouter le partenaire

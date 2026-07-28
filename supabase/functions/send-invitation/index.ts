@@ -1,6 +1,36 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/**
+ * Échappement HTML.
+ *
+ * Le gabarit de l'e-mail est construit par concaténation de chaînes : sans
+ * échappement, `senderName`, `tenderTitle`, `role` et `message` sont interprétés
+ * comme du balisage. Les clients de messagerie filtrent `<script>`, donc le
+ * risque n'est pas l'exécution de code — c'est l'injection de contenu : un faux
+ * bouton renvoyant vers un site de collecte d'identifiants, dans un message
+ * authentiquement envoyé par Filao. Du hameçonnage signé de notre domaine.
+ *
+ * `tenderTitle` vient du BOAMP et `message` est saisi librement : aucune des
+ * deux valeurs n'est maîtrisée.
+ */
+const echapperHtml = (valeur: unknown): string =>
+  String(valeur ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+/**
+ * Validation d'adresse. Le contrôle côté navigateur ne protège rien : la
+ * fonction est appelable directement.
+ */
+const emailValide = (valeur: unknown): boolean => {
+  const adresse = String(valeur ?? "").trim();
+  return adresse.length > 0 && adresse.length <= 254 && /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(adresse);
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -40,6 +70,15 @@ Deno.serve(async (req: Request) => {
 
     if (!tenderId || !role) {
       return new Response(JSON.stringify({ error: "Missing required fields: tenderId, role" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Le formulaire refuse déjà une adresse invalide, mais cette fonction est
+    // appelable directement : le contrôle qui compte est ici.
+    if (email && !emailValide(email)) {
+      return new Response(JSON.stringify({ error: `Adresse e-mail invalide : « ${email} »` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -194,27 +233,30 @@ Deno.serve(async (req: Request) => {
     const emailPayload = {
       sender: { name: "Filao", email: "contact@filao.io" },
       to: [{ email: email! }],
-      subject: `Collaboration : ${senderName} vous invite sur le projet "${tenderTitle}"`,
+      // Un objet d'e-mail ne peut pas contenir de saut de ligne : il servirait à
+      // injecter des en-têtes supplémentaires. Brevo passant par une API JSON le
+      // risque est théorique, mais le nettoyage ne coûte rien.
+      subject: `Collaboration : ${String(senderName ?? "").replace(/[\r\n]+/g, " ")} vous invite sur le projet "${String(tenderTitle ?? "").replace(/[\r\n]+/g, " ")}"`,
       htmlContent: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
           <h2 style="color: #1B5D7A;">Filao - Collaboration</h2>
           <p>Bonjour,</p>
-          <p><strong>${senderName}</strong> vous invite à collaborer sur l'appel d'offres : <strong>"${tenderTitle}"</strong> en tant que <strong>${role}</strong>.</p>
+          <p><strong>${echapperHtml(senderName)}</strong> vous invite à collaborer sur l'appel d'offres : <strong>"${echapperHtml(tenderTitle)}"</strong> en tant que <strong>${echapperHtml(role)}</strong>.</p>
           
-          ${message ? `<div style="background: #f9f9f9; padding: 15px; border-left: 4px solid #1B5D7A; margin: 20px 0; font-style: italic;">"${message}"</div>` : ""}
+          ${message ? `<div style="background: #f9f9f9; padding: 15px; border-left: 4px solid #1B5D7A; margin: 20px 0; font-style: italic;">"${echapperHtml(message)}"</div>` : ""}
           
           <p style="margin-top: 25px;">Pour accéder au dossier et déposer vos pièces administratives :</p>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${invitationUrl}" style="background-color: #F06A50; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+            <a href="${echapperHtml(invitationUrl)}" style="background-color: #F06A50; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
               Accéder au dossier
             </a>
           </div>
 
           <div style="background: #eef7f9; padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0; font-size: 14px; color: #1B5D7A;"><strong>Identifiants d'accès :</strong></p>
-            <p style="margin: 10px 0 0 0;">Email : <strong>${email!}</strong></p>
-            <p style="margin: 5px 0 0 0;">Code d'accès : <span style="font-family: monospace; font-size: 18px; font-weight: bold; letter-spacing: 2px; color: #1B5D7A;">${accessCode}</span></p>
+            <p style="margin: 10px 0 0 0;">Email : <strong>${echapperHtml(email)}</strong></p>
+            <p style="margin: 5px 0 0 0;">Code d'accès : <span style="font-family: monospace; font-size: 18px; font-weight: bold; letter-spacing: 2px; color: #1B5D7A;">${echapperHtml(accessCode)}</span></p>
           </div>
           
           <p style="font-size: 12px; color: #777; margin-top: 30px; text-align: center;">

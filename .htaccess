@@ -1,0 +1,48 @@
+# Réécriture SPA — Apache
+#
+# L'application est une SPA : ses routes (`/invitation/<token>`,
+# `/collaborator-access`, `/reset-password`, `/register`) n'existent pas sous
+# forme de fichiers. Apache cherche un fichier physique à ce chemin et renvoie
+# 404, ce qui rend la page d'acceptation d'invitation inatteignable — le lien
+# reçu par e-mail ne mène nulle part.
+#
+# Ce fichier doit se trouver à la racine servie (à côté d'`index.html`). Vite
+# recopie tel quel le contenu de `public/` dans `dist/` au build.
+#
+# ⚠️ Apache n'applique un `.htaccess` que si la directive `AllowOverride All`
+#    est active pour ce répertoire. Sans elle, le fichier est ignoré en silence
+#    et le 404 persiste.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Les requêtes vers un fichier ou un dossier réellement présent sont servies
+  # telles quelles : sans ces deux conditions, les assets JS, CSS et images
+  # renverraient eux aussi index.html.
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Tout le reste est confié au routeur côté client.
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Sans mod_rewrite, on renvoie au moins index.html sur les 404 : le routeur
+# prend alors le relais, au prix d'un statut HTTP incorrect.
+<IfModule !mod_rewrite.c>
+  ErrorDocument 404 /index.html
+</IfModule>
+
+<IfModule mod_headers.c>
+  # index.html ne doit jamais être mis en cache : il référence les bundles par
+  # empreinte, une version périmée pointerait vers des fichiers supprimés.
+  <FilesMatch "index\.html$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+
+  # Les bundles portent une empreinte dans leur nom : ils sont immuables.
+  <FilesMatch "\.(js|css|woff2?|png|jpg|jpeg|webp|svg)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
