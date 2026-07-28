@@ -184,14 +184,17 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Let's use 'documents' for now as it exists, but ideally a public bucket for logos.
             // Actually, logos usually need to be public. Let's check if 'logos' folder in 'documents' works or if we need a bucket.
             // Using 'documents' bucket, path 'logos/...'
-            const { chemin, erreur } = await deposerFichier(file, {
-                dossier: 'logos',
+            // Chemin nominatif dans `public-assets` : sans identifiant dans le
+            // chemin, aucune policy ne peut restreindre la suppression au
+            // propriétaire du logo.
+            const { chemin, bucket, erreur } = await deposerFichier(file, {
+                dossier: `logos/${entrepriseData?.id}`,
                 point: 'logo',
                 upsert: true,
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
+            const { data: { publicUrl } } = supabase.storage.from(bucket || 'public-assets').getPublicUrl(chemin);
 
             // Update entreprise
             const { error: updateError } = await supabase
@@ -1227,7 +1230,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                                 : 'bg-white border-gray-100 text-gray-600 hover:border-gray-300'
                                                         }`}
                                                     >
-                                                        <p className="text-[11px] font-bold truncate leading-tight">{zone.label}</p>
+                                                        <p className="text-[11px] font-bold truncate leading-tight" title={zone.label}>{zone.label}</p>
                                                     </button>
                                                 ))}
                                             </div>
@@ -1407,8 +1410,15 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                         <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">{slot.label}</p>
                                         <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                                             <FileText size={14} className={statusColor} />
-                                            <span className="text-xs text-gray-500 flex-1 truncate">
-                                                {url ? url.split('/').pop()?.split('?')[0]?.substring(0, 20) : 'Aucun fichier'}
+                                            {/* `substring(0, 20)` coupait le nom sans ellipse, en plus
+                                                du `truncate` CSS : « Attestation_vigilan » au lieu de
+                                                « Attestation_vigilance_URSSAF_2026.pdf ». On laisse le
+                                                CSS gérer, et le nom complet reste lisible au survol. */}
+                                            <span
+                                                className="text-xs text-gray-500 flex-1 truncate"
+                                                title={url ? decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '') : undefined}
+                                            >
+                                                {url ? decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '') : 'Aucun fichier'}
                                             </span>
                                             <label className={`px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer transition-all shrink-0 ${uploadingField === slot.field ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200'
                                                 }`}>
@@ -1448,7 +1458,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                     <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">{docLabel}</p>
                                                     <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                                                         <FileText size={14} className={matchingDoc ? 'text-emerald-500' : 'text-gray-300'} />
-                                                        <span className="text-xs text-gray-500 flex-1 truncate">
+                                                        <span className="text-xs text-gray-500 flex-1 truncate" title={matchingDoc?.label}>
                                                             {matchingDoc ? matchingDoc.label : 'Aucun fichier'}
                                                         </span>
                                                         {matchingDoc ? (
@@ -1476,7 +1486,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                 <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 group">
                                                     <FileText size={14} className="text-emerald-500" />
                                                     <div className="flex-1 min-w-0 flex flex-col">
-                                                        <span className="text-xs text-gray-700 truncate font-medium">{doc.label}</span>
+                                                        <span className="text-xs text-gray-700 truncate font-medium" title={doc.label}>{doc.label}</span>
                                                         {doc.created_at && (
                                                             <span className="text-[9px] text-gray-400">
                                                                 Ajouté le {formatDate(doc.created_at)}

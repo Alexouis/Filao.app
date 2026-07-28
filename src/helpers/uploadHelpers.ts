@@ -32,6 +32,9 @@ export interface ResultatDepot {
     /** Chemin réellement écrit — il peut différer du nom d'origine, celui-ci
      *  étant nettoyé côté serveur. */
     chemin?: string;
+    /** Bucket de destination : `public-assets` pour les logos et photos,
+     *  `documents` pour le reste. */
+    bucket?: string;
     /** Message présentable à l'utilisateur, absent en cas de succès. */
     erreur?: string;
 }
@@ -85,7 +88,7 @@ export const deposerFichier = async (
     }
 
     if (data?.error) return { erreur: data.error };
-    return { chemin: data?.chemin };
+    return { chemin: data?.chemin, bucket: data?.bucket };
 };
 
 /** Plafond de taille du point de dépôt, pour l'annoncer avant l'envoi. */

@@ -149,6 +149,48 @@ Deno.serve(async (req: Request) => {
     //   tenders/temp/{user_id}/       dépôt avant création du dossier
     //   tenders/dce/{tender_id}/      pièces du marché — accès vérifié plus bas
     //   logos/                        logos et photos, point de dépôt « logo »
+    // Les logos et photos vont dans `public-assets` : eux seuls sont
+    // légitimement publics, et les en séparer permet de rendre `documents`
+    // privé sans casser leur affichage.
+    const bucket = point === 'logo' ? 'public-assets' : 'documents';
+
+    if (bucket === 'public-assets') {
+      // Chemins nominatifs, sans quoi aucune policy ne peut distinguer un
+      // propriétaire au moment de la suppression.
+      if (identite.invite) return json({ error: "Dépôt non autorisé." }, 403);
+      const prefixesAssets = [`photos/${identite.email}/`];
+      if (identite.entrepriseId) prefixesAssets.push(`logos/${identite.entrepriseId}/`);
+
+      const dossierAsset = dossierDemande.replace(/^\/+|\/+$/g, "");
+      const cibleAsset = `${dossierAsset}/`;
+      if (!prefixesAssets.some((p) => cibleAsset.startsWith(p)) || cibleAsset.includes("..")) {
+        return json({
+          error: "Destination non autorisée.",
+          detail: `Emplacements permis : ${prefixesAssets.join(", ")}`,
+        }, 403);
+      }
+
+      const debutAsset = new Uint8Array(await fichier.slice(0, OCTETS_A_LIRE).arrayBuffer());
+      const verdictAsset = verifierFichier(debutAsset, fichier.size, point);
+      if (!verdictAsset.accepte) {
+        return json({ error: verdictAsset.motif, typeDetecte: verdictAsset.type }, 422);
+      }
+
+      const cheminAsset = `${cibleAsset}${nettoyerNom(fichier.name)}`;
+      const { error: errAsset } = await admin.storage
+        .from('public-assets')
+        .upload(cheminAsset, fichier, {
+          upsert: String(formulaire.get("upsert") ?? "") === "true",
+          contentType: fichier.type || "application/octet-stream",
+          cacheControl: "3600",
+        });
+      if (errAsset) {
+        console.error("upload-document (assets):", errAsset);
+        return json({ error: "Le dépôt a échoué.", detail: errAsset.message }, 500);
+      }
+      return json({ ok: true, chemin: cheminAsset, bucket, type: verdictAsset.type, taille: fichier.size });
+    }
+
     const prefixesAutorises = [`${identite.email}/`];
     if (!identite.invite) {
       if (identite.entrepriseId) prefixesAutorises.push(`documents/${identite.entrepriseId}/`);
@@ -156,7 +198,7 @@ Deno.serve(async (req: Request) => {
         prefixesAutorises.push(`documents/${identite.userId}/`);
         prefixesAutorises.push(`tenders/temp/${identite.userId}/`);
       }
-      if (point === "logo") prefixesAutorises.push("logos/");
+
     }
 
     const dossier = dossierDemande.replace(/^\/+|\/+$/g, "");
@@ -219,7 +261,7 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Le dépôt a échoué.", detail: erreurDepot.message }, 500);
     }
 
-    return json({ ok: true, chemin, type: verdict.type, taille: fichier.size });
+    return json({ ok: true, chemin, bucket, type: verdict.type, taille: fichier.size });
   } catch (erreur) {
     console.error("upload-document:", erreur);
     return json({ error: "Erreur interne", detail: String(erreur) }, 500);

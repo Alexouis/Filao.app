@@ -73,13 +73,13 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
             setUploadingPhoto(true);
             const fileName = `photo_${userProfile.prenom || 'user'}_${userProfile.nom || 'name'}_${Date.now()}`;
             const filePath = `${userProfile.email}/${fileName}`;
-            const { chemin, erreur } = await deposerFichier(file, {
-                dossier: userProfile.email,
+            const { chemin, bucket, erreur } = await deposerFichier(file, {
+                dossier: `photos/${userProfile.email}`,
                 point: 'logo',
                 upsert: true,
             });
             if (erreur || !chemin) throw new Error(erreur);
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
+            const { data: { publicUrl } } = supabase.storage.from(bucket || 'public-assets').getPublicUrl(chemin);
             setFormData(prev => ({ ...prev, photo_url: publicUrl }));
             await supabase.from('utilisateurs').update({ photo_url: publicUrl }).eq('id', userProfile.id);
             onUpdate();
