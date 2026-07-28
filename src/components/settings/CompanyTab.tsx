@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ouvrirDocument, oublierUrl } from '../../helpers/storageHelpers';
+import { ouvrirDocument, telechargerDocument, oublierUrl } from '../../helpers/storageHelpers';
 import { deposerFichier } from '../../helpers/uploadHelpers';
-import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Search, ShieldCheck, ShieldAlert, PenLine, Upload, Calendar as CalendarIcon, MapPin, Hash, Globe, Eye, EyeOff, Award, Users, Cpu, FileStack, ExternalLink, FileText, Leaf, Map, ChevronDown } from 'lucide-react';
+import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Search, ShieldCheck, ShieldAlert, PenLine, Upload, Calendar as CalendarIcon, MapPin, Hash, Globe, Eye, EyeOff, Award, Users, Cpu, FileStack, ExternalLink, FileText, Leaf, Map, ChevronDown, Download } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
 import { DocumentInput } from './DocumentInput';
 import { supabase } from '../../lib/supabaseClient';
@@ -1443,16 +1443,29 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                 le déposer et le remplacer, jamais le relire. L'URL signée
                                                 est demandée au clic, elle n'est valable qu'une heure. */}
                                             {url ? (
-                                                <button
-                                                    onClick={() => ouvrirDocument(url)}
-                                                    className="text-xs text-blue-600 flex-1 truncate text-left hover:underline"
-                                                    title={`Ouvrir ${slot.label}`}
-                                                >
-                                                    {/* Le nom stocké est désormais canonique et sans
-                                                        extension (« kbis ») : afficher le libellé de
-                                                        l'emplacement est plus parlant. */}
-                                                    {slot.label}
-                                                </button>
+                                                <>
+                                                    <button
+                                                        onClick={() => ouvrirDocument(url)}
+                                                        className="text-xs text-blue-600 flex-1 truncate text-left hover:underline"
+                                                        title={`Ouvrir ${slot.label}`}
+                                                    >
+                                                        {/* Le nom stocké est canonique et sans extension
+                                                            (« kbis ») : le libellé de l'emplacement est
+                                                            plus parlant. */}
+                                                        {slot.label}
+                                                    </button>
+                                                    {/* Téléchargement séparé : il rétablit une extension
+                                                        déduite du type réel de l'objet, sans quoi le
+                                                        fichier enregistré s'appellerait « kbis ». */}
+                                                    <button
+                                                        onClick={() => telechargerDocument(url, slot.label.replace(/[^\p{L}\p{N} _-]/gu, '').trim())}
+                                                        title={`Télécharger ${slot.label}`}
+                                                        aria-label={`Télécharger ${slot.label}`}
+                                                        className="p-1 text-gray-400 hover:text-blue-600 shrink-0"
+                                                    >
+                                                        <Download size={12} />
+                                                    </button>
+                                                </>
                                             ) : (
                                                 <span className="text-xs text-gray-500 flex-1 truncate">Aucun fichier</span>
                                             )}

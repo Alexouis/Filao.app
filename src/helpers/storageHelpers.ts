@@ -114,6 +114,73 @@ export const ouvrirDocument = async (chemin: string | null | undefined): Promise
     return true;
 };
 
+/**
+ * Extension à partir du type MIME. Les noms canoniques du coffre-fort sont
+ * stockés sans extension — `kbis` — pour qu'un remplacement écrase bien
+ * l'ancien fichier quel que soit son format. À l'ouverture ce n'est pas gênant,
+ * le navigateur se fie au `content-type` ; au téléchargement, le système
+ * d'exploitation n'a en revanche plus rien pour associer une application.
+ */
+const EXTENSIONS: Record<string, string> = {
+    'application/pdf': 'pdf',
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/zip': 'zip',
+};
+
+/** Type MIME enregistré avec l'objet, ou null s'il est introuvable. */
+const typeStocke = async (chemin: string): Promise<string | null> => {
+    const morceaux = chemin.split('/');
+    const nom = morceaux.pop() ?? '';
+    const { data } = await supabase.storage
+        .from('documents')
+        .list(morceaux.join('/'), { search: nom });
+    return data?.find(o => o.name === nom)?.metadata?.mimetype ?? null;
+};
+
+/**
+ * Télécharge un document sous un nom lisible, extension comprise.
+ *
+ * @param chemin chemin de stockage.
+ * @param nomSouhaite nom présenté à l'utilisateur, sans extension
+ *        (ex. « Kbis »). L'extension est déduite du type réel de l'objet.
+ */
+export const telechargerDocument = async (
+    chemin: string | null | undefined,
+    nomSouhaite: string
+): Promise<boolean> => {
+    if (!chemin) return false;
+
+    const mime = await typeStocke(chemin);
+    const extension = mime ? EXTENSIONS[mime] : undefined;
+    const nomFichier = extension ? `${nomSouhaite}.${extension}` : nomSouhaite;
+
+    const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(chemin, DUREE_SIGNATURE, { download: nomFichier });
+
+    if (error || !data?.signedUrl) {
+        console.warn('Téléchargement impossible', { chemin, error });
+        return false;
+    }
+
+    // Un lien temporaire plutôt qu'une navigation : `download` n'agit que sur
+    // un élément <a>, une redirection afficherait le fichier au lieu de
+    // l'enregistrer.
+    const lien = document.createElement('a');
+    lien.href = data.signedUrl;
+    lien.download = nomFichier;
+    document.body.appendChild(lien);
+    lien.click();
+    lien.remove();
+    return true;
+};
+
 /** Vide le cache — utile après un dépôt qui remplace un document. */
 export const oublierUrl = (chemin?: string) => {
     if (chemin) cache.delete(chemin);
