@@ -105,17 +105,22 @@ export const CollaboratorSubmission: React.FC = () => {
          setGuestAuth({ mode: 'token', token: tokenParam as string });
 
          // 2. Fetch Owner
-         const { data: creatorProfile } = await supabase
-            .from('utilisateurs')
-            .select('nom, prenom, entreprise, id, storage_used, entreprises:entreprise_id(plan)')
-            .eq('id', tenderData.createur_id)
-            .single();
+         // Lecture par RPC, comme dans la branche « code d'accès ». Interroger
+         // `utilisateurs` directement ne fonctionne pas ici : l'invité n'est pas
+         // authentifié et n'a aucun droit de lecture sur cette table. La requête
+         // renvoyait donc null sans erreur, `owner` restait nul, et le dépôt de
+         // fichier sortait silencieusement sur la garde de `handleFileUpload`.
+         const { data: ownerResults, error: ownerErr } = await supabase.rpc('get_tender_owner_info', {
+            p_tender_id: tenderData.id
+         });
 
-         // Map entreprises.plan onto the creator profile
-         if (creatorProfile) {
-            const plan = (creatorProfile as any).entreprises?.plan || 'partenaire';
-            const { entreprises: _e, ...rest } = creatorProfile as any;
-            setOwner({ ...rest, plan });
+         if (ownerErr) {
+            console.error("get_tender_owner_info:", ownerErr);
+            setOwner({ id: tenderData.createur_id, plan: 'partenaire', storage_used: 0 });
+         } else if (ownerResults && ownerResults.length > 0) {
+            setOwner(ownerResults[0]);
+         } else {
+            setOwner({ id: tenderData.createur_id, plan: 'partenaire', storage_used: 0 });
          }
          
          setTender(tenderData);
@@ -304,7 +309,14 @@ export const CollaboratorSubmission: React.FC = () => {
    };
 
    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, docType: string) => {
-       if (!event.target.files || event.target.files.length === 0 || !tender || !owner) return;
+       if (!event.target.files || event.target.files.length === 0) return;
+       // Cette garde renvoyait sans un mot : un `owner` non résolu faisait
+       // échouer le dépôt sans erreur, sans requête réseau et sans trace.
+       if (!tender || !owner) {
+          console.error('Dépôt impossible : contexte incomplet', { tender: !!tender, owner: !!owner });
+          showToast("Le dossier n'est pas complètement chargé. Rechargez la page et réessayez.", 'error');
+          return;
+       }
 
        const file = event.target.files[0];
        const newFileSize = file.size;
