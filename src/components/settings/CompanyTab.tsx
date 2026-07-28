@@ -176,9 +176,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
         const file = e.target.files?.[0];
         if (!file || !entrepriseData?.id) return;
         try {
+            // Sans cette remise à zéro, l'erreur du dépôt précédent reste
+            // affichée pendant le nouvel essai : impossible de savoir si elle
+            // concerne l'ancien fichier ou le nouveau.
+            setError(null);
             setUploadingLogo(true);
-            const fileName = `logo_${entrepriseData.id}_${Date.now()}`;
-            const filePath = `logos/${fileName}`;
+            // Le nom du fichier est décidé côté serveur (nom canonique) :
+            // le construire ici n'aurait aucun effet.
 
             // Upload to 'public' bucket or 'documents' depending on config. Assuming 'documents' or creating new bucket?
             // Let's use 'documents' for now as it exists, but ideally a public bucket for logos.
@@ -210,8 +214,9 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             setEntrepriseData(prev => prev ? { ...prev, logo_url: publicUrl } : null);
             onUpdate();
         } catch (err: any) {
-            console.error(err);
-            setError("Erreur lors de l'upload du logo");
+            console.error('Upload logo:', err);
+            // Le message du serveur nomme la cause (format, taille, destination).
+            setError(err?.message || "Erreur lors de l'upload du logo");
         } finally {
             setUploadingLogo(false);
         }

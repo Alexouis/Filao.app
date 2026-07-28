@@ -70,6 +70,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
         const file = e.target.files?.[0];
         if (!file || !userProfile) return;
         try {
+            // Sans cette remise à zéro, l'erreur du dépôt précédent reste
+            // affichée pendant le nouvel essai : impossible de savoir si elle
+            // concerne l'ancien fichier ou le nouveau.
+            setError(null);
             setUploadingPhoto(true);
             // Le nom du fichier est décidé côté serveur (nom canonique) : le
             // construire ici n'aurait aucun effet.
