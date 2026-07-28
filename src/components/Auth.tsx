@@ -96,6 +96,43 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
         return "Une erreur inattendue est survenue. Veuillez réessayer.";
     };
 
+    /**
+     * Réinitialisation du mot de passe.
+     *
+     * Le bouton « Mot de passe oublié ? » existait sans `onClick` : la
+     * fonctionnalité n'avait jamais été implémentée, le clic ne faisait rien.
+     *
+     * Le message de confirmation est volontairement identique que l'adresse
+     * existe ou non : répondre « compte inconnu » permettrait d'énumérer les
+     * comptes de la plateforme. Supabase se comporte d'ailleurs ainsi et ne
+     * signale pas l'absence de compte.
+     */
+    const handleForgotPassword = async () => {
+        const adresse = email.trim().toLowerCase();
+        if (!adresse) {
+            setError('Renseignez votre adresse e-mail, puis cliquez à nouveau.');
+            return;
+        }
+
+        setError(null);
+        setLoading(true);
+        try {
+            const { error: resetError } = await supabase.auth.resetPasswordForEmail(adresse, {
+                redirectTo: `${window.location.origin}/reset-password`,
+            });
+            if (resetError) throw resetError;
+            showToast(
+                "Si un compte existe pour cette adresse, un lien de réinitialisation vient d'être envoyé.",
+                'success'
+            );
+        } catch (err: any) {
+            console.error('resetPasswordForEmail:', err);
+            setError(err?.message || "L'envoi du lien a échoué. Réessayez dans un instant.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -346,7 +383,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                         <input type="checkbox" className="w-4 h-4 rounded text-filao-primary focus:ring-filao-primary border-gray-300" />
                         <span>Se souvenir de moi</span>
                     </label>
-                    <button className="text-sm text-filao-dark underline hover:text-filao-primary">Mot de passe oublié?</button>
+                    <button
+                        type="button"
+                        onClick={handleForgotPassword}
+                        disabled={loading}
+                        className="text-sm text-filao-dark underline hover:text-filao-primary disabled:opacity-50"
+                    >
+                        Mot de passe oublié ?
+                    </button>
                 </div>
 
                 <button

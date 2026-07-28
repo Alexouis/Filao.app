@@ -15,6 +15,7 @@ import { Auth } from './components/Auth';
 import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
+import { ResetPassword } from './components/ResetPassword';
 import { NavItem } from './types';
 import { UserProfile, Tender, CollaboratorData, STATUSES } from './config';
 import { useNotificationListener } from './hooks/useNotificationListener';
@@ -331,6 +332,13 @@ const AppContent = () => {
 
   if (location.pathname === '/register') {
     return <Auth viewMode={"register"} />;
+  }
+
+  // Définition d'un nouveau mot de passe. Route publique : l'utilisateur arrive
+  // ici depuis le lien reçu par e-mail, avec une session de récupération que
+  // Supabase établit à partir du fragment d'URL.
+  if (location.pathname === '/reset-password') {
+    return <ResetPassword />;
   }
 
   // Public invitation landing page (no auth required)
