@@ -176,11 +176,31 @@ Deno.serve(async (req: Request) => {
         return json({ error: verdictAsset.motif, typeDetecte: verdictAsset.type }, 422);
       }
 
-      const cheminAsset = `${cibleAsset}${nettoyerNom(fichier.name)}`;
+      // Nom canonique : un utilisateur n'a qu'un avatar, une entreprise qu'un
+      // logo. Conserver le nom d'origine créait un objet par envoi — l'`upsert`
+      // ne pouvant écraser que le même nom, les anciennes images s'accumulaient
+      // indéfiniment sans jamais être référencées.
+      const extension = (verdictAsset.type === 'jpeg' ? 'jpg' : verdictAsset.type);
+      const nomCanonique = `${cibleAsset.startsWith('logos/') ? 'logo' : 'avatar'}.${extension}`;
+
+      // Purge préalable du dossier : sans elle, un changement de format
+      // (png → jpg) laisserait l'ancien fichier derrière lui.
+      const { data: existants } = await admin.storage.from('public-assets').list(cibleAsset.slice(0, -1));
+      const aSupprimer = (existants ?? [])
+        .map((o) => `${cibleAsset}${o.name}`)
+        .filter((chemin) => chemin !== `${cibleAsset}${nomCanonique}`);
+      if (aSupprimer.length > 0) {
+        const { error: errPurge } = await admin.storage.from('public-assets').remove(aSupprimer);
+        if (errPurge) console.warn('Purge des anciens assets impossible', errPurge.message);
+      }
+
+      const cheminAsset = `${cibleAsset}${nomCanonique}`;
       const { error: errAsset } = await admin.storage
         .from('public-assets')
         .upload(cheminAsset, fichier, {
-          upsert: String(formulaire.get("upsert") ?? "") === "true",
+          // Toujours écraser : le nom étant canonique, un envoi remplace le
+          // précédent au lieu de créer un doublon.
+          upsert: true,
           contentType: fichier.type || "application/octet-stream",
           cacheControl: "3600",
         });
@@ -188,7 +208,17 @@ Deno.serve(async (req: Request) => {
         console.error("upload-document (assets):", errAsset);
         return json({ error: "Le dépôt a échoué.", detail: errAsset.message }, 500);
       }
-      return json({ ok: true, chemin: cheminAsset, bucket, type: verdictAsset.type, taille: fichier.size });
+      // Le nom étant canonique, l'URL ne change plus d'un envoi à l'autre : le
+      // navigateur et le CDN continueraient de servir l'image précédente
+      // pendant toute la durée de `cacheControl`. On renvoie donc une URL
+      // versionnée, que l'appelant stocke telle quelle.
+      const { data: pub } = admin.storage.from('public-assets').getPublicUrl(cheminAsset);
+      const urlPublique = `${pub.publicUrl}?v=${Date.now()}`;
+
+      return json({
+        ok: true, chemin: cheminAsset, bucket, urlPublique,
+        type: verdictAsset.type, taille: fichier.size,
+      });
     }
 
     const prefixesAutorises = [`${identite.email}/`];

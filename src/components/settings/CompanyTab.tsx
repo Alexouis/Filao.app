@@ -187,14 +187,17 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Chemin nominatif dans `public-assets` : sans identifiant dans le
             // chemin, aucune policy ne peut restreindre la suppression au
             // propriétaire du logo.
-            const { chemin, bucket, erreur } = await deposerFichier(file, {
+            const { chemin, bucket, urlPublique, erreur } = await deposerFichier(file, {
                 dossier: `logos/${entrepriseData?.id}`,
                 point: 'logo',
                 upsert: true,
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from(bucket || 'public-assets').getPublicUrl(chemin);
+            // L'URL versionnée renvoyée par le serveur prime : le nom du fichier
+            // étant canonique, l'URL nue serait servie depuis le cache navigateur.
+            const publicUrl = urlPublique
+                || supabase.storage.from(bucket || 'public-assets').getPublicUrl(chemin).data.publicUrl;
 
             // Update entreprise
             const { error: updateError } = await supabase
