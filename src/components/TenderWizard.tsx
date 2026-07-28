@@ -543,6 +543,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
     const [uploadedFiles, setUploadedFiles] = useState<{ [key: string]: File }>({});
     const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+    /**
+     * Chemin réel de chaque pièce dans le bucket, par clé de correspondance.
+     *
+     * Le listage parcourt le dossier de chaque membre, mais ne conservait que le
+     * nom du fichier : l'export ZIP reconstruisait ensuite le chemin en
+     * `{email_du_membre}/{nom}`. Or une pièce déposée PAR LE MANDATAIRE pour un
+     * membre atterrit dans le dossier du mandataire — le téléchargement échouait
+     * alors sans bruit, et l'archive sortait vide.
+     */
+    const [uploadedFilePaths, setUploadedFilePaths] = useState<{ [key: string]: string }>({});
 
 
 
@@ -618,6 +628,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         setLoading(true);
         try {
             const zip = new JSZip();
+            // Pièces attendues mais introuvables, signalées à la fin plutôt que
+            // de laisser croire à un export complet.
+            const manquants: string[] = [];
 
             // Targets: specific member or whole team
             const targets = targetMember ? [targetMember] : groupementMembers.filter(m => !m.deleted);
@@ -631,9 +644,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     const fileKey = `${docDef.value}-${collabId}`;
                     const fileObj = uploadedFiles[fileKey];
 
-                    if (fileObj && member.email) {
-                        const path = `${member.email.toLowerCase().trim()}/${fileObj.name}`;
+                    // Chemin réel relevé au listage. Le reconstruire depuis
+                    // l'e-mail du membre échouait dès qu'un tiers avait déposé la
+                    // pièce à sa place : l'archive sortait alors vide.
+                    const path = uploadedFilePaths[fileKey]
+                        ?? (member.email ? `${member.email.toLowerCase().trim()}/${fileObj?.name}` : null);
+
+                    if (fileObj && path) {
                         const { data: fileData, error: dlError } = await supabase.storage.from('documents').download(path);
+                        if (dlError || !fileData) {
+                            // Sans ce journal, une pièce absente de l'archive ne
+                            // laissait aucune trace : l'export « réussissait » vide.
+                            console.warn('Pièce absente de l\'export ZIP', { path, docType: docDef.value, membre: member.email, dlError });
+                            manquants.push(`${member.name || member.email} — ${docDef.label}`);
+                        }
                         if (!dlError && fileData) {
                             const folderName = member.name || member.email;
                             // Derive extension from mimetype stored in File.type
@@ -661,8 +685,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 ? `Docs_${targetMember.name || targetMember.email}_${formData.titre.substring(0, 15)}.zip`
                 : `Dossier_Complet_${formData.titre.substring(0, 15)}_${new Date().toISOString().split('T')[0]}.zip`;
 
+            const nbFichiers = Object.keys(zip.files).filter(n => !zip.files[n].dir).length;
+            if (nbFichiers === 0) {
+                // Une archive vide n'est pas un succès : le critère de recette
+                // porte précisément sur son contenu.
+                showToast("Aucune pièce à exporter : aucun document n'a encore été déposé.", 'warning');
+                return;
+            }
+
             saveAs(zipContent, zipName.replace(/\s+/g, '_'));
-            showToast('Téléchargement terminé', 'success');
+            showToast(
+                manquants.length > 0
+                    ? `${nbFichiers} pièce(s) exportée(s), ${manquants.length} introuvable(s).`
+                    : `${nbFichiers} pièce(s) exportée(s).`,
+                manquants.length > 0 ? 'warning' : 'success'
+            );
         } catch (error) {
             console.error('Error batch downloading:', error);
             showToast('Erreur lors du téléchargement groupé', 'error');
@@ -943,6 +980,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // 2. Fetch files from each user's folder
             let allFiles: { [key: string]: File } = {};
             let allProgress: { [key: string]: number } = {};
+            let allPaths: { [key: string]: string } = {};
 
             const listPromises = teamEmails.map(async (email) => {
                 const { data, error } = await supabase.storage
@@ -964,6 +1002,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     const mimetype = fileData.metadata?.mimetype || '';
                     allFiles[primaryKey] = new File([], fileData.name, { type: mimetype });
                     allProgress[primaryKey] = 100;
+                    // Le dossier réellement parcouru, pas celui du membre : les
+                    // deux diffèrent dès que le dépôt a été fait par un tiers.
+                    allPaths[primaryKey] = `${email}/${fileData.name}`;
                 });
             });
 
@@ -972,6 +1013,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // 3. Robust Identity Sync: Map files to all current member keys to prevent flickering on identity changes
             const syncedFiles: { [key: string]: File } = { ...allFiles };
             const syncedProgress: { [key: string]: number } = { ...allProgress };
+            const syncedPaths: { [key: string]: string } = { ...allPaths };
 
             if (members) {
                 members.forEach(m => {
@@ -996,12 +1038,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     // For each document type, if we have a file for ANY identity, sync it to ALL identities
                     allDocTypes.forEach(t => {
                         let foundFile: File | null = null;
-                        identities.forEach(id => { if (allFiles[`${t}-${id}`]) foundFile = allFiles[`${t}-${id}`]; });
+                        let foundPath: string | null = null;
+                        identities.forEach(id => {
+                            if (allFiles[`${t}-${id}`]) {
+                                foundFile = allFiles[`${t}-${id}`];
+                                foundPath = allPaths[`${t}-${id}`] ?? foundPath;
+                            }
+                        });
 
                         if (foundFile) {
                             identities.forEach(id => {
                                 syncedFiles[`${t}-${id}`] = foundFile!;
                                 syncedProgress[`${t}-${id}`] = 100;
+                                if (foundPath) syncedPaths[`${t}-${id}`] = foundPath;
                             });
                         }
                     });
@@ -1010,6 +1059,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             setUploadedFiles(syncedFiles);
             setUploadProgress(syncedProgress);
+            setUploadedFilePaths(syncedPaths);
         } catch (error) {
             console.error('Error loading files:', error);
         }
@@ -2426,6 +2476,29 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
+    /**
+     * Fermeture des modales par la touche Échap.
+     *
+     * Aucune ne le permettait : seule la croix fonctionnait. C'est le
+     * comportement attendu de toute boîte de dialogue, et le premier réflexe
+     * d'un utilisateur au clavier.
+     *
+     * L'écouteur est posé une seule fois et ferme la modale ouverte la plus
+     * « intérieure » : sans cet ordre, fermer la modale d'édition d'un jalon
+     * fermerait aussi la vue qui la contient.
+     */
+    useEffect(() => {
+        const surEchap = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            if (showCriteresModal) { setShowCriteresModal(false); return; }
+            if (showContextEditModal) { setShowContextEditModal(false); return; }
+            if (showDocDetails) { setShowDocDetails(false); return; }
+            if (showSkillsModal) { setShowSkillsModal(false); return; }
+        };
+        document.addEventListener('keydown', surEchap);
+        return () => document.removeEventListener('keydown', surEchap);
+    }, [showCriteresModal, showContextEditModal, showDocDetails, showSkillsModal]);
+
     // --- MODAL: DOCUMENT DETAILS ---
     const renderDocDetailsModal = () => {
         if (!showDocDetails || !isOwner) return null;
@@ -2433,7 +2506,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         const activeMembers = groupementMembers.filter(m => !m.deleted);
 
         return (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+                className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-sm animate-in fade-in duration-200"
+                // Clic sur le fond uniquement : `currentTarget` écarte les clics
+                // propagés depuis l'intérieur de la modale, qui la fermeraient
+                // en plein remplissage de formulaire.
+                onClick={(e) => { if (e.target === e.currentTarget) setShowDocDetails(false); }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Coordination documentaire"
+            >
                 <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
                     {/* Header */}
                     <div className="p-6 border-b border-[#0B1F38]/10 flex justify-between items-center bg-gray-50/50 shrink-0">
