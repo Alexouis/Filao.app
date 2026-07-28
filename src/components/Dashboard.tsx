@@ -58,6 +58,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // --- 2. DATA FETCHING ---
   useEffect(() => {
+    // `userProfile` arrive de façon asynchrone : au premier rendu il vaut null,
+    // et les deux branches ci-dessous le déréférencent sans garde. L'effet se
+    // rejoue de toute façon dès qu'il est chargé, il figure dans les
+    // dépendances.
+    if (!userProfile) return;
+
     if (cachedTenders) {
       // Filter out refused tenders even from cache
       const visible = cachedTenders.filter(t => {
