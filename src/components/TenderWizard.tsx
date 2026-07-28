@@ -32,6 +32,8 @@ import {
     extractReferenceMarche,
     normaliserPoids,
     formatCpv,
+    avisEncoreOuvert,
+    dedoublonnerAvis,
     type CriteresAttribution
 } from '../helpers/boampHelpers';
 import {
@@ -1971,12 +1973,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 const keywords = searchKeywords.split(' ').filter(k => k.trim());
                 whereParts.push(`search("${keywords.join(' ')}")`);
             }
+            // Plancher toujours appliqué. La version précédente le remplaçait
+            // par la date choisie par l'utilisateur : une date passée faisait
+            // donc disparaître toute borne, et la recherche remontait des avis
+            // clos depuis des mois.
             const today = new Date().toISOString().split('T')[0];
-            if (searchDeadline) {
-                whereParts.push(`datelimitereponse >= "${searchDeadline}"`);
-            } else {
-                whereParts.push(`datelimitereponse >= "${today}"`);
-            }
+            const plancher = searchDeadline && searchDeadline > today ? searchDeadline : today;
+            whereParts.push(`datelimitereponse >= "${plancher}"`);
 
             const whereParam = whereParts.length > 0 ? '&where=' + encodeURIComponent(whereParts.join(' AND ')) : '';
             const newOffset = loadMore ? searchOffset + 20 : 0;
@@ -2003,8 +2006,29 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
                 setHasMoreResults(false);
             } else {
-                setSearchResults(loadMore ? [...searchResults, ...data.results] : data.results);
+                // Le filtre de l'API porte sur une date, la valeur est un
+                // horodatage : un avis dont la remise était fixée ce matin
+                // passait encore toute la journée.
+                const ouverts = data.results.filter((a: any) => avisEncoreOuvert(a));
+
+                // Dédoublonnage après concaténation : la pagination par offset
+                // renvoie des avis déjà vus dès qu'une publication s'intercale,
+                // et un même marché peut avoir plusieurs avis (rectificatifs).
+                const cumul = loadMore ? [...searchResults, ...ouverts] : ouverts;
+                const nettoyes = dedoublonnerAvis(cumul);
+
+                if (nettoyes.length === 0 && !loadMore) {
+                    showToast("Aucun appel d'offres encore ouvert pour ces critères.", 'info');
+                    setSearchResults([]);
+                    setHasMoreResults(false);
+                    return;
+                }
+
+                setSearchResults(nettoyes);
                 setSearchOffset(newOffset);
+                // On se fie au nombre renvoyé par l'API, pas au nombre retenu :
+                // une page entièrement filtrée ne signifie pas la fin des
+                // résultats.
                 setHasMoreResults(data.results.length === 20);
                 setCurrentView('results');
             }

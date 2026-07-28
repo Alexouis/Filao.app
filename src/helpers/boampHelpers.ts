@@ -432,3 +432,64 @@ export const extractReferenceMarche = (boampRecord: any): string => {
     const donnees = safeParse(boampRecord?.donnees);
     return cleanLabel(donnees?.CONDITION_ADMINISTRATIVE?.REFERENCE_MARCHE);
 };
+
+// ---------------------------------------------------------------------------
+// Nettoyage des résultats de recherche
+// ---------------------------------------------------------------------------
+
+/**
+ * @returns vrai si l'avis est encore ouvert à cet instant.
+ *
+ * Le filtre de l'API porte sur une DATE (`datelimitereponse >= "2026-07-28"`)
+ * alors que la valeur est un horodatage : un avis dont la remise était fixée à
+ * midi passe donc encore le filtre toute la journée. Ce contrôle compare
+ * l'heure réelle.
+ */
+export const avisEncoreOuvert = (avis: any, maintenant: Date = new Date()): boolean => {
+    const brut = avis?.datelimitereponse;
+    if (!brut) return true;   // sans date annoncée, on ne présume pas la clôture
+    const limite = new Date(brut);
+    return Number.isNaN(limite.getTime()) ? true : limite > maintenant;
+};
+
+/**
+ * Dédoublonne une liste d'avis.
+ *
+ * Deux formes de doublon coexistent :
+ *
+ *  1. le même avis renvoyé deux fois — pagination par `offset` alors que de
+ *     nouveaux avis sont publiés entre deux appels, ce qui décale la fenêtre ;
+ *  2. plusieurs avis pour un même marché — rectificatifs et avis
+ *     complémentaires, qui partagent `contractfolderid` mais ont chacun leur
+ *     `idweb`. Ils apparaissaient comme autant de marchés distincts.
+ *
+ * Pour le second cas on conserve la publication la plus récente : c'est elle
+ * qui porte les informations à jour.
+ */
+export const dedoublonnerAvis = (avis: any[]): any[] => {
+    const parIdweb = new Map<string, any>();
+
+    for (const a of avis ?? []) {
+        const cle = String(a?.idweb ?? a?.id ?? JSON.stringify(a));
+        if (!parIdweb.has(cle)) parIdweb.set(cle, a);
+    }
+
+    const parMarche = new Map<string, any>();
+    const sansReference: any[] = [];
+
+    for (const a of parIdweb.values()) {
+        const dossier = a?.contractfolderid ? String(a.contractfolderid) : '';
+        if (!dossier) { sansReference.push(a); continue; }
+
+        const existant = parMarche.get(dossier);
+        if (!existant) { parMarche.set(dossier, a); continue; }
+
+        const dateA = new Date(a?.dateparution ?? 0).getTime();
+        const dateB = new Date(existant?.dateparution ?? 0).getTime();
+        if (dateA > dateB) parMarche.set(dossier, a);
+    }
+
+    // L'ordre d'origine est préservé : l'API classe déjà par pertinence.
+    const retenus = new Set([...parMarche.values(), ...sansReference]);
+    return [...parIdweb.values()].filter(a => retenus.has(a));
+};
