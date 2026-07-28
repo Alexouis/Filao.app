@@ -71,8 +71,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
         if (!file || !userProfile) return;
         try {
             setUploadingPhoto(true);
-            const fileName = `photo_${userProfile.prenom || 'user'}_${userProfile.nom || 'name'}_${Date.now()}`;
-            const filePath = `${userProfile.email}/${fileName}`;
+            // Le nom du fichier est décidé côté serveur (nom canonique) : le
+            // construire ici n'aurait aucun effet.
             const { chemin, bucket, urlPublique, erreur } = await deposerFichier(file, {
                 dossier: `photos/${userProfile.email}`,
                 point: 'logo',
@@ -87,7 +87,11 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
             await supabase.from('utilisateurs').update({ photo_url: publicUrl }).eq('id', userProfile.id);
             onUpdate();
         } catch (err: any) {
-            setError("Erreur lors de l'upload de la photo");
+            // Le message du serveur nomme la cause (format refusé, taille,
+            // destination) ; l'écraser par un texte générique obligeait à
+            // ouvrir les logs pour un diagnostic que l'utilisateur pouvait lire.
+            console.error('Upload photo:', err);
+            setError(err?.message || "Erreur lors de l'upload de la photo");
         } finally {
             setUploadingPhoto(false);
         }

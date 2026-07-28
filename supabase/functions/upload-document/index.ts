@@ -35,9 +35,25 @@ import {
  * pourrait écrire dans le dossier d'un autre.
  */
 
+/**
+ * ⚠️ Cette fonction doit être déployée avec `--no-verify-jwt`.
+ *
+ * Avec la vérification de jeton de la passerelle, la requête `OPTIONS` du
+ * préflight CORS est rejetée avant d'atteindre ce code : un préflight ne porte
+ * jamais d'en-tête `Authorization`. Le navigateur signale alors
+ * « Response to preflight request doesn't pass access control check ».
+ *
+ * Ce n'est pas un affaiblissement : la fonction vérifie elle-même l'identité de
+ * l'appelant — JWT utilisateur, jeton d'invitation ou code d'accès — et répond
+ * 401 sans identité résolue. La passerelle, elle, ne saurait pas valider un
+ * invité sans compte.
+ */
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  // Évite un préflight à chaque envoi de fichier.
+  "Access-Control-Max-Age": "86400",
 };
 
 const json = (corps: unknown, status = 200) =>
@@ -79,7 +95,9 @@ const nettoyerNom = (nom: string): string => {
 };
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") return json({ error: "Méthode non autorisée" }, 405);
 
   try {
@@ -173,7 +191,13 @@ Deno.serve(async (req: Request) => {
       const debutAsset = new Uint8Array(await fichier.slice(0, OCTETS_A_LIRE).arrayBuffer());
       const verdictAsset = verifierFichier(debutAsset, fichier.size, point);
       if (!verdictAsset.accepte) {
-        return json({ error: verdictAsset.motif, typeDetecte: verdictAsset.type }, 422);
+        // La taille vue par le serveur est remontée : si elle vaut 0 alors que
+        // le fichier ne l'est pas, le problème est dans la transmission
+        // multipart, pas dans le fichier lui-même.
+        return json({
+          error: verdictAsset.motif, typeDetecte: verdictAsset.type,
+          tailleRecue: fichier.size, nomRecu: fichier.name,
+        }, 422);
       }
 
       // Nom canonique : un utilisateur n'a qu'un avatar, une entreprise qu'un

@@ -47,7 +47,13 @@ const preControle = async (fichier: File, point: PointDepot): Promise<string | n
     try {
         const debut = new Uint8Array(await fichier.slice(0, OCTETS_A_LIRE).arrayBuffer());
         const verdict = verifierFichier(debut, fichier.size, point);
-        return verdict.accepte ? null : verdict.motif ?? 'Fichier refusé.';
+        if (verdict.accepte) return null;
+        // Le serveur renvoie les mêmes libellés : sans marqueur, impossible de
+        // savoir lequel des deux contrôles a refusé le fichier.
+        console.warn('Pré-contrôle local', {
+            nom: fichier.name, taille: fichier.size, type: fichier.type, verdict,
+        });
+        return `${verdict.motif ?? 'Fichier refusé.'} (vérification locale)`;
     } catch {
         // En cas d'échec de lecture locale, on laisse le serveur trancher :
         // c'est lui qui fait autorité.
