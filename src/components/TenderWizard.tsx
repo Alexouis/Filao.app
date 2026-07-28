@@ -2520,6 +2520,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     useEffect(() => {
         const surEchap = (e: KeyboardEvent) => {
             if (e.key !== 'Escape') return;
+            if (showCompanyDocPicker) { setShowCompanyDocPicker(false); return; }
             if (showCriteresModal) { setShowCriteresModal(false); return; }
             if (showContextEditModal) { setShowContextEditModal(false); return; }
             if (showDocDetails) { setShowDocDetails(false); return; }
@@ -2527,7 +2528,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         };
         document.addEventListener('keydown', surEchap);
         return () => document.removeEventListener('keydown', surEchap);
-    }, [showCriteresModal, showContextEditModal, showDocDetails, showSkillsModal]);
+    }, [showCompanyDocPicker, showCriteresModal, showContextEditModal, showDocDetails, showSkillsModal]);
 
     // --- MODAL: DOCUMENT DETAILS ---
     const renderDocDetailsModal = () => {
@@ -2719,7 +2720,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         if (!showCompanyDocPicker) return null;
 
         return (
-            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-md animate-in fade-in duration-200">
+            /* z-[130] : ce sélecteur s'ouvre DEPUIS la modale « détail membre »
+               (z-[100]) et depuis la coordination documentaire (z-[60]). En
+               z-[70] il passait derrière la première, donc invisible au moment
+               précis où on venait de le demander. Il doit dominer toute modale
+               susceptible de l'ouvrir. */
+            <div
+                className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-md animate-in fade-in duration-200"
+                onClick={(e) => { if (e.target === e.currentTarget) setShowCompanyDocPicker(false); }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Documents de l'entreprise"
+            >
                 <div className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
                     <div className="p-6 border-b border-[#0B1F38]/10 flex justify-between items-center shrink-0">
                         <div>
