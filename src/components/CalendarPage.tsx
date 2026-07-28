@@ -378,6 +378,17 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
      * compté et dépliable, plutôt que silencieusement absent.
      */
     const HORIZON_JOURS = 30;
+
+    /**
+     * L'année n'est affichée que si elle diffère de l'année en cours : « 13 OCT »
+     * et « 13 OCT 2027 » se ressemblent trop pour qu'on distingue l'un de l'autre
+     * sans indication, et les rétroplannings débordent régulièrement sur l'année
+     * suivante.
+     */
+    const anneeSiUtile = (date: any): string => {
+        const a = new Date(date).getFullYear();
+        return Number.isFinite(a) && a !== new Date().getFullYear() ? String(a) : '';
+    };
     const dansHorizon = (date: any) => {
         const limite = new Date(new Date().toDateString());
         limite.setDate(limite.getDate() + HORIZON_JOURS);
@@ -732,6 +743,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                                 <div className="w-9 shrink-0 text-center">
                                                     <p className="text-sm font-bold text-[#0B1F38] leading-none">{d.getDate()}</p>
                                                     <p className="text-[9px] font-bold text-[#0B1F38]/40 uppercase">{monthNames[d.getMonth()].substring(0, 3)}</p>
+                                                    {anneeSiUtile(j.date) && (
+                                                        <p className="text-[8px] font-bold text-[#0B1F38]/30">{anneeSiUtile(j.date)}</p>
+                                                    )}
                                                 </div>
                                                 <div className="min-w-0">
                                                     <p className="text-xs font-bold text-[#0B1F38] truncate">{j.label}</p>
@@ -784,7 +798,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                             className="p-3 bg-white border border-[#FF8D6D]/30 rounded-xl transition-all cursor-pointer group hover:shadow-md shadow-sm"
                                         >
                                             <div className="flex justify-between items-start mb-1">
-                                                <span className="text-xs font-bold text-[#0B1F38]/50">{monthStr} {dayNum}</span>
+                                                <span className="text-xs font-bold text-[#0B1F38]/50">
+                                                    {monthStr} {dayNum}{anneeSiUtile(tender.date_limite) && ` ${anneeSiUtile(tender.date_limite)}`}
+                                                </span>
                                                 {/* Progress displayed as requested */}
                                                 <div className="flex items-center gap-2">
                                                     <span className="font-bold text-[#0B1F38] text-xs">{progress}%</span>
