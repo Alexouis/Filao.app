@@ -32,6 +32,7 @@ import { STATUSES } from '@/config';
 import { Entreprise } from '@/types';
 import { useToast } from './ui/Toast';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
+import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { notifyNetworkInviteAccepted } from '../helpers/notificationHelpers';
 
 // --- INTERFACES ---
@@ -350,7 +351,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             if (!user) return;
 
             // Generate an access code for the invitee
-            const accessCode = Math.random().toString(36).slice(-6).toUpperCase();
+            const accessCode = genererCodeAcces();
 
             const { error } = await supabase.from('groupements').insert({
                 projet_id: selectedTenderId,

@@ -18,6 +18,7 @@ import {
 import { ChatDrawer } from './chat/ChatDrawer';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -714,7 +715,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     senderName: inviterName,
                     senderUserId: userProfile.id,
                     role,
-                    accessCode: accessCode || Math.random().toString(36).slice(-6).toUpperCase(),
+                    // Ne jamais fabriquer un code ici : il serait envoyé à
+                    // l'invité sans être enregistré, donc invalide à la saisie.
+                    accessCode,
                     message: undefined,
                 }
             });
@@ -1501,7 +1504,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     senderName: inviterName,
                                     senderUserId: userProfile?.id,
                                     role: invitee.role,
-                                    accessCode: invitee.access_code || Math.random().toString(36).slice(-6).toUpperCase(), // fallback for company invites
+                                    // Idem : un code fabriqué ici ne serait pas
+                                    // celui stocké sur l'invitation.
+                                    accessCode: invitee.access_code,
                                     message: '',
                                 }),
                             });
@@ -2193,7 +2198,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 status: GROUPEMENT_STATUSES.invite, // En attente
                 hasAccount: false, // Will be resolved later
                 company: manualData.company || 'Société externe',
-                access_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                // Seul secret protégeant l'espace invité depuis la fermeture
+                // de la RLS (migration 034) : tirage cryptographique.
+                access_code: genererCodeAcces(),
                 entreprise_id: null // Will be resolved later
             };
 
