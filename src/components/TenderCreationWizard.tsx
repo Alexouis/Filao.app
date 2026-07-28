@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TenderFormData, UserProfile, SKILLS } from '../config';
 import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
+import { genererJalons } from '../helpers/jalonHelpers';
 import { supabase } from '../lib/supabaseClient';
 
 // Reference Colors & Constants from filao-wizard-workflow.jsx
@@ -103,29 +104,11 @@ const StepHeader = ({ icon, title, sub, bg = "#E6F4F8", stroke = T }: { icon: st
 );
 
 
-const jalonsInit = (formData: TenderFormData) => {
-    const dp = formData.date_publication ? new Date(formData.date_publication) : new Date();
-    const dl = formData.date_limite ? new Date(formData.date_limite) : new Date(dp.getTime() + 21 * 24 * 60 * 60 * 1000); // Default 21 days
-    const diff = Math.max(dl.getTime() - dp.getTime(), 3 * 24 * 60 * 60 * 1000); // Min 3 days gap
-
-    const dq = new Date(dp.getTime() + diff * 0.3); // 30%
-    const ci = new Date(dp.getTime() + diff * 0.6); // 60%
-    
-    let dsTime = formData.date_depot_souhaitee ? new Date(formData.date_depot_souhaitee).getTime() : (dl.getTime() - 2 * 24 * 60 * 60 * 1000);
-    // Safety: ensure DS is between CI and DL
-    dsTime = Math.max(ci.getTime() + 24 * 60 * 60 * 1000, Math.min(dsTime, dl.getTime() - 12 * 60 * 60 * 1000));
-    const ds = new Date(dsTime);
-
-    const f = (d: Date) => d.toISOString().split('T')[0];
-
-    return [
-        { label: "Retrait du DCE", date: f(dp), color: "#1D9E75", source: "Automatique", editable: false },
-        { label: "Deadline questions", date: f(dq), color: "#EF9F27", source: "Extrait du RC", editable: true },
-        { label: "Consolidation interne", date: f(ci), color: "#0B8FAC", source: "Suggestion FILAO", editable: true },
-        { label: "Dépôt souhaité", date: f(ds), color: "#0B8FAC", source: "Modifiable", editable: true },
-        { label: "Date limite de dépôt", date: f(dl), color: "#D85A30", source: "Officielle", editable: false },
-    ];
-};
+// Le calcul partait de `date_publication`, souvent vieille de plusieurs
+// semaines, ce qui datait « Retrait du DCE » et « Deadline questions » dans le
+// passé dès la création du dossier. La logique est désormais dans
+// helpers/jalonHelpers, ancrée sur aujourd'hui et testée sur les cas limites.
+const jalonsInit = (formData: TenderFormData) => genererJalons(formData);
 
 export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     formData,
@@ -609,7 +592,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
                 return (
                     <div style={{ marginBottom: 14 }}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop:12, marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
                             <p style={{ fontSize: 11, color: "#999", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>
                                 Suggéré d'après les codes CPV
                             </p>

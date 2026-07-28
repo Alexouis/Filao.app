@@ -19,6 +19,7 @@ import { ChatDrawer } from './chat/ChatDrawer';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
+import { estEnRetard } from '../helpers/jalonHelpers';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -4398,23 +4399,38 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                             {sortedJalons.length > 0 ? (
                                 sortedJalons.map((jalon: any, idx: number) => {
-                                    const isPast = new Date(jalon.date) < new Date();
-                                    const isNext = !isPast && (idx === 0 || new Date(sortedJalons[idx - 1].date) < new Date());
+                                    // Une date passée ne veut pas dire « fait » : sans
+                                    // distinction, un jalon en retard s'affichait en vert
+                                    // avec une coche, ce qui masquait tout retard.
+                                    const estFait = jalon.statut === 'fait';
+                                    const enRetard = estEnRetard(jalon);
+                                    const isPast = estFait;
+                                    const isNext = !estFait && !enRetard && (idx === 0 || new Date(sortedJalons[idx - 1].date) < new Date());
 
                                     return (
                                         <div key={idx} className="flex gap-6 group relative">
                                             {/* Node */}
-                                            <div className={`w-11 h-11 rounded-full shrink-0 z-10 flex items-center justify-center border-4 border-white shadow-sm transition-all ${isPast ? 'bg-green-500 text-white' :
-                                                    isNext ? 'bg-[#00A3E0] text-white ring-4 ring-[#00A3E0]/10' :
-                                                        'bg-gray-100 text-[#0B1F38]/40'
+                                            <div className={`w-11 h-11 rounded-full shrink-0 z-10 flex items-center justify-center border-4 border-white shadow-sm transition-all ${estFait ? 'bg-green-500 text-white' :
+                                                    enRetard ? 'bg-red-500 text-white ring-4 ring-red-500/10' :
+                                                        isNext ? 'bg-[#00A3E0] text-white ring-4 ring-[#00A3E0]/10' :
+                                                            'bg-gray-100 text-[#0B1F38]/40'
                                                 }`}>
-                                                {isPast ? <CheckCircle size={18} /> : <span>{idx + 1}</span>}
+                                                {estFait ? <CheckCircle size={18} /> : enRetard ? <AlertTriangle size={18} /> : <span>{idx + 1}</span>}
                                             </div>
 
                                             {/* Card */}
-                                            <div className={`flex-1 p-4 rounded-2xl border transition-all ${isNext ? 'bg-white border-[#00A3E0]/30 shadow-md ring-1 ring-[#00A3E0]/10' :
-                                                    'bg-[#F8FAFC] border-[#0B1F38]/5 opacity-80 hover:opacity-100'
+                                            <div className={`flex-1 p-4 rounded-2xl border transition-all ${enRetard ? 'bg-red-50/60 border-red-200' :
+                                                    isNext ? 'bg-white border-[#00A3E0]/30 shadow-md ring-1 ring-[#00A3E0]/10' :
+                                                        'bg-[#F8FAFC] border-[#0B1F38]/5 opacity-80 hover:opacity-100'
                                                 }`}>
+                                                {(enRetard || jalon.non_tenable) && (
+                                                    <p className="text-[10px] font-bold text-red-600 mb-1.5 flex items-center gap-1">
+                                                        <AlertTriangle size={11} />
+                                                        {jalon.non_tenable
+                                                            ? "Ne tient pas dans le délai restant"
+                                                            : "En retard"}
+                                                    </p>
+                                                )}
                                                 <div className="flex justify-between items-start gap-4">
                                                     <div>
                                                         {editingJalonIndex === idx ? (
