@@ -665,8 +665,12 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Un emplacement administratif ne contient qu'un document : le nom
             // dérive du champ, donc un nouvel envoi écrase le précédent au lieu
             // d'empiler des fichiers que plus rien ne référence.
-            const extension = (file.name.split('.').pop() || 'pdf').toLowerCase();
-            const nomStable = `${dbField.replace('_url', '')}.${extension}`;
+            //
+            // Volontairement SANS extension : la conserver ferait de `kbis.pdf`
+            // et `kbis.jpg` deux objets distincts, et remplacer un PDF par une
+            // image laisserait l'ancien fichier orphelin. Le type réel est de
+            // toute façon porté par le `content-type` de l'objet.
+            const nomStable = dbField.replace('_url', '');
 
             const { chemin, erreur } = await deposerFichier(file, {
                 dossier: userProfile.email,
@@ -1442,9 +1446,12 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                 <button
                                                     onClick={() => ouvrirDocument(url)}
                                                     className="text-xs text-blue-600 flex-1 truncate text-left hover:underline"
-                                                    title={`Ouvrir ${decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '')}`}
+                                                    title={`Ouvrir ${slot.label}`}
                                                 >
-                                                    {decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? '')}
+                                                    {/* Le nom stocké est désormais canonique et sans
+                                                        extension (« kbis ») : afficher le libellé de
+                                                        l'emplacement est plus parlant. */}
+                                                    {slot.label}
                                                 </button>
                                             ) : (
                                                 <span className="text-xs text-gray-500 flex-1 truncate">Aucun fichier</span>
