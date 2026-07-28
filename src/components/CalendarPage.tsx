@@ -332,9 +332,32 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             };
         });
 
+        // Les jalons étaient chargés (le select utilise `*`) mais jamais lus :
+        // seule `date_limite` alimentait le calendrier. Or le rétroplanning est
+        // précisément ce que le calendrier doit rendre visible.
+        const dailyJalons = tenders.flatMap(t =>
+            (t.jalons || [])
+                .filter((j: any) => j?.date && String(j.date).split('T')[0] === dateStr)
+                // La date limite figure déjà via `date_limite` : on éviterait
+                // sinon deux entrées identiques le même jour.
+                .filter((j: any) => j.label !== 'Date limite de dépôt')
+                .map((j: any) => ({
+                    id: `${t.id}-${j.label}-${j.date}`,
+                    tenderId: t.id,
+                    type: 'jalon',
+                    label: j.label,
+                    tenderTitle: t.titre,
+                    statut: j.statut || 'a_faire',
+                    responsable: j.responsable,
+                    color: j.color,
+                    enRetard: j.statut !== 'fait' && new Date(j.date) < new Date(new Date().toDateString()),
+                    time: ''
+                }))
+        );
+
         const dailyGoogleEvents = googleEvents.filter(e => e.dateStr === dateStr);
 
-        return [...dailyTenders, ...dailyGoogleEvents];
+        return [...dailyTenders, ...dailyJalons, ...dailyGoogleEvents];
     };
 
     const upcomingEvents = useMemo(() => {
@@ -343,6 +366,23 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         return tenders
             .filter(t => new Date(t.date_limite) >= today)
             .sort((a, b) => new Date(a.date_limite).getTime() - new Date(b.date_limite).getTime())
+            .slice(0, 6);
+    }, [tenders]);
+
+    /**
+     * Jalons à venir, tous AO confondus. Complète `upcomingEvents`, qui ne
+     * regarde que les dates limites : sans cela, un dossier dont la remise est
+     * dans six semaines n'apparaît nulle part alors que sa deadline questions
+     * tombe la semaine prochaine.
+     */
+    const upcomingJalons = useMemo(() => {
+        const today = new Date(new Date().toDateString());
+        return tenders
+            .flatMap(t => (t.jalons || [])
+                .filter((j: any) => j?.date && j.statut !== 'fait' && j.label !== 'Date limite de dépôt')
+                .map((j: any) => ({ ...j, tenderId: t.id, tenderTitle: t.titre })))
+            .filter((j: any) => new Date(j.date) >= today)
+            .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
             .slice(0, 6);
     }, [tenders]);
 
@@ -421,9 +461,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     {dayEvents.slice(0, 3).map((evt: any, i) => (
                                         <div
                                             key={i}
-                                            onClick={(e) => evt.type !== 'google_event' && handleEventClick(e, evt.id, evt.statut)}
+                                            onClick={(e) => evt.type !== 'google_event' && handleEventClick(e, evt.tenderId || evt.id, evt.statut)}
                                             className={`px-2 py-1.5 rounded-lg border font-medium flex flex-col gap-1 transition-all ${evt.type !== 'google_event' ? 'hover:scale-[1.02] cursor-pointer' : ''}
-                                            bg-white/80 ${evt.type === 'google_event' ? 'border-[#00A3E0]/40' : 'border-[#FF8D6D]/30'} shadow-sm
+                                            bg-white/80 ${evt.type === 'google_event' ? 'border-[#00A3E0]/40' : evt.enRetard ? 'border-red-400' : evt.type === 'jalon' ? 'border-[#0B8FAC]/40' : 'border-[#FF8D6D]/30'} shadow-sm
                                         `}
                                             title={evt.label}
                                         >
@@ -479,7 +519,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     {dayEvents.map((evt, idx) => (
                                         <div
                                             key={idx}
-                                            onClick={(e) => handleEventClick(e, evt.id, evt.statut)}
+                                            onClick={(e) => handleEventClick(e, evt.tenderId || evt.id, evt.statut)}
                                             className="p-3 rounded-lg bg-white border border-[#FF8D6D]/30 shadow-sm flex flex-col gap-1 hover:scale-[1.02] transition-transform cursor-pointer"
                                         >
                                             <div className="flex justify-between items-start">
@@ -619,6 +659,39 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
 
                     {/* Sidebar (Upcoming Events) - styled as glass panel */}
                     <div className="w-80 border-l border-white/30 bg-white/10 p-6 flex flex-col gap-6 backdrop-blur-sm relative z-20">
+                        {/* Jalons à venir : le panneau ne listait que les dates limites,
+                            donc un dossier remis dans six semaines n'apparaissait nulle
+                            part alors que sa deadline questions tombait sous huit jours. */}
+                        {upcomingJalons.length > 0 && (
+                            <div className="shrink-0">
+                                <h3 className="text-lg font-bold text-[#0B1F38] mb-3 flex items-center gap-2">
+                                    <Clock size={18} className="text-[#0B8FAC]" />
+                                    Jalons à venir
+                                </h3>
+                                <div className="space-y-2">
+                                    {upcomingJalons.map((j: any, idx: number) => {
+                                        const d = new Date(j.date);
+                                        return (
+                                            <button
+                                                key={idx}
+                                                onClick={() => onNavigateToTender && onNavigateToTender(j.tenderId, '')}
+                                                className="w-full text-left flex items-center gap-3 p-2.5 rounded-xl bg-white/60 border border-white/50 hover:border-[#0B8FAC]/40 transition-all"
+                                            >
+                                                <div className="w-9 shrink-0 text-center">
+                                                    <p className="text-sm font-bold text-[#0B1F38] leading-none">{d.getDate()}</p>
+                                                    <p className="text-[9px] font-bold text-[#0B1F38]/40 uppercase">{monthNames[d.getMonth()].substring(0, 3)}</p>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-[#0B1F38] truncate">{j.label}</p>
+                                                    <p className="text-[10px] text-[#0B1F38]/50 truncate">{j.tenderTitle}</p>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex flex-col flex-1 min-h-0">
                             <h3 className="text-lg font-bold text-[#0B1F38] mb-4 flex items-center gap-2 shrink-0">
                                 <CalendarIcon size={18} className="text-[#00A3E0]" />

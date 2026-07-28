@@ -4447,6 +4447,28 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                                     onChange={e => setEditingJalon(prev => prev ? { ...prev, date: e.target.value } : null)}
                                                                     className="w-full px-3 py-1.5 rounded-lg border border-[#00A3E0]/30 text-sm font-medium text-[#0B1F38]"
                                                                 />
+                                                                {/* Responsable et statut : la fiche les demandait éditables,
+                                                                    seuls le libellé et la date l'étaient. */}
+                                                                <select
+                                                                    value={editingJalon?.responsable || ''}
+                                                                    onChange={e => setEditingJalon(prev => prev ? { ...prev, responsable: e.target.value } : null)}
+                                                                    aria-label="Responsable du jalon"
+                                                                    className="w-full px-3 py-1.5 rounded-lg border border-[#00A3E0]/30 text-sm font-medium text-[#0B1F38] bg-white"
+                                                                >
+                                                                    <option value="">Responsable — non attribué</option>
+                                                                    {groupementMembers.filter(m => !m.deleted).map(m => (
+                                                                        <option key={m.email} value={m.email}>{m.name || m.email}</option>
+                                                                    ))}
+                                                                </select>
+                                                                <select
+                                                                    value={editingJalon?.statut || 'a_faire'}
+                                                                    onChange={e => setEditingJalon(prev => prev ? { ...prev, statut: e.target.value } : null)}
+                                                                    aria-label="Statut du jalon"
+                                                                    className="w-full px-3 py-1.5 rounded-lg border border-[#00A3E0]/30 text-sm font-medium text-[#0B1F38] bg-white"
+                                                                >
+                                                                    <option value="a_faire">À faire</option>
+                                                                    <option value="fait">Fait</option>
+                                                                </select>
                                                                 <div className="flex gap-2 mt-2">
                                                                     <button
                                                                         onClick={() => {
@@ -4476,11 +4498,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                         ) : (
                                                             <>
                                                                 <h4 className="font-bold text-[#0B1F38] mb-1">{jalon.label}</h4>
-                                                                <div className="flex items-center gap-2">
-                                                                    <CalendarIcon size={12} className="text-[#0B1F38]/40" />
-                                                                    <span className="text-xs font-bold text-[#0B1F38]/60">
-                                                                        {new Date(jalon.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                                <div className="flex items-center gap-3 flex-wrap">
+                                                                    <span className="flex items-center gap-1.5">
+                                                                        <CalendarIcon size={12} className="text-[#0B1F38]/40" />
+                                                                        <span className="text-xs font-bold text-[#0B1F38]/60">
+                                                                            {new Date(jalon.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                                        </span>
                                                                     </span>
+                                                                    {/* Sans affichage, attribuer un responsable ne servirait à rien. */}
+                                                                    {jalon.responsable && (
+                                                                        <span className="flex items-center gap-1.5" title={`Responsable : ${jalon.responsable}`}>
+                                                                            <UserCheck size={12} className="text-[#0B1F38]/40" />
+                                                                            <span className="text-xs font-bold text-[#0B1F38]/60 truncate max-w-[160px]">
+                                                                                {groupementMembers.find(m => m.email === jalon.responsable)?.name || jalon.responsable}
+                                                                            </span>
+                                                                        </span>
+                                                                    )}
+                                                                    {jalon.statut === 'fait' && (
+                                                                        <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">Fait</span>
+                                                                    )}
                                                                 </div>
                                                             </>
                                                         )}
@@ -4496,17 +4532,30 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                             >
                                                                 <Pencil size={14} />
                                                             </button>
-                                                            <button
-                                                                onClick={async () => {
-                                                                    if (!confirm("Supprimer ce jalon ?")) return;
-                                                                    const newJalons = formData.jalons.filter((j: any) => !(j.label === jalon.label && j.date === jalon.date));
-                                                                    setFormData(prev => ({ ...prev, jalons: newJalons }));
-                                                                    if (tenderId) await supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId);
-                                                                }}
-                                                                className="p-2 text-[#0B1F38]/30 hover:text-red-500 hover:bg-white rounded-lg transition-all"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
+                                                            {/* Un jalon obligatoire structure le rétroplanning : le
+                                                                retirer viderait le calendrier et les rappels de leur
+                                                                sens. `editable === false` couvre les jalons créés
+                                                                avant l'ajout du drapeau `obligatoire`. */}
+                                                            {(jalon.obligatoire || jalon.editable === false) ? (
+                                                                <span
+                                                                    title="Jalon obligatoire, non supprimable"
+                                                                    className="p-2 text-[#0B1F38]/15 cursor-default"
+                                                                >
+                                                                    <ShieldAlert size={14} />
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (!confirm("Supprimer ce jalon ?")) return;
+                                                                        const newJalons = formData.jalons.filter((j: any) => !(j.label === jalon.label && j.date === jalon.date));
+                                                                        setFormData(prev => ({ ...prev, jalons: newJalons }));
+                                                                        if (tenderId) await supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId);
+                                                                    }}
+                                                                    className="p-2 text-[#0B1F38]/30 hover:text-red-500 hover:bg-white rounded-lg transition-all"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

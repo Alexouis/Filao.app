@@ -90,7 +90,7 @@ Deno.serve(async (req: Request) => {
     const { data: recipientUser } = await adminClient
       .from("utilisateurs")
       .select("id, entreprise_id, prenom, nom, notifications")
-      .eq("email", normalizedEmail)
+      .ilike("email", normalizedEmail)
       .maybeSingle();
 
     let recipientFound = false;

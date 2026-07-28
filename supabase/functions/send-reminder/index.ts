@@ -12,7 +12,23 @@ interface ReminderRequest {
   email: string;
   senderName: string;
   senderUserId?: string;
+  /**
+   * Renseignés par `send-milestone-reminders` pour un rappel de jalon à J-2.
+   * Absents, la fonction conserve son comportement d'origine : rappel de
+   * documents manquants déclenché manuellement depuis l'application.
+   */
+  milestoneLabel?: string;
+  milestoneDate?: string;
 }
+
+/** Date lisible en français, avec repli sur la valeur brute si non parsable. */
+const dateLisible = (iso?: string): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+};
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -29,7 +45,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ReminderRequest = await req.json();
-    const { tenderId, tenderTitle, email, senderName, senderUserId } = body;
+    const { tenderId, tenderTitle, email, senderName, senderUserId, milestoneLabel, milestoneDate } = body;
+
+    // Un même envoi sert deux usages : le gabarit et le libellé de la
+    // notification en dépendent entièrement.
+    const estJalon = Boolean(milestoneLabel);
+    const dateJalon = dateLisible(milestoneDate);
 
     if (!tenderId || !email || !senderName) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -47,7 +68,11 @@ Deno.serve(async (req: Request) => {
     const { data: recipient } = await adminClient
       .from("utilisateurs")
       .select("id, notifications, photo_url")
-      .eq("email", email.toLowerCase().trim())
+      // `.eq` est sensible à la casse alors que les e-mails sont stockés tels
+      // que saisis (« Alexandre_Louis@outlook.fr »). La comparaison échouait
+      // donc silencieusement pour tout utilisateur ayant une majuscule dans son
+      // adresse : la notification in-app était simplement sautée.
+      .ilike("email", email.trim())
       .maybeSingle();
 
     // 2. Resolve Sender Avatar
@@ -65,9 +90,11 @@ Deno.serve(async (req: Request) => {
     if (recipient) {
       const newNotification = {
         id: crypto.randomUUID(),
-        type: "document_reminder",
-        titre: "Rappel de documents",
-        message: `${senderName} vous a envoyé un rappel pour les pièces manquantes sur`,
+        type: estJalon ? "deadline_reminder" : "document_reminder",
+        titre: estJalon ? `Jalon dans 2 jours : ${milestoneLabel}` : "Rappel de documents",
+        message: estJalon
+          ? `« ${milestoneLabel} » est prévu le ${dateJalon} sur`
+          : `${senderName} vous a envoyé un rappel pour les pièces manquantes sur`,
         sender_name: senderName,
         sender_avatar: senderAvatar,
         related_tender_id: tenderId,
@@ -87,7 +114,7 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .select("access_code")
       .eq("tender_id", tenderId)
-      .eq("email", email.toLowerCase().trim())
+      .ilike("email", email.trim())
       .maybeSingle();
 
     const accessCode = invite?.access_code || "??????";
@@ -104,18 +131,26 @@ Deno.serve(async (req: Request) => {
       const emailPayload = {
         sender: { name: "Filao", email: "contact@filao.io" },
         to: [{ email: email.toLowerCase().trim() }],
-        subject: `Rappel : Documents manquants pour le projet "${tenderTitle}"`,
+        subject: estJalon
+          ? `Jalon dans 2 jours : ${milestoneLabel} — "${tenderTitle}"`
+          : `Rappel : Documents manquants pour le projet "${tenderTitle}"`,
         htmlContent: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-            <h2 style="color: #1B5D7A; font-size: 20px;">Rappel : Coordination Documentaire</h2>
+            <h2 style="color: #1B5D7A; font-size: 20px;">${estJalon ? "Rappel d'échéance" : "Rappel : Coordination Documentaire"}</h2>
             <p>Bonjour,</p>
-            <p><strong>${senderName}</strong> vous informe que des documents sont encore manquants pour l'appel d'offres : <strong>"${tenderTitle}"</strong>.</p>
-            
-            <p style="margin-top: 25px;">Merci de vous connecter pour régulariser votre dossier :</p>
+            ${estJalon
+              ? `<p>L'échéance <strong>« ${milestoneLabel} »</strong> arrive dans 2 jours sur l'appel d'offres <strong>"${tenderTitle}"</strong>.</p>
+                 <p style="margin: 20px 0; padding: 14px 18px; background: #fff7ed; border-left: 4px solid #EF9F27; border-radius: 8px; font-size: 15px;">
+                   <strong>${milestoneLabel}</strong><br/>
+                   <span style="color:#666;">Échéance : ${dateJalon}</span>
+                 </p>
+                 <p style="margin-top: 25px;">Accédez au rétroplanning du dossier :</p>`
+              : `<p><strong>${senderName}</strong> vous informe que des documents sont encore manquants pour l'appel d'offres : <strong>"${tenderTitle}"</strong>.</p>
+                 <p style="margin-top: 25px;">Merci de vous connecter pour régulariser votre dossier :</p>`}
             
             <div style="text-align: center; margin: 30px 0;">
               <a href="${appUrl}" style="background-color: #00A3E0; color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                Accéder au dossier
+                ${estJalon ? "Voir le rétroplanning" : "Accéder au dossier"}
               </a>
             </div>
 
@@ -145,11 +180,30 @@ Deno.serve(async (req: Request) => {
       if (!emailRes.ok) {
         const errorText = await emailRes.text();
         console.error("Brevo Error:", errorText);
-        return new Response(JSON.stringify({ error: "Echec de l'envoi de l'email" }), {
+        // Le message générique d'origine obligeait à ouvrir les logs de la
+        // fonction pour connaître la cause. L'appelant est soit l'application
+        // authentifiée, soit le planificateur de rappels : remonter le détail
+        // du fournisseur leur évite un aller-retour.
+        return new Response(JSON.stringify({
+          error: "Echec de l'envoi de l'email",
+          fournisseur: "brevo",
+          statut: emailRes.status,
+          detail: errorText.slice(0, 500),
+        }), {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+    } else {
+      // Sans clé API, la fonction renvoyait `success: true` alors qu'aucun
+      // e-mail ne partait — un envoi manquant devenait indétectable.
+      console.error("BREVO_API_KEY absente : aucun e-mail envoyé.");
+      return new Response(JSON.stringify({
+        error: "BREVO_API_KEY absente de l'environnement",
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     return new Response(JSON.stringify({ success: true }), {

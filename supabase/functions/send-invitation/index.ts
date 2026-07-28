@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
       const { data: existingUser } = await adminClient
         .from("utilisateurs")
         .select("id")
-        .eq("email", email!)
+        .ilike("email", email!.trim())
         .maybeSingle();
       recipientId = existingUser?.id;
     }
