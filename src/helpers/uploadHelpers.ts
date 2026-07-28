@@ -20,6 +20,12 @@ export interface OptionsDepot {
     /** Point de dépôt : détermine les types acceptés et le plafond de taille. */
     point: PointDepot;
     upsert?: boolean;
+    /**
+     * Nom de fichier imposé, extension comprise. Sans lui, chaque envoi crée un
+     * objet de plus : `upsert` ne peut écraser que le même nom. À utiliser pour
+     * tout document qui en remplace un autre.
+     */
+    nom?: string;
     /** Invité par lien : jeton de son invitation. */
     token?: string;
     /** Invité par code d'accès. */
@@ -73,6 +79,7 @@ export const deposerFichier = async (
     formulaire.append('point', options.point);
     formulaire.append('dossier', options.dossier);
     if (options.upsert) formulaire.append('upsert', 'true');
+    if (options.nom) formulaire.append('nom', options.nom);
     if (options.token) formulaire.append('token', options.token);
     if (options.tenderId) formulaire.append('tenderId', options.tenderId);
     if (options.email) formulaire.append('email', options.email);

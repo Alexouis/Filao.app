@@ -660,15 +660,19 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
         const file = e.target.files?.[0];
         if (!file || !userProfile) return;
         try {
+            setError(null);
             setUploadingField(dbField);
-            const cleanField = dbField.replace('_url', '');
-            const fileName = `${cleanField}_${userProfile.prenom}_${userProfile.nom}_${Date.now()}`;
-            const filePath = `${userProfile.email}/${fileName}`;
+            // Un emplacement administratif ne contient qu'un document : le nom
+            // dérive du champ, donc un nouvel envoi écrase le précédent au lieu
+            // d'empiler des fichiers que plus rien ne référence.
+            const extension = (file.name.split('.').pop() || 'pdf').toLowerCase();
+            const nomStable = `${dbField.replace('_url', '')}.${extension}`;
 
             const { chemin, erreur } = await deposerFichier(file, {
                 dossier: userProfile.email,
                 point: 'coffre_fort',
                 upsert: true,
+                nom: nomStable,
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
@@ -698,11 +702,10 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
 
         if (!file || !labelToUse || !entrepriseData?.id || !userProfile?.id) return;
         try {
+            setError(null);
             setUploadingField('custom_new');
-            const ext = file.name.split('.').pop();
-            const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
-            const filePath = `documents/${entrepriseData.id}/${fileName}`;
-
+            // Ici le nom d'origine est conservé : chaque document personnalisé
+            // est distinct, il n'y a rien à écraser.
             const { chemin, erreur } = await deposerFichier(file, {
                 dossier: `documents/${entrepriseData.id}`,
                 point: 'coffre_fort',
@@ -767,13 +770,20 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
         if (!file || !entrepriseData?.id) return;
         try {
             setUploadingField(`custom_${docId}`);
-            const ext = file.name.split('.').pop();
-            const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
-            const filePath = `documents/${entrepriseData.id}/${fileName}`;
+            setError(null);
+            // Remplacement : on réécrit à l'emplacement du document existant.
+            // Un nom neuf laisserait l'ancien fichier dans le bucket, sans plus
+            // aucune ligne pour le désigner.
+            const ancien = customDocs.find(d => d.id === docId)?.url;
+            const nomExistant = ancien && !ancien.startsWith('http')
+                ? ancien.split('/').pop()
+                : undefined;
 
             const { chemin, erreur } = await deposerFichier(file, {
                 dossier: `documents/${entrepriseData.id}`,
                 point: 'coffre_fort',
+                upsert: Boolean(nomExistant),
+                nom: nomExistant,
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 

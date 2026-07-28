@@ -111,6 +111,10 @@ Deno.serve(async (req: Request) => {
     const fichier = formulaire.get("file");
     const point = String(formulaire.get("point") ?? "") as PointDepot;
     const dossierDemande = String(formulaire.get("dossier") ?? "");
+    // Nom imposé par l'appelant. Permet d'écraser un document existant plutôt
+    // que d'en empiler un nouveau à chaque envoi : sans nom stable, `upsert`
+    // n'a rien à remplacer.
+    const nomImpose = String(formulaire.get("nom") ?? "");
     const jeton = String(formulaire.get("token") ?? "");
     const tenderId = String(formulaire.get("tenderId") ?? "");
     const emailInvite = String(formulaire.get("email") ?? "");
@@ -300,7 +304,9 @@ Deno.serve(async (req: Request) => {
     }
 
     // --- 4. Écriture ---------------------------------------------------
-    const chemin = `${cible}${nettoyerNom(fichier.name)}`;
+    // Le nom imposé passe par le même nettoyage : il vient du client, il n'est
+    // pas plus digne de confiance que le nom d'origine du fichier.
+    const chemin = `${cible}${nettoyerNom(nomImpose || fichier.name)}`;
     const { error: erreurDepot } = await admin.storage
       .from("documents")
       .upload(chemin, fichier, {
