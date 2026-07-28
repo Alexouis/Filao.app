@@ -771,6 +771,41 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         init();
     }, [initialTenderId]);
 
+    /**
+     * Suivi en temps réel des réponses aux invitations.
+     *
+     * Le critère de recette demande que le refus d'un partenaire soit « visible
+     * immédiatement par le mandataire ». Sans souscription, la réponse n'était
+     * connue qu'au prochain rechargement : le mandataire pouvait relancer
+     * quelqu'un qui venait de refuser, ou attendre une pièce qui n'arriverait
+     * jamais.
+     *
+     * On écoute `invitations` et `groupements` : la première porte la réponse
+     * d'un invité sans compte, la seconde celle d'une entreprise déjà inscrite.
+     */
+    useEffect(() => {
+        if (!tenderId) return;
+
+        const rafraichir = () => {
+            // Rechargement complet plutôt que mise à jour ponctuelle : statut,
+            // rôle et composition du groupement se recalculent ensemble, et ce
+            // cas reste rare — quelques réponses par dossier.
+            fetchTenderFromDB(tenderId, userProfile);
+        };
+
+        const canal = supabase
+            .channel(`ao-${tenderId}-reponses`)
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'invitations', filter: `tender_id=eq.${tenderId}` },
+                rafraichir)
+            .on('postgres_changes',
+                { event: '*', schema: 'public', table: 'groupements', filter: `projet_id=eq.${tenderId}` },
+                rafraichir)
+            .subscribe();
+
+        return () => { supabase.removeChannel(canal); };
+    }, [tenderId, userProfile?.id]);
+
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -3377,11 +3412,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                             </button>
                                                         )}
 
-                                                        {isOwner && !isMemberOwner && (
+                                                        {/* Retrait possible tant que le partenaire n'a pas accepté.
+                                                            Une fois l'accord donné, le groupement est constitué : le
+                                                            mandataire ne peut plus en sortir quelqu'un unilatéralement.
+                                                            Le partenaire garde, lui, la possibilité de le quitter
+                                                            (bouton ci-dessous). */}
+                                                        {isOwner && !isMemberOwner && effectiveStatus !== GROUPEMENT_STATUSES.accepte && (
                                                             <button onClick={(e) => { e.stopPropagation(); setShowRemoveConfirm({ index: i, name: c.name || c.company || c.email }); }}
                                                                 className="p-1 text-[#0B1F38]/15 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Retirer du groupement">
                                                                 <Trash2 size={13} />
                                                             </button>
+                                                        )}
+                                                        {isOwner && !isMemberOwner && effectiveStatus === GROUPEMENT_STATUSES.accepte && (
+                                                            <span
+                                                                title="Ce partenaire a accepté : il ne peut plus être retiré du groupement"
+                                                                className="p-1 text-[#0B1F38]/10 cursor-default"
+                                                            >
+                                                                <ShieldAlert size={13} />
+                                                            </span>
                                                         )}
 
                                                         {isCurrentUser && !isMemberOwner && effectiveStatus === GROUPEMENT_STATUSES.accepte && (
