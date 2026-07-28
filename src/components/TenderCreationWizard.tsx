@@ -265,15 +265,14 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             });
             if (erreurDepot || !cheminDepose) throw new Error(erreurDepot || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage
-                .from('documents')
-                .getPublicUrl(cheminDepose);
-
-            setDocUrls(prev => ({ ...prev, [field]: publicUrl }));
+            // Le bucket `documents` passe en privé : on conserve le CHEMIN.
+            // Une URL publique ne résoudrait plus rien, et une URL signée
+            // expire au bout d'une heure — elle ne peut pas être persistée.
+            setDocUrls(prev => ({ ...prev, [field]: cheminDepose }));
 
             // Save to user record immediately
             await supabase.from('utilisateurs').update({
-                [field]: publicUrl,
+                [field]: cheminDepose,
             }).eq('id', userProfile.id);
 
         } catch (err) {

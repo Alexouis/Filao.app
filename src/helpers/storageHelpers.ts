@@ -158,7 +158,12 @@ export const telechargerDocument = async (
 
     const mime = await typeStocke(chemin);
     const extension = mime ? EXTENSIONS[mime] : undefined;
-    const nomFichier = extension ? `${nomSouhaite}.${extension}` : nomSouhaite;
+
+    // `nomSouhaite` porte parfois déjà son extension (nom d'origine d'une pièce
+    // du DCE), parfois non (nom canonique du coffre-fort). Sans cette
+    // normalisation on obtiendrait « RC.pdf.pdf ».
+    const base = nomSouhaite.replace(/\.[A-Za-z0-9]{1,8}$/, '').trim() || 'document';
+    const nomFichier = extension ? `${base}.${extension}` : nomSouhaite;
 
     const { data, error } = await supabase.storage
         .from('documents')

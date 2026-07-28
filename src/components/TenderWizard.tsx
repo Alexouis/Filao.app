@@ -21,6 +21,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { deposerFichier } from '../helpers/uploadHelpers';
+import { telechargerDocument } from '../helpers/storageHelpers';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -4736,16 +4737,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0 ml-4">
                                             {/* Download */}
-                                            <a
-                                                href={`${supabase.storage.from('documents').getPublicUrl(doc.path).data.publicUrl}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                onClick={(e) => e.stopPropagation()}
+                                            {/* Une URL publique ne résoudra plus rien une fois le
+                                                bucket privé : l'URL signée est demandée au clic. */}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); telechargerDocument(doc.path, doc.name || 'document'); }}
                                                 className="p-2 text-[#0B1F38]/30 hover:text-[#00A3E0] hover:bg-[#00A3E0]/10 rounded-lg transition-all"
                                                 title="Télécharger"
                                             >
                                                 <Download size={16} />
-                                            </a>
+                                            </button>
                                             {/* Re-upload + Delete (owner only, unlocked) */}
                                             {isOwner && !isLocked && (
                                                 <>
