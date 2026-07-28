@@ -360,13 +360,25 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         return [...dailyTenders, ...dailyJalons, ...dailyGoogleEvents];
     };
 
+    /**
+     * Un dossier clos n'appelle plus aucune action : sa date limite encombre la
+     * liste sans rien apporter. « Expiré » n'existe pas en base, il se déduit de
+     * la date limite — donc déjà écarté par le filtre chronologique.
+     */
+    const DOSSIERS_CLOS = ['Déposé', 'Gagné', 'Perdu'];
+    const estActif = (t: any) => !DOSSIERS_CLOS.includes(t?.statut);
+
     const upcomingEvents = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return tenders
-            .filter(t => new Date(t.date_limite) >= today)
-            .sort((a, b) => new Date(a.date_limite).getTime() - new Date(b.date_limite).getTime())
-            .slice(0, 6);
+            .filter(t => t.date_limite && new Date(t.date_limite) >= today)
+            // Le filtre d'origine ne regardait que la date : un dossier déjà
+            // déposé ou gagné continuait d'occuper une place dans la liste.
+            .filter(estActif)
+            .sort((a, b) => new Date(a.date_limite).getTime() - new Date(b.date_limite).getTime());
+            // Plus de `.slice(0, 6)` : la liste défile désormais, tronquer ne
+            // protégeait plus de rien et masquait des échéances réelles.
     }, [tenders]);
 
     /**
@@ -378,12 +390,14 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const upcomingJalons = useMemo(() => {
         const today = new Date(new Date().toDateString());
         return tenders
+            // Même règle que pour les dates limites : les jalons d'un dossier
+            // clos ne demandent plus rien à personne.
+            .filter(estActif)
             .flatMap(t => (t.jalons || [])
                 .filter((j: any) => j?.date && j.statut !== 'fait' && j.label !== 'Date limite de dépôt')
                 .map((j: any) => ({ ...j, tenderId: t.id, tenderTitle: t.titre })))
             .filter((j: any) => new Date(j.date) >= today)
-            .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
-            .slice(0, 6);
+            .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
     }, [tenders]);
 
     const getCalendarLabel = () => {
