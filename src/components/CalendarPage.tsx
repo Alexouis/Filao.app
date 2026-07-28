@@ -672,15 +672,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                     </div>
 
                     {/* Sidebar (Upcoming Events) - styled as glass panel */}
-                    <div className="w-80 border-l border-white/30 bg-white/10 p-6 flex flex-col gap-6 backdrop-blur-sm relative z-20">
+                    {/* `min-h-0` + `overflow-hidden` : sans quoi les listes enfants
+                        s'étirent à la taille de leur contenu et se chassent l'une
+                        l'autre hors de l'écran. */}
+                    <div className="w-80 border-l border-white/30 bg-white/10 p-6 flex flex-col gap-6 backdrop-blur-sm relative z-20 min-h-0 overflow-hidden">
                         {/* Jalons à venir : le panneau ne listait que les dates limites,
                             donc un dossier remis dans six semaines n'apparaissait nulle
                             part alors que sa deadline questions tombait sous huit jours. */}
                         {upcomingJalons.length > 0 && (
-                            /* Hauteur plafonnée : sans elle, six jalons occupent toute la
-                               colonne et repoussent « Prochains jours » hors de l'écran.
-                               Le titre reste fixe, seule la liste défile. */
-                            <div className="shrink-0 flex flex-col max-h-[160px] min-h-0">
+                            /* `flex-1 basis-0` : les deux listes se partagent l'espace
+                               restant à parts égales et défilent chacune de leur côté.
+                               Un plafond en pixels dépendait de la hauteur d'écran et
+                               de la présence du bloc Synchronisation. */
+                            <div className="flex-1 basis-0 min-h-0 flex flex-col">
                                 <h3 className="text-lg font-bold text-[#0B1F38] mb-3 flex items-center gap-2 shrink-0">
                                     <Clock size={18} className="text-[#0B8FAC]" />
                                     Jalons à venir
@@ -710,13 +714,13 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             </div>
                         )}
 
-                        <div className="flex flex-col flex-1 min-h-0">
+                        <div className="flex flex-col flex-1 basis-0 min-h-0">
                             <h3 className="text-lg font-bold text-[#0B1F38] mb-4 flex items-center gap-2 shrink-0">
                                 <CalendarIcon size={18} className="text-[#00A3E0]" />
                                 Prochains jours
                             </h3>
 
-                            <div className="space-y-3 overflow-y-auto custom-scrollbar-dark pr-2 flex-1 pb-4">
+                            <div className="space-y-3 overflow-y-auto custom-scrollbar-dark pr-2 flex-1 min-h-0 pb-4">
                                 {upcomingEvents.length > 0 ? upcomingEvents.map((tender, idx) => {
                                     const dateObj = new Date(tender.date_limite);
                                     const dayNum = dateObj.getDate();
