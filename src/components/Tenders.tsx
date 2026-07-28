@@ -374,45 +374,28 @@ export const Tenders: React.FC<TendersProps> = ({
 
     try {
       setLoading(true);
-      const foldersToScan = new Set<string>();
-      if (userProfile?.email) foldersToScan.add(userProfile?.email);
+      // La suppression passe par une fonction serveur : les pièces d'un AO
+      // vivent dans le dossier de chaque déposant, et la policy DELETE ne
+      // couvre que le dossier de l'appelant et celui de son entreprise
+      // (migration 037). Le repérage côté client retirait la ligne en base et
+      // laissait les fichiers des autres membres derrière lui, sans erreur.
+      const { data: purge, error: purgeError } = await supabase.functions.invoke(
+        'delete-tender-documents',
+        { body: { tenderId: selectedTenderId } }
+      );
 
-      const groupements = (selectedTender as any).groupements;
-      if (Array.isArray(groupements)) {
-        groupements.forEach((g: any) => {
-          const email = g.entreprise?.membres?.[0]?.email;
-          if (email) foldersToScan.add(email);
-        });
+      if (purgeError || purge?.error) {
+        // On n'interrompt pas la suppression du dossier pour autant : mieux
+        // vaut des fichiers orphelins qu'un AO à moitié supprimé.
+        console.error('Purge des pièces incomplète', purgeError ?? purge?.error);
       }
 
-      let totalSizeFreed = 0;
-      let allPathsToDelete: string[] = [];
-
-      const scanPromises = Array.from(foldersToScan).map(async (folderPath) => {
-        const { data: files, error } = await supabase.storage
-          .from('documents')
-          .list(folderPath, { search: selectedTenderId });
-
-        if (!error && files) {
-          files.forEach(file => {
-            if (file.name.includes(selectedTenderId)) {
-              totalSizeFreed += (file.metadata?.size || 0);
-              allPathsToDelete.push(`${folderPath}/${file.name}`);
-            }
-          });
-        }
-      });
-
-      await Promise.all(scanPromises);
-
-      if (allPathsToDelete.length > 0) {
-        await supabase.storage.from('documents').remove(allPathsToDelete);
-        if (totalSizeFreed > 0) {
-          await supabase.rpc('increment_storage_usage', {
-            user_id: userProfile?.id,
-            bytes_added: -totalSizeFreed
-          });
-        }
+      const totalSizeFreed = Number(purge?.octetsLiberes ?? 0);
+      if (totalSizeFreed > 0) {
+        await supabase.rpc('increment_storage_usage', {
+          user_id: userProfile?.id,
+          bytes_added: -totalSizeFreed
+        });
       }
 
       try {
