@@ -153,7 +153,10 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .upsert({
         tender_id: tenderId,
-        email: email!,
+        // Normalisé : l'unicité (tender_id, email) porte sur la valeur exacte,
+        // « Alex@x.fr » et « alex@x.fr » créeraient sinon deux invitations
+        // concurrentes pour la même personne, chacune avec son propre code.
+        email: email!.toLowerCase().trim(),
         role: role,
         token: token,
         access_code: accessCode,
