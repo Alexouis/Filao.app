@@ -718,6 +718,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             <h3 className="text-lg font-bold text-[#0B1F38] mb-4 flex items-center gap-2 shrink-0">
                                 <CalendarIcon size={18} className="text-[#00A3E0]" />
                                 Prochains jours
+                                {/* Symétrique du compteur des jalons : la liste défilant
+                                    dans une hauteur variable, rien n'indiquait sinon
+                                    qu'il restait des échéances sous la ligne de flottaison. */}
+                                {upcomingEvents.length > 0 && (
+                                    <span className="ml-auto text-xs font-bold text-[#0B1F38]/40">{upcomingEvents.length}</span>
+                                )}
                             </h3>
 
                             <div className="space-y-3 overflow-y-auto custom-scrollbar-dark pr-2 flex-1 min-h-0 pb-4">
