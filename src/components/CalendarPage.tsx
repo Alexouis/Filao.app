@@ -811,6 +811,23 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                         <p className="font-bold text-[#00A3E0] text-sm">Vous n'avez pas d'échéance proche</p>
                                     </div>
                                 )}
+                                {/* Ce qui dépasse l'horizon est compté et dépliable :
+                                    une échéance absente sans explication serait pire
+                                    qu'une liste un peu longue. */}
+                                {(() => {
+                                    const auDela = upcomingEvents.filter(t => !dansHorizon(t.date_limite)).length;
+                                    if (auDela === 0) return null;
+                                    return (
+                                        <button
+                                            onClick={() => setEcheancesDepliees(v => !v)}
+                                            className="w-full text-center text-[10px] font-bold text-[#0B1F38]/45 hover:text-[#00A3E0] py-1.5 transition-colors"
+                                        >
+                                            {echeancesDepliees
+                                                ? "Réduire"
+                                                : `+ ${auDela} autre${auDela > 1 ? 's' : ''} au-delà de ${HORIZON_JOURS} jours`}
+                                        </button>
+                                    );
+                                })()}
                             </div>
                         </div>
 
