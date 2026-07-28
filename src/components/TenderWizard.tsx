@@ -20,6 +20,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
+import { deposerFichier } from '../helpers/uploadHelpers';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -781,13 +782,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         setIsUploadingDCE(true);
         try {
             const fileName = file.name;
-            const filePath = `tenders/dce/${tenderId}/${Date.now()}_${fileName}`;
-
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(filePath, file);
-
-            if (uploadError) throw uploadError;
+            // Le dépôt passe par l'edge function : le nom final est décidé
+            // côté serveur (nettoyage), on ne le devine pas ici.
+            const { chemin: filePath, erreur } = await deposerFichier(file, {
+                dossier: `tenders/dce/${tenderId}`,
+                point: 'dce',
+            });
+            if (erreur || !filePath) throw new Error(erreur || 'Dépôt refusé.');
 
             const newDoc = {
                 id: crypto.randomUUID(),
@@ -839,10 +840,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         if (!file || !tenderId) return;
         setIsUploadingDCE(true);
         try {
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(doc.path, file, { upsert: true });
-            if (uploadError) throw uploadError;
+            const { erreur } = await deposerFichier(file, {
+                // On réécrit à l'emplacement existant : le dossier est celui du
+                // document remplacé, sans son nom de fichier.
+                dossier: doc.path.split('/').slice(0, -1).join('/'),
+                point: 'dce',
+                upsert: true,
+            });
+            if (erreur) throw new Error(erreur);
             const updatedDoc = { ...doc, name: file.name, type: file.type.split('/')[1]?.toUpperCase() || 'DOC', size: file.size, uploaded_at: new Date().toISOString() };
             const updatedDocs = (formData.dce_documents || []).map((d: any) => d.id === doc.id ? updatedDoc : d);
             await supabase.from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
@@ -2337,9 +2342,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 return;
             }
 
-            // Upload
-            const { error: uploadError } = await supabase.storage.from('documents').upload(fullPath, file, { cacheControl: '3600', upsert: true });
-            if (uploadError) throw uploadError;
+            // Upload — validé côté serveur (type réel, taille, destination).
+            const { erreur: erreurDepot } = await deposerFichier(file, {
+                dossier: folderPath as string,
+                point: 'candidature',
+                upsert: true,
+            });
+            if (erreurDepot) throw new Error(erreurDepot);
 
             // Increment Usage
             if (delta !== 0) {

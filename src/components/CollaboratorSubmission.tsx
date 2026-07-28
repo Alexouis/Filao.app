@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { deposerFichier } from '../helpers/uploadHelpers';
 import { useToast } from './ui/Toast';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
@@ -349,14 +350,22 @@ export const CollaboratorSubmission: React.FC = () => {
          }
 
          // --- 3. UPLOAD TO STORAGE ---
-         const { error } = await supabase.storage
-            .from('documents')
-            .upload(fullPath, file, {
-               cacheControl: '3600',
-               upsert: true // Overwrite enabled
-            });
+         // Dépôt d'un partenaire non inscrit : c'est le point d'entrée le plus
+         // exposé, l'appelant n'ayant pas de compte. Le secret utilisé à
+         // l'ouverture de la session invité est rejoué ici pour que le serveur
+         // vérifie lui-même l'identité.
+         const { erreur } = await deposerFichier(file, {
+            dossier: myCollabData.email,
+            point: 'depot_partenaire',
+            upsert: true,
+            ...(guestAuth?.mode === 'token'
+               ? { token: guestAuth.token }
+               : guestAuth?.mode === 'code'
+                  ? { tenderId: tenderIdParam ?? tender?.id, email: guestAuth.email, accessCode: guestAuth.code }
+                  : {}),
+         });
 
-         if (error) throw error;
+         if (erreur) throw new Error(erreur);
 
          // --- 4. INCREMENT CREATOR'S DB COUNTER (Storage) ---
          // We charge the usage to the Creator (owner.id)

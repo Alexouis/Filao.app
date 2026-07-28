@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { TenderFormData, UserProfile, SKILLS } from '../config';
 import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
 import { genererJalons } from '../helpers/jalonHelpers';
+import { deposerFichier } from '../helpers/uploadHelpers';
 import { supabase } from '../lib/supabaseClient';
 
 // Reference Colors & Constants from filao-wizard-workflow.jsx
@@ -220,24 +221,22 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         setIsUploading(true);
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const timestamp = Date.now();
-            const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-            const fileName = `${timestamp}-${cleanName}`;
-            const path = `tenders/temp/${userProfile?.id}/${fileName}`;
-
             try {
-                const { error } = await supabase.storage
-                    .from('documents')
-                    .upload(path, file);
-
-                if (error) throw error;
+                const { chemin, erreur } = await deposerFichier(file, {
+                    dossier: `tenders/temp/${userProfile?.id}`,
+                    point: 'dce',
+                });
+                if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
                 const newDoc = {
                     id: Math.random().toString(36).substr(2, 9),
                     name: file.name,
                     size: file.size,
                     type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-                    path: path
+                    // Le chemin retenu est celui rendu par le serveur : le nom
+                    // de fichier y est nettoyé, le reconstruire ici pointerait
+                    // vers un objet inexistant.
+                    path: chemin
                 };
 
                 setFormData(prev => ({
@@ -260,14 +259,15 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
             const filePath = `documents/${userProfile.id}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(filePath, file);
-            if (uploadError) throw uploadError;
+            const { chemin: cheminDepose, erreur: erreurDepot } = await deposerFichier(file, {
+                dossier: `documents/${userProfile.id}`,
+                point: 'candidature',
+            });
+            if (erreurDepot || !cheminDepose) throw new Error(erreurDepot || 'Dépôt refusé.');
 
             const { data: { publicUrl } } = supabase.storage
                 .from('documents')
-                .getPublicUrl(filePath);
+                .getPublicUrl(cheminDepose);
 
             setDocUrls(prev => ({ ...prev, [field]: publicUrl }));
 

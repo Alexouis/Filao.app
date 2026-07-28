@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { deposerFichier } from '../../helpers/uploadHelpers';
 import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Search, ShieldCheck, ShieldAlert, PenLine, Upload, Calendar as CalendarIcon, MapPin, Hash, Globe, Eye, EyeOff, Award, Users, Cpu, FileStack, ExternalLink, FileText, Leaf, Map, ChevronDown } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
 import { DocumentInput } from './DocumentInput';
@@ -183,13 +184,14 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Let's use 'documents' for now as it exists, but ideally a public bucket for logos.
             // Actually, logos usually need to be public. Let's check if 'logos' folder in 'documents' works or if we need a bucket.
             // Using 'documents' bucket, path 'logos/...'
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(filePath, file, { cacheControl: '3600', upsert: true });
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier: 'logos',
+                point: 'logo',
+                upsert: true,
+            });
+            if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
 
             // Update entreprise
             const { error: updateError } = await supabase
@@ -651,10 +653,14 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             const fileName = `${cleanField}_${userProfile.prenom}_${userProfile.nom}_${Date.now()}`;
             const filePath = `${userProfile.email}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file, { upsert: true });
-            if (uploadError) throw uploadError;
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier: userProfile.email,
+                point: 'coffre_fort',
+                upsert: true,
+            });
+            if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
             setFormData(prev => ({ ...prev, [dbField]: publicUrl }));
 
             const now = new Date().toISOString();
@@ -683,10 +689,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
             const filePath = `documents/${entrepriseData.id}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-            if (uploadError) throw uploadError;
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier: `documents/${entrepriseData.id}`,
+                point: 'coffre_fort',
+            });
+            if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
 
             const { data: inserted, error: insertError } = await supabase
                 .from('documents_candidature')
@@ -748,10 +757,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
             const filePath = `documents/${entrepriseData.id}/${fileName}`;
 
-            const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-            if (uploadError) throw uploadError;
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier: `documents/${entrepriseData.id}`,
+                point: 'coffre_fort',
+            });
+            if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
             const { error: updateError } = await supabase.from('documents_candidature').update({ url: publicUrl, statut: 'en_attente', updated_at: new Date().toISOString() }).eq('id', docId);
             if (!updateError) setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, url: publicUrl, statut: 'en_attente' } : d));
         } catch (err: any) {

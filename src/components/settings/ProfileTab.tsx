@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { deposerFichier } from '../../helpers/uploadHelpers';
 import { User, Mail, Phone, Loader2, Check, Bell, Smartphone, AtSign } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
@@ -72,11 +73,13 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
             setUploadingPhoto(true);
             const fileName = `photo_${userProfile.prenom || 'user'}_${userProfile.nom || 'name'}_${Date.now()}`;
             const filePath = `${userProfile.email}/${fileName}`;
-            const { error: uploadError } = await supabase.storage
-                .from('documents')
-                .upload(filePath, file, { cacheControl: '3600', upsert: true });
-            if (uploadError) throw uploadError;
-            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(filePath);
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier: userProfile.email,
+                point: 'logo',
+                upsert: true,
+            });
+            if (erreur || !chemin) throw new Error(erreur);
+            const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(chemin);
             setFormData(prev => ({ ...prev, photo_url: publicUrl }));
             await supabase.from('utilisateurs').update({ photo_url: publicUrl }).eq('id', userProfile.id);
             onUpdate();

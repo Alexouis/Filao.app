@@ -5,7 +5,7 @@ import {
   OCTETS_A_LIRE,
   REGLES,
   type PointDepot,
-} from "../_shared/fileValidation.ts";
+} from "./fileValidation.ts";
 
 /**
  * Point d'entrée unique des dépôts de fichiers (bug B4).
@@ -49,6 +49,7 @@ const json = (corps: unknown, status = 200) =>
 /** Identité résolue de l'appelant. */
 interface Identite {
   email: string;
+  userId: string | null;
   entrepriseId: string | null;
   /** Un invité n'a pas de compte : ses droits sont plus étroits. */
   invite: boolean;
@@ -114,6 +115,7 @@ Deno.serve(async (req: Request) => {
           .maybeSingle();
         identite = {
           email: data.user.email.toLowerCase(),
+          userId: data.user.id,
           entrepriseId: profil?.entreprise_id ?? null,
           invite: false,
         };
@@ -132,7 +134,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: invitation } = await requete.maybeSingle();
       if (invitation?.email) {
-        identite = { email: String(invitation.email).toLowerCase(), entrepriseId: null, invite: true };
+        identite = { email: String(invitation.email).toLowerCase(), userId: null, entrepriseId: null, invite: true };
       }
     }
 
@@ -140,14 +142,51 @@ Deno.serve(async (req: Request) => {
 
     // --- 2. Destination ------------------------------------------------
     // Les préfixes autorisés découlent de l'identité, jamais de la demande.
+    // Ils reprennent les conventions réellement produites par le front :
+    //   {email}/                      pièces personnelles et dépôts d'invités
+    //   documents/{entreprise_id}/    coffre-fort d'entreprise
+    //   documents/{user_id}/          pièces rattachées à un utilisateur
+    //   tenders/temp/{user_id}/       dépôt avant création du dossier
+    //   tenders/dce/{tender_id}/      pièces du marché — accès vérifié plus bas
+    //   logos/                        logos et photos, point de dépôt « logo »
     const prefixesAutorises = [`${identite.email}/`];
-    if (!identite.invite && identite.entrepriseId) {
-      prefixesAutorises.push(`documents/${identite.entrepriseId}/`);
+    if (!identite.invite) {
+      if (identite.entrepriseId) prefixesAutorises.push(`documents/${identite.entrepriseId}/`);
+      if (identite.userId) {
+        prefixesAutorises.push(`documents/${identite.userId}/`);
+        prefixesAutorises.push(`tenders/temp/${identite.userId}/`);
+      }
       if (point === "logo") prefixesAutorises.push("logos/");
     }
 
     const dossier = dossierDemande.replace(/^\/+|\/+$/g, "");
     const cible = dossier ? `${dossier}/` : `${identite.email}/`;
+
+    // `tenders/dce/{tender_id}/` n'est pas nominatif : l'appartenance ne se lit
+    // pas dans le chemin, il faut la vérifier en base.
+    const dce = cible.match(/^tenders\/dce\/([0-9a-f-]{36})\//i);
+    if (dce && !identite.invite) {
+      const tid = dce[1];
+      const { data: autorise } = await admin
+        .from("reponses_ao")
+        .select("id")
+        .eq("id", tid)
+        .or(`createur_id.eq.${identite.userId}`)
+        .maybeSingle();
+
+      let membre = Boolean(autorise);
+      if (!membre && identite.entrepriseId) {
+        const { data: g } = await admin
+          .from("groupements")
+          .select("id")
+          .eq("projet_id", tid)
+          .eq("entreprise_id", identite.entrepriseId)
+          .maybeSingle();
+        membre = Boolean(g);
+      }
+      if (membre) prefixesAutorises.push(cible);
+    }
+
     if (!prefixesAutorises.some((p) => cible.startsWith(p)) || cible.includes("..")) {
       return json({
         error: "Destination non autorisée.",
