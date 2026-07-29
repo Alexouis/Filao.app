@@ -69,6 +69,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         date_naissance: meta.date_naissance || null,
                         notifications: [],
                         notifications_on: true,
+                        // Traces posées à l'inscription (migration 045). Elles
+                        // transitent par les métadonnées d'authentification :
+                        // c'est le seul canal disponible entre `signUp` et la
+                        // création du profil, qui a lieu ici.
+                        cgu_acceptees_le: meta.cgu_acceptees_le || null,
+                        cgu_version: meta.cgu_version || null,
+                        source_inscription: meta.source_inscription || null,
+                        source_detail: meta.source_detail || null,
                     };
 
                     // upsert is idempotent — safe even if called twice concurrently

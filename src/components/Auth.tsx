@@ -36,6 +36,15 @@ const MockSidebar = () => (
     </div>
 );
 
+/**
+ * Version des conditions générales présentée à l'inscription.
+ *
+ * Conservée avec l'horodatage : des CGU modifiées depuis rendraient la seule
+ * date inexploitable en cas de contestation. À mettre à jour à chaque
+ * révision du texte.
+ */
+const VERSION_CGU = '2026-07-01';
+
 export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
     const { showToast } = useToast();
     const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -160,17 +169,33 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     throw new Error('Vous devez accepter les Conditions Générales');
                 }
 
-                // We verify if the email is already taken in your public table
-                const { data: existingUser, error: checkError } = await supabase
+                // Comparaison insensible à la casse : les adresses sont stockées
+                // telles que saisies. Avec `.eq`, « Alex@x.fr » ne trouvait pas
+                // « alex@x.fr » et un second compte était créé pour la même
+                // personne — deux profils, deux entreprises possibles, et une
+                // invitation qui n'arrive jamais au bon endroit.
+                //
+                // `maybeSingle` plutôt que `single` : ce dernier renvoie une
+                // erreur quand aucune ligne ne correspond, c'est-à-dire dans le
+                // cas nominal d'une inscription.
+                const { data: existingUser } = await supabase
                     .from('utilisateurs')
                     .select('email')
-                    .eq('email', email)
-                    .single();
+                    .ilike('email', email.trim())
+                    .maybeSingle();
 
                 // If we found a row, stop everything
                 if (existingUser) {
                     throw new Error('Un compte existe déjà avec cette adresse email. Veuillez vous connecter.');
                 }
+
+                // Origine du compte. `InvitationLanding` dépose l'identifiant du
+                // dossier avant de rediriger : sa présence suffit à qualifier la
+                // source, sans paramètre d'URL à transporter.
+                const dossierInvitation = sessionStorage.getItem('invitationTenderId');
+                const source = dossierInvitation ? 'invitation'
+                    : document.referrer && !document.referrer.includes(window.location.host) ? 'referral'
+                    : 'direct';
 
                 const { data: authData, error: authError } = await supabase.auth.signUp({
                     email,
@@ -181,6 +206,13 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                             prenom,
                             telephone: telephone || null,
                             date_naissance: dateNaissance || null,
+                            // Transmis à la création du profil : la trace doit
+                            // être posée au même moment que le compte, sinon un
+                            // abandon en cours de route la ferait disparaître.
+                            cgu_acceptees_le: new Date().toISOString(),
+                            cgu_version: VERSION_CGU,
+                            source_inscription: source,
+                            source_detail: dossierInvitation || null,
                         }
                     }
                 });

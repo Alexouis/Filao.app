@@ -16,6 +16,7 @@ import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
 import { ResetPassword } from './components/ResetPassword';
+import { supabase } from './lib/supabaseClient';
 import { NotFound } from './components/NotFound';
 import { NavItem } from './types';
 import { UserProfile, Tender, CollaboratorData, STATUSES } from './config';
@@ -97,6 +98,47 @@ const AppContent = () => {
 
   // --- ACTIVATE LISTENER ---
   useNotificationListener(userProfile);
+
+  /**
+   * Rattachement au dossier après création de compte ou connexion.
+   *
+   * `InvitationLanding` dépose le jeton et l'identifiant du dossier en
+   * `sessionStorage` avant d'envoyer l'invité vers `/register` ou `/login` —
+   * mais rien ne les relisait. L'utilisateur arrivait donc sur un tableau de
+   * bord vide et devait retrouver l'appel d'offres par lui-même, ce que le
+   * critère de recette interdit explicitement.
+   *
+   * L'acceptation est enregistrée au passage : un invité qui va jusqu'à créer
+   * un compte a manifestement accepté de participer, lui redemander serait une
+   * étape de trop.
+   */
+  useEffect(() => {
+    if (!session || !userProfile) return;
+
+    const jeton = sessionStorage.getItem('invitationToken');
+    const dossier = sessionStorage.getItem('invitationTenderId');
+    if (!dossier) return;
+
+    // Retirés avant tout traitement : en cas d'échec, mieux vaut ne pas
+    // rejouer la redirection à chaque rendu.
+    sessionStorage.removeItem('invitationToken');
+    sessionStorage.removeItem('invitationTenderId');
+
+    const rattacher = async () => {
+      if (jeton) {
+        const { error } = await supabase.rpc('respond_to_invitation', {
+          p_token: jeton,
+          p_status: 'accepted',
+        });
+        // Une invitation déjà traitée ou expirée n'empêche pas d'ouvrir le
+        // dossier : l'utilisateur y a peut-être accès par son entreprise.
+        if (error) console.warn('Rattachement à l\'invitation :', error);
+      }
+      navigateTo('wizard', dossier);
+    };
+
+    rattacher();
+  }, [session, userProfile]);
 
   const handleOnboardingComplete = (goToWizard?: boolean) => {
     refreshProfile();
@@ -342,8 +384,12 @@ const AppContent = () => {
     return <ResetPassword />;
   }
 
-  // Public invitation landing page (no auth required)
-  if (location.pathname.startsWith('/invitation/')) {
+  // Public invitation landing page (no auth required).
+  // `/invitation` sans jeton est une route valide : la page l'efface de l'URL
+  // après lecture pour qu'il ne reste ni dans l'historique ni dans les outils de
+  // mesure. Un rechargement arrive donc ici sans jeton, et l'écran invite alors
+  // à rouvrir le lien reçu — plutôt qu'une page 404 incompréhensible.
+  if (location.pathname === '/invitation' || location.pathname.startsWith('/invitation/')) {
     return <InvitationLanding />;
   }
 
