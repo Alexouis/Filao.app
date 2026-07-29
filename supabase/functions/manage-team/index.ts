@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { genererJetonInvitation, empreinteJeton } from "./invitationTokens.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -103,10 +104,21 @@ Deno.serve(async (req) => {
     let insertedInvs = []
     if (insertInvitations && insertInvitations.length > 0) {
       console.log(`Handling ${insertInvitations.length} invitations...`)
+      // La colonne `token` a disparu (migration 042) : seule l'empreinte est
+      // stockée. Le jeton en clair est conservé en mémoire le temps de
+      // construire les liens, puis abandonné.
+      const jetonsEnClair = new Map<string, string>();
+      const aInserer = await Promise.all(insertInvitations.map(async (inv: any) => {
+        const jeton = genererJetonInvitation();
+        jetonsEnClair.set(inv.email, jeton);
+        const { token: _ignore, ...reste } = inv;
+        return { ...reste, token_hash: await empreinteJeton(jeton) };
+      }));
+
       const { data, error: invErr } = await supabaseClient
         .from('invitations')
-        .insert(insertInvitations.map(inv => ({ ...inv, token: inv.token || crypto.randomUUID() })))
-        .select('email, role, token')
+        .insert(aInserer)
+        .select('email, role')
       if (invErr) {
         console.error('Invitation Error:', invErr)
         throw invErr

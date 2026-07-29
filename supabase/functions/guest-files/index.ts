@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { lirePieceCollaborateur, concernePiece } from "../_shared/documentNaming.ts";
+import { lirePieceCollaborateur, concernePiece } from "./documentNaming.ts";
 
 /**
  * Accès en lecture aux fichiers d'un partenaire non inscrit.
@@ -52,13 +52,23 @@ Deno.serve(async (req: Request) => {
     // --- Identité -------------------------------------------------------
     // Le secret est exigé et confronté à la base : c'est lui qui remplace
     // l'identité dont un appelant anonyme ne dispose pas.
-    let requete = admin.from("invitations").select("email, tender_id").limit(1);
-    requete = token
-      ? requete.eq("token", token)
-      : requete.eq("tender_id", tenderId).ilike("email", String(email ?? "").trim())
-               .ilike("access_code", String(accessCode ?? "").trim());
+    // Le jeton n'est plus comparable en clair : la base n'en garde que
+    // l'empreinte. La résolution passe par une fonction dédiée plutôt que de
+    // reproduire le hachage ici — un algorithme dupliqué finit par diverger.
+    let invitation: { email?: string; tender_id?: string } | null = null;
 
-    const { data: invitation } = await requete.maybeSingle();
+    if (token) {
+      const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: token });
+      invitation = data?.[0] ?? null;
+    } else {
+      const { data } = await admin.from("invitations")
+        .select("email, tender_id")
+        .eq("tender_id", tenderId)
+        .ilike("email", String(email ?? "").trim())
+        .ilike("access_code", String(accessCode ?? "").trim())
+        .limit(1).maybeSingle();
+      invitation = data;
+    }
     if (!invitation?.email) return json({ error: "Accès refusé." }, 401);
 
     const dossier = String(invitation.email).toLowerCase();

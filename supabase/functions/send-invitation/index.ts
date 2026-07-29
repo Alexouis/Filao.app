@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { genererJetonInvitation, empreinteJeton } from "./invitationTokens.ts";
 
 /**
  * Échappement HTML.
@@ -187,7 +188,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Insert or Update invitation record ──
-    const token = crypto.randomUUID();
+    // 32 octets aléatoires plutôt qu'un UUID : un UUID v4 ne porte que 122 bits
+    // d'entropie et sa structure est devinable. Seule l'empreinte est stockée.
+    const token = genererJetonInvitation();
+    const tokenHash = await empreinteJeton(token);
     const { error: inviteError } = await adminClient
       .from("invitations")
       .upsert({
@@ -197,7 +201,9 @@ Deno.serve(async (req: Request) => {
         // concurrentes pour la même personne, chacune avec son propre code.
         email: email!.toLowerCase().trim(),
         role: role,
-        token: token,
+        // La base ne conserve que l'empreinte (migration 042). La valeur en
+        // clair ne sort d'ici que dans le lien du courriel.
+        token_hash: tokenHash,
         access_code: accessCode,
         status: "pending",
         created_by: senderUserId || (await authedClient.auth.getUser()).data.user?.id,

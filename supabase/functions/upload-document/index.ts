@@ -148,13 +148,21 @@ Deno.serve(async (req: Request) => {
       // Le secret est exigé côté serveur : la policy « guest upload » ne
       // vérifiait que l'existence d'une invitation portant l'e-mail du dossier
       // visé, sans jamais confronter cela à l'appelant.
-      let requete = admin.from("invitations").select("email, tender_id").limit(1);
-      requete = jeton
-        ? requete.eq("token", jeton)
-        : requete.eq("tender_id", tenderId).ilike("email", emailInvite.trim())
-                 .ilike("access_code", codeAcces.trim());
+      // Résolution par empreinte : la base ne stocke plus le jeton en clair.
+      let invitation: { email?: string } | null = null;
 
-      const { data: invitation } = await requete.maybeSingle();
+      if (jeton) {
+        const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: jeton });
+        invitation = data?.[0] ?? null;
+      } else {
+        const { data } = await admin.from("invitations")
+          .select("email, tender_id")
+          .eq("tender_id", tenderId)
+          .ilike("email", emailInvite.trim())
+          .ilike("access_code", codeAcces.trim())
+          .limit(1).maybeSingle();
+        invitation = data;
+      }
       if (invitation?.email) {
         identite = { email: String(invitation.email).toLowerCase(), userId: null, entrepriseId: null, invite: true };
       }
