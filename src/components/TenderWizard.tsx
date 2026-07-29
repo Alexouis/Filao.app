@@ -3757,38 +3757,28 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                 </span>
                                             </div>
                                         )}
-                                        {/* Codes CPV — nomenclature européenne de l'objet du marché. */}
+                                        {/* Codes CPV — nomenclature européenne de l'objet du marché.
+                                            Présenté comme les autres lignes du panneau : intitulé à
+                                            gauche, valeur à droite. La version précédente occupait
+                                            trois lignes (titre, pastilles, libellé) pour une seule
+                                            information. */}
                                         {formData.cpv_codes?.length > 0 && (
-                                            <div className="pt-1">
-                                                <span className="text-[#0B1F38]/40 block mb-1">Codes CPV</span>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {formData.cpv_codes.slice(0, 4).map(code => (
-                                                        <span
-                                                            key={code}
-                                                            className="text-[10px] font-mono font-bold text-[#0B1F38]/70 bg-[#0B1F38]/5 px-1.5 py-0.5 rounded"
-                                                            // Un code nu n'évoque rien : le libellé de la
-                                                            // division situe le marché au survol.
-                                                            title={cpvLisible(code, formatCpv(code))}
-                                                        >
-                                                            {formatCpv(code)}
-                                                        </span>
-                                                    ))}
-                                                    {formData.cpv_codes.length > 4 && (
-                                                        <span
-                                                            className="text-[10px] font-bold text-[#0B1F38]/40 px-1 py-0.5"
-                                                            title={formData.cpv_codes.slice(4).map(c => cpvLisible(c)).join('\n')}
-                                                        >
-                                                            +{formData.cpv_codes.length - 4}
-                                                        </span>
+                                            <div className="flex justify-between gap-2">
+                                                <span className="text-[#0B1F38]/40 shrink-0">CPV</span>
+                                                <span
+                                                    className="text-[#0B1F38] font-medium truncate text-right"
+                                                    // Le détail complet reste accessible au survol :
+                                                    // un code par ligne, avec sa division.
+                                                    title={formData.cpv_codes.map(c => cpvLisible(c, formatCpv(c))).join('\n')}
+                                                >
+                                                    <span className="font-mono">{formatCpv(formData.cpv_codes[0])}</span>
+                                                    {libelleCpv(formData.cpv_codes[0]) && (
+                                                        <span className="text-[#0B1F38]/50"> · {libelleCpv(formData.cpv_codes[0])}</span>
                                                     )}
-                                                </div>
-                                                {/* Le libellé du premier code, en clair : le survol ne
-                                                    fonctionne ni au doigt ni au lecteur d'écran. */}
-                                                {libelleCpv(formData.cpv_codes[0]) && (
-                                                    <p className="text-[10px] text-[#0B1F38]/50 mt-1 leading-snug">
-                                                        {libelleCpv(formData.cpv_codes[0])}
-                                                    </p>
-                                                )}
+                                                    {formData.cpv_codes.length > 1 && (
+                                                        <span className="text-[#0B1F38]/40"> +{formData.cpv_codes.length - 1}</span>
+                                                    )}
+                                                </span>
                                             </div>
                                         )}
                                         {formData.lien_telechargement ? (
