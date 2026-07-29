@@ -13,6 +13,16 @@
 #    est active pour ce répertoire. Sans elle, le fichier est ignoré en silence
 #    et le 404 persiste.
 
+# `FallbackResource` d'abord : une seule directive, et elle ne s'applique qu'aux
+# requêtes ne correspondant à aucun fichier existant — les assets sont servis
+# normalement sans condition supplémentaire à écrire.
+<IfModule mod_dir.c>
+  FallbackResource /index.html
+</IfModule>
+
+# Repli sur mod_rewrite si mod_dir est absent ou si `FallbackResource` n'est pas
+# autorisé par la configuration du serveur.
+<IfModule !mod_dir.c>
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
@@ -27,12 +37,20 @@
   # Tout le reste est confié au routeur côté client.
   RewriteRule ^ index.html [L]
 </IfModule>
+</IfModule>
 
-# Sans mod_rewrite, on renvoie au moins index.html sur les 404 : le routeur
-# prend alors le relais, au prix d'un statut HTTP incorrect.
+# Ni mod_dir ni mod_rewrite : on renvoie au moins index.html sur les 404, le
+# routeur prend alors le relais — au prix d'un statut HTTP incorrect.
+<IfModule !mod_dir.c>
 <IfModule !mod_rewrite.c>
   ErrorDocument 404 /index.html
 </IfModule>
+</IfModule>
+
+# Le vrai 404 applicatif est rendu par le routeur : il ne connaît qu'une liste
+# fermée de chemins et affiche une page d'erreur Filao pour tout le reste.
+# Apache ne peut pas faire ce tri — il ne distingue pas une route de
+# l'application d'une faute de frappe.
 
 <IfModule mod_headers.c>
   # index.html ne doit jamais être mis en cache : il référence les bundles par

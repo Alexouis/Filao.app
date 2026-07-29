@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useSearchParams } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { OnboardingWizard } from './components/OnboardingWizard';
 
@@ -16,6 +16,7 @@ import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
 import { ResetPassword } from './components/ResetPassword';
+import { NotFound } from './components/NotFound';
 import { NavItem } from './types';
 import { UserProfile, Tender, CollaboratorData, STATUSES } from './config';
 import { useNotificationListener } from './hooks/useNotificationListener';
@@ -344,6 +345,29 @@ const AppContent = () => {
   // Public invitation landing page (no auth required)
   if (location.pathname.startsWith('/invitation/')) {
     return <InvitationLanding />;
+  }
+
+  // `/login` n'était pas déclaré : il affichait l'écran de connexion par effet
+  // de bord, en retombant sur le flux normal faute de session. Explicite ici,
+  // il fonctionne aussi pour un utilisateur déjà connecté.
+  if (location.pathname === '/login') {
+    return session ? <Navigate to="/" replace /> : <Auth />;
+  }
+
+  /**
+   * Tri des chemins inconnus.
+   *
+   * La réécriture SPA renvoie `index.html` pour tout chemin, y compris une
+   * faute de frappe : le serveur ne sait pas distinguer une route applicative
+   * d'une adresse erronée. Sans ce contrôle, `/nimportequoi` affichait
+   * l'application comme si l'URL était valide.
+   *
+   * La navigation interne passe par des paramètres de requête (`/?tab=…`), donc
+   * la racine est le seul chemin de l'application authentifiée.
+   */
+  const CHEMINS_CONNUS = ['/', '/login', '/register', '/reset-password', '/collaborator-access'];
+  if (!CHEMINS_CONNUS.includes(location.pathname)) {
+    return <NotFound />;
   }
 
   // Normal App Flow (Auth check, Layout, etc.)
