@@ -53,6 +53,32 @@ export const genererCodeAcces = (longueur: number = LONGUEUR_DEFAUT): string => 
 };
 
 /**
+ * Masque un jeton pour la journalisation.
+ *
+ * Le jeton circule dans le chemin de l'URL : il se retrouve dans l'historique
+ * du navigateur, les journaux d'accès du serveur, et toute trace d'erreur qui
+ * reprend l'adresse courante. La conception l'exige explicitement : « le token
+ * ne doit apparaître ni dans les logs applicatifs, ni dans l'instrumentation
+ * analytics ».
+ *
+ * On conserve les quatre premiers caractères et la longueur : de quoi
+ * rapprocher deux traces d'un même jeton lors d'un diagnostic, sans permettre
+ * de le rejouer.
+ */
+export const masquerJeton = (jeton?: string | null): string =>
+    jeton ? `${jeton.slice(0, 4)}…(${jeton.length})` : '(absent)';
+
+/**
+ * Retire un jeton d'invitation d'une chaîne quelconque — message d'erreur,
+ * pile d'appels, URL.
+ *
+ * Une trace d'erreur reprend souvent l'adresse courante : masquer le jeton à la
+ * source ne suffit pas si l'URL complète repart ailleurs.
+ */
+export const masquerJetonDansTexte = (texte: string): string =>
+    texte.replace(/(\/invitation\/)[A-Za-z0-9_-]{16,}/g, '$1…');
+
+/**
  * Jeton d'invitation transmis par lien. Plus long que le code d'accès : il
  * n'est jamais saisi à la main, rien n'oblige à le garder court.
  *

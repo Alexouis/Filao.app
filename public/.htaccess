@@ -53,6 +53,16 @@
 # l'application d'une faute de frappe.
 
 <IfModule mod_headers.c>
+  # Le jeton d'invitation circule dans le chemin (`/invitation/<token>`). Sans
+  # cette directive, il part dans l'en-tête `Referer` de toute requête sortante
+  # — police externe, image, script tiers — et se retrouve dans les journaux de
+  # serveurs que nous ne maîtrisons pas. `same-origin` le confine au domaine.
+  Header always set Referrer-Policy "same-origin"
+
+  # Durcissements courants, sans rapport avec le jeton mais de même coût.
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+
   # index.html ne doit jamais être mis en cache : il référence les bundles par
   # empreinte, une version périmée pointerait vers des fichiers supprimés.
   <FilesMatch "index\.html$">

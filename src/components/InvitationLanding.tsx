@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { masquerJeton, masquerJetonDansTexte } from '../helpers/inviteCodeHelpers';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     Briefcase, UserPlus, LogIn, XCircle, Loader2,
@@ -37,21 +38,58 @@ interface Invitation {
 
 export const InvitationLanding: React.FC = () => {
     const { pathname } = useLocation();
-    // Extract token manually since we are not using a Route definition
-    const token = pathname.split('/invitation/')[1];
+    // Extract token manually since we are not using a Route definition.
+    // Conservé en ref : le jeton disparaît de l'URL juste après lecture (voir
+    // l'effet plus bas), il ne peut donc plus être relu depuis `pathname`.
+    const tokenRef = React.useRef(pathname.split('/invitation/')[1]);
+    const token = tokenRef.current;
     const navigate = useNavigate();
+
+    /**
+     * Journalisation sans jeton.
+     *
+     * Une trace d'erreur reprend fréquemment l'adresse courante et la pile
+     * d'appels : masquer le jeton dans la barre d'adresse ne suffit pas s'il
+     * repart dans un message d'erreur. Toutes les traces de cet écran passent
+     * par ce filtre.
+     */
+    const tracer = (contexte: string, err: unknown) => {
+        const texte = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+        console.error(`[invitation ${masquerJeton(token)}] ${contexte}`, masquerJetonDansTexte(texte));
+    };
 
     const [loading, setLoading] = useState(true);
     const [invitation, setInvitation] = useState<Invitation | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState(false);
 
+    /**
+     * Retire le jeton de la barre d'adresse une fois lu.
+     *
+     * La conception impose qu'il n'apparaisse « ni dans les logs applicatifs,
+     * ni dans l'instrumentation analytics ». Or tant qu'il reste dans l'URL, il
+     * est enregistré dans l'historique du navigateur, transmis à tout outil de
+     * mesure d'audience, et visible de quiconque regarde l'écran par-dessus
+     * l'épaule — un artisan ouvrant son lien sur un chantier.
+     *
+     * `replaceState` ne crée pas d'entrée d'historique : le bouton Précédent
+     * continue de fonctionner normalement.
+     */
+    useEffect(() => {
+        if (tokenRef.current && window.location.pathname.includes('/invitation/')) {
+            window.history.replaceState({}, '', '/invitation');
+        }
+    }, []);
+
     useEffect(() => {
         if (token) {
             fetchInvitation(token);
         } else {
             setLoading(false);
-            setError("Lien d'invitation invalide.");
+            // Cas le plus fréquent : un rechargement après que le jeton a été
+            // retiré de l'URL. Le message doit dire quoi faire, pas seulement
+            // constater l'échec.
+            setError("Ce lien ne contient pas d'invitation valide. Rouvrez le lien reçu par e-mail.");
         }
     }, [token]);
 
@@ -108,7 +146,7 @@ export const InvitationLanding: React.FC = () => {
 
             setInvitation(data);
         } catch (err) {
-            console.error(err);
+            tracer('erreur', err);
             setError('Erreur lors du chargement de l\'invitation.');
         } finally {
             setLoading(false);
@@ -133,7 +171,7 @@ export const InvitationLanding: React.FC = () => {
 
             setError('Invitation refusée. Vous pouvez fermer cette page.');
         } catch (err) {
-            console.error(err);
+            tracer('erreur', err);
             setError('Erreur lors du refus de l\'invitation.');
         } finally {
             setActionLoading(false);
