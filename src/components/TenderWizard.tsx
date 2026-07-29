@@ -11,7 +11,7 @@ import {
     Target, AlertTriangle, AlertCircle, Sparkles, XCircle, Mail, Network, Building,
     Info, CalendarCheck, Download, UserPlus, FolderOpen,
     Files, Save, Send, ShieldAlert, MessageSquare, RefreshCw,
-    UserCheck, Crown, LogOut, Trophy, Frown, Pencil,
+    UserCheck, Crown, LogOut, Trophy, Frown, Pencil, Lock,
     Eye,
     Building2
 } from 'lucide-react';
@@ -5189,6 +5189,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const fileKey = `${docDef.value}-${collabId}`;
             const fileObj = uploadedFiles[fileKey];
 
+            /**
+             * Matrice de permissions : un co-traitant voit l'avancement et
+             * l'intitulé des pièces des autres membres, sans pouvoir les
+             * consulter, les télécharger ni en déposer à leur place. Seuls le
+             * mandataire et le membre concerné y accèdent.
+             *
+             * La RLS l'impose déjà (migration 039b) : la policy de lecture ne
+             * couvre que son propre dossier, sauf pour le créateur de l'AO.
+             * Proposer le bouton ici revenait à annoncer une action qui
+             * échouerait — l'interface doit dire la même chose que la base.
+             */
+            const peutConsulter = isSelf || isOwner;
+
             return (
                 <div key={docDef.value} className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#0B1F38]/5 group transition-all hover:shadow-sm">
                     <div className="flex items-center gap-3">
@@ -5199,13 +5212,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {fileObj && member.email && (
+                        {fileObj && member.email && peutConsulter && (
                             <button
                                 onClick={() => handleDownloadFile(`${member.email?.toLowerCase().trim()}/${fileObj.name}`, `${docDef.label}.${fileObj.name.split('.').pop()}`)}
+                                title="Consulter la pièce"
                                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-[#00A3E0] hover:text-white transition-all shadow-sm"
                             >
                                 <Eye size={14} />
                             </button>
+                        )}
+                        {fileObj && !peutConsulter && (
+                            /* L'avancement reste visible — c'est ce qui permet de
+                               savoir si le dossier avance — mais pas le contenu. */
+                            <span
+                                title="Pièce déposée. Seuls le mandataire et son propriétaire peuvent la consulter."
+                                className="w-8 h-8 flex items-center justify-center rounded-lg text-[#0B1F38]/20"
+                            >
+                                <Lock size={14} />
+                            </span>
                         )}
 
                         {isSelf && (
@@ -5421,12 +5445,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             ) : <div></div>}
                             <div className="flex items-center gap-4">
                                 <button onClick={() => setSelectedMemberIndex(null)} className="px-6 py-3 font-bold text-gray-400 hover:text-gray-600 transition-colors text-sm">Fermer</button>
-                                <button
-                                    onClick={() => handleDownloadAllFiles(member)}
-                                    className="px-8 py-3 bg-[#0B1F38] hover:bg-[#1B2533] text-white font-bold rounded-2xl shadow-xl shadow-[#0B1F38]/20 transition-all active:scale-[0.98] text-sm flex items-center gap-2"
-                                >
-                                    <Download size={18} /> Télécharger tout (.zip)
-                                </button>
+                                {/* Même règle que pièce par pièce : un co-traitant ne
+                                    récupère pas l'archive des pièces d'un autre membre. */}
+                                {(isSelf || isOwner) && (
+                                    <button
+                                        onClick={() => handleDownloadAllFiles(member)}
+                                        className="px-8 py-3 bg-[#0B1F38] hover:bg-[#1B2533] text-white font-bold rounded-2xl shadow-xl shadow-[#0B1F38]/20 transition-all active:scale-[0.98] text-sm flex items-center gap-2"
+                                    >
+                                        <Download size={18} /> Télécharger tout (.zip)
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
