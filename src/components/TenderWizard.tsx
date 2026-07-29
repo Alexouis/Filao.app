@@ -658,6 +658,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * alors sans bruit, et l'archive sortait vide.
      */
     const [uploadedFilePaths, setUploadedFilePaths] = useState<{ [key: string]: string }>({});
+    /** Dernier nombre de pièces reçu, pour ne recharger que sur un vrai dépôt. */
+    const dernierNbFichiers = React.useRef<number | null>(null);
 
 
 
@@ -947,6 +949,31 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             .on('postgres_changes',
                 { event: '*', schema: 'public', table: 'groupements', filter: `projet_id=eq.${tenderId}` },
                 rafraichir)
+            // Dépôts de pièces. Les fichiers vivent dans le stockage, qui n'émet
+            // pas d'événement temps réel : c'est `update_tender_file_count`,
+            // appelée après chaque dépôt, qui touche `reponses_ao` et sert donc
+            // de signal. Sans cela, la checklist du mandataire n'avançait qu'au
+            // rechargement — le critère de recette demande l'inverse.
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'reponses_ao', filter: `id=eq.${tenderId}` },
+                (charge: any) => {
+                    // Ne recharger que si le nombre de pièces a bougé : cette
+                    // table est aussi mise à jour par le mandataire lui-même à
+                    // chaque modification du contexte, ce qui déclencherait un
+                    // rechargement à chaque frappe enregistrée.
+                    const apres = charge?.new?.nb_fichiers_recus;
+                    if (typeof apres !== 'number') return;
+
+                    // Comparaison avec la dernière valeur connue localement,
+                    // pas avec `charge.old` : celui-ci n'est peuplé que si la
+                    // table est en REPLICA IDENTITY FULL, sinon il ne contient
+                    // que la clé primaire — la comparaison serait toujours vraie
+                    // et l'on rechargerait à chaque enregistrement du contexte
+                    // par le mandataire lui-même.
+                    if (dernierNbFichiers.current === apres) return;
+                    dernierNbFichiers.current = apres;
+                    rafraichir();
+                })
             .subscribe();
 
         return () => { supabase.removeChannel(canal); };

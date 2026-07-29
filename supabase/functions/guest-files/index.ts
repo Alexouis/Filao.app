@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { lirePieceCollaborateur, concernePiece } from "./documentNaming.ts";
+import { verifierDebit } from "./rateLimit.ts";
 
 /**
  * Accès en lecture aux fichiers d'un partenaire non inscrit.
@@ -48,6 +49,11 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(urlProjet, serviceKey);
     const { action, token, tenderId, email, accessCode, fichier } = await req.json();
+
+    // Limitation de débit avant toute lecture : un jeton connu ne doit pas
+    // permettre d'énumérer le contenu d'un dossier à volonté.
+    const debit = await verifierDebit(admin, req, token);
+    if (!debit.autorise) return json({ error: debit.motif }, 429);
 
     // --- Identité -------------------------------------------------------
     // Le secret est exigé et confronté à la base : c'est lui qui remplace

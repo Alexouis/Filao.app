@@ -6,6 +6,7 @@ import {
   REGLES,
   type PointDepot,
 } from "./fileValidation.ts";
+import { verifierDebit } from "./rateLimit.ts";
 
 /**
  * Point d'entrée unique des dépôts de fichiers (bug B4).
@@ -119,6 +120,14 @@ Deno.serve(async (req: Request) => {
     const tenderId = String(formulaire.get("tenderId") ?? "");
     const emailInvite = String(formulaire.get("email") ?? "");
     const codeAcces = String(formulaire.get("accessCode") ?? "");
+
+    // Limitation de débit sur le seul chemin acceptant des fichiers sans
+    // authentification : c'est celui qui transformerait un jeton fuité en
+    // espace de dépôt anonyme.
+    if (jeton) {
+      const debit = await verifierDebit(admin, req, jeton);
+      if (!debit.autorise) return json({ error: debit.motif }, 429);
+    }
 
     if (!(fichier instanceof File)) return json({ error: "Aucun fichier transmis" }, 400);
     if (!REGLES[point]) return json({ error: `Point de dépôt inconnu : « ${point} »` }, 400);
