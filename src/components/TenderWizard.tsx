@@ -1045,6 +1045,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             let allProgress: { [key: string]: number } = {};
             let allPaths: { [key: string]: string } = {};
 
+            // Un appel de listage par membre. Ils partent en parallèle via
+            // Promise.all, mais chacun est une requête réseau distincte : sur un
+            // groupement fourni, c'est le premier suspect du gel signalé.
+            const debutListage = performance.now();
             const listPromises = teamEmails.map(async (email) => {
                 const { data, error } = await supabase.storage
                     .from('documents')
@@ -1118,6 +1122,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         }
                     });
                 });
+            }
+
+            if (perfActif()) {
+                console.log(`     ↳ listage de ${teamEmails.length} dossier(s) : ${(performance.now() - debutListage).toFixed(0)} ms`);
             }
 
             setUploadedFiles(syncedFiles);
@@ -1313,7 +1321,55 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         } catch (error) { console.error('Error loading network collaborators:', error); }
     };
 
+    /**
+     * Chronométrage du chargement d'un dossier.
+     *
+     * Un gel d'une trentaine de secondes est signalé sur cet écran. Plutôt que
+     * d'optimiser au jugé, on mesure : `fetchTenderFromDB` enchaîne une dizaine
+     * de requêtes, dont certaines en série et d'autres par membre du
+     * groupement. Ces marqueurs disent laquelle coûte.
+     *
+     * Activation sans recompilation, depuis la console :
+     *     localStorage.setItem('filao:perf', '1')
+     * puis rechargement. Les mesures apparaissent sous « ⏱ AO ».
+     *
+     * Désactivé par défaut : ces relevés n'ont aucun intérêt pour un
+     * utilisateur et encombreraient la console.
+     */
+    const perfActif = () => {
+        try { return localStorage.getItem('filao:perf') === '1'; } catch { return false; }
+    };
+
+    const chrono = (() => {
+        let debutGlobal = 0;
+        let dernier = 0;
+        return {
+            demarrer: (libelle: string) => {
+                if (!perfActif()) return;
+                debutGlobal = performance.now();
+                dernier = debutGlobal;
+                console.group(`⏱ AO — ${libelle}`);
+            },
+            etape: (libelle: string) => {
+                if (!perfActif()) return;
+                const maintenant = performance.now();
+                const duree = maintenant - dernier;
+                dernier = maintenant;
+                // Au-delà de 300 ms une étape mérite l'attention : on la
+                // distingue visuellement pour ne pas avoir à lire les chiffres.
+                const marque = duree > 1000 ? '🔴' : duree > 300 ? '🟠' : '  ';
+                console.log(`${marque} ${libelle.padEnd(38)} ${duree.toFixed(0).padStart(6)} ms`);
+            },
+            terminer: () => {
+                if (!perfActif()) return;
+                console.log(`   ${'TOTAL'.padEnd(38)} ${(performance.now() - debutGlobal).toFixed(0).padStart(6)} ms`);
+                console.groupEnd();
+            },
+        };
+    })();
+
     const fetchTenderFromDB = async (id: string, profileOverride?: any) => {
+        chrono.demarrer(`chargement du dossier ${id.slice(0, 8)}`);
         if (!id || id === 'null' || id === 'undefined' || id === '') return;
         setLoading(true);
         try {
@@ -1330,7 +1386,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
 
             if (error) throw error;
-
+            chrono.etape('reponses_ao (dossier + jointures)');
 
             if (data) {
                 setTenderId(id);
@@ -1372,6 +1428,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 });
                 setCurrentView('decision');
 
+                chrono.etape('mapping formData');
+
                 // 1. Fetch groupements with relations
                 const { data: grpData, error: grpErr } = await supabase
                     .from('groupements')
@@ -1385,6 +1443,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     .eq('projet_id', id);
                 if (grpErr) console.error('Groupements fetch error:', grpErr);
 
+                chrono.etape('groupements + entreprises + membres');
+
                 // 2. Fetch standard email invitations
                 const { data: invData, error: invErr } = await supabase
                     .from('invitations')
@@ -1394,6 +1454,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                 const groupementsData = grpData || [];
                 const invitationsData = invData || [];
+
+                chrono.etape('invitations');
 
                 // 5. Fetch Specialties for all companies in groupement
                 const companyIds = groupementsData.map((g: any) => g.entreprise_id).filter(Boolean);
@@ -1414,6 +1476,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         }
                     });
                 }
+
+                chrono.etape('company_specialties (toutes entreprises)');
 
                 // 3. Map groupements to UI format
                 const mappedGroupements: UIGroupementMember[] = groupementsData.map((g: any) => {
@@ -1482,6 +1546,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     return true;
                 });
 
+                chrono.etape('mapping membres + invitations');
+
                 // 7. Identify creator, mark as owner, but TRUST the DB role (don't hardcode Mandataire)
                 const creatorInList = deduplicatedFinal.find(m =>
                     m.id === data.createur_id ||
@@ -1546,12 +1612,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     }
                 }
 
+                chrono.etape('résolution du créateur');
+
                 // 8. Final Sync: Ensure members and files are set together to avoid flickering
                 await loadUploadedFiles(id, deduplicatedFinal);
+                chrono.etape(`loadUploadedFiles (${deduplicatedFinal.length} membre(s))`);
                 setGroupementMembers(deduplicatedFinal);
             }
+            chrono.terminer();
         } catch (err) {
             console.error('Error in fetchTenderFromDB:', err);
+            chrono.terminer();
         } finally {
             setLoading(false);
             setIsInitializing(false);
