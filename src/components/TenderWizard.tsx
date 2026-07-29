@@ -21,7 +21,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { deposerFichier } from '../helpers/uploadHelpers';
-import { telechargerDocument } from '../helpers/storageHelpers';
+import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
@@ -929,6 +929,73 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             console.error('Error loading taxonomy:', error);
         } finally {
             setLoadingRef(false);
+        }
+    };
+
+    /**
+     * Archive de toutes les pièces du marché.
+     *
+     * Le bloc DCE n'offrait qu'un téléchargement pièce par pièce. Sur un dossier
+     * réel — RC, CCAP, CCTP, DPGF, AE, annexes — cela fait autant de clics et
+     * autant de fichiers éparpillés dans le dossier de téléchargements.
+     */
+    const [zipDCEEnCours, setZipDCEEnCours] = useState(false);
+
+    const telechargerToutLeDCE = async () => {
+        const pieces = formData.dce_documents || [];
+        if (pieces.length === 0) {
+            showToast('Aucune pièce du marché à télécharger.', 'warning');
+            return;
+        }
+
+        setZipDCEEnCours(true);
+        try {
+            const zip = new JSZip();
+            const manquantes: string[] = [];
+
+            for (const [index, doc] of pieces.entries()) {
+                const { data, error } = await supabase.storage.from('documents').download(doc.path);
+                if (error || !data) {
+                    // Une pièce absente ne doit pas faire échouer l'archive
+                    // entière : on la signale et on poursuit.
+                    console.warn('Pièce du marché introuvable', { chemin: doc.path, error });
+                    manquantes.push(doc.name || doc.path);
+                    continue;
+                }
+
+                // Extension déduite du contenu, comme pour l'export du dossier :
+                // le nom d'origine peut ne pas en porter.
+                const debut = new Uint8Array(await data.slice(0, OCTETS_A_LIRE).arrayBuffer());
+                const type = detecterType(debut);
+                const ext = EXTENSIONS_PAR_TYPE[type] ?? '';
+                const base = nettoyerTexteLibre(doc.name || `piece-${index + 1}`, 60)
+                    .replace(/[\\/:*?"<>|]/g, '-')
+                    .replace(/\.[A-Za-z0-9]{1,8}$/, '');
+                const rang = String(index + 1).padStart(2, '0');
+                zip.file(`${rang} - ${base}${ext ? '.' + ext : ''}`, data);
+            }
+
+            const nbFichiers = Object.keys(zip.files).filter(n => !zip.files[n].dir).length;
+            if (nbFichiers === 0) {
+                showToast("Aucune pièce n'a pu être récupérée.", 'error');
+                return;
+            }
+
+            const contenu = await zip.generateAsync({ type: 'blob' });
+            const nomArchive = `DCE_${(formData.titre || 'marche').slice(0, 40)}_${new Date().toISOString().split('T')[0]}.zip`;
+            saveAs(contenu, nomArchive.replace(/\s+/g, '_'));
+
+            showToast(
+                manquantes.length > 0
+                    ? `${nbFichiers} pièce(s) téléchargée(s), ${manquantes.length} introuvable(s).`
+                    : `${nbFichiers} pièce(s) téléchargée(s).`,
+                manquantes.length > 0 ? 'warning' : 'success'
+            );
+        } catch (err) {
+            console.error('Archive DCE:', err);
+            showToast("La préparation de l'archive a échoué.", 'error');
+        } finally {
+            setZipDCEEnCours(false);
         }
     };
 
@@ -5053,9 +5120,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 <p className="text-xs text-[#0B1F38]/50">Documents extraits du dossier de consultation</p>
                             </div>
                         </div>
-                        <button onClick={() => setShowDCEPiecesModal(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors">
-                            <X size={20} className="text-[#0B1F38]/40" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                            {/* Accessible à tous les membres du dossier, pas seulement
+                                au mandataire : les pièces du marché sont communes. */}
+                            {(formData.dce_documents || []).length > 0 && (
+                                <button
+                                    onClick={telechargerToutLeDCE}
+                                    disabled={zipDCEEnCours}
+                                    className="px-3 py-2 text-xs font-bold text-[#0B1F38] hover:text-[#00A3E0] hover:bg-[#00A3E0]/10 rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                    title="Télécharger toutes les pièces du marché"
+                                >
+                                    {zipDCEEnCours
+                                        ? <><Loader2 size={16} className="animate-spin" /> Préparation…</>
+                                        : <><Download size={16} /> Tout télécharger</>}
+                                </button>
+                            )}
+                            <button onClick={() => setShowDCEPiecesModal(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors">
+                                <X size={20} className="text-[#0B1F38]/40" />
+                            </button>
+                        </div>
                     </div>
 
                     {/* Content */}
@@ -5075,6 +5158,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         type="file"
                                         id="dce-upload"
                                         className="hidden"
+                                        // L'interface annonçait « PDF / DOCX / XLSX / ZIP » alors que
+                                        // l'input n'en filtrait aucun. `accept` ne protège rien — il
+                                        // ne fait que présélectionner dans la boîte de dialogue — la
+                                        // validation qui compte est celle de l'edge function.
+                                        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip"
                                         onChange={handleDCEFileUpload}
                                         disabled={isUploadingDCE}
                                     />
@@ -5112,6 +5200,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0 ml-4">
+                                            {/* Consultation sans téléchargement : critère de recette
+                                                explicite. Le fichier s'ouvre dans un onglet, où le
+                                                navigateur affiche nativement les PDF et les images. */}
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); ouvrirDocument(doc.path); }}
+                                                className="p-2 text-[#0B1F38]/30 hover:text-[#00A3E0] hover:bg-[#00A3E0]/10 rounded-lg transition-all"
+                                                title="Consulter"
+                                            >
+                                                <Eye size={16} />
+                                            </button>
                                             {/* Download */}
                                             {/* Une URL publique ne résoudra plus rien une fois le
                                                 bucket privé : l'URL signée est demandée au clic. */}
