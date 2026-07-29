@@ -1144,31 +1144,102 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
+    /**
+     * Remplacement d'une pièce du marché — additif ou rectificatif.
+     *
+     * L'ancienne implémentation écrasait le fichier à son emplacement. Or c'est
+     * précisément le cas que la fiche signale comme « source d'erreur grave » :
+     * un acheteur republie un CCTP, et un co-traitant qui a chiffré sur la
+     * version précédente ne l'apprend jamais. Il dépose une offre sur des pièces
+     * périmées, ce qui peut coûter le marché.
+     *
+     * La nouvelle version est donc déposée SOUS UN NOUVEAU NOM, l'ancienne reste
+     * en place et rejoint l'historique de la pièce, et les membres du groupement
+     * sont notifiés.
+     */
     const handleDCEFileReplace = async (e: React.ChangeEvent<HTMLInputElement>, doc: any) => {
+        if (refuserSiNonMandataire('remplacer une pièce du marché')) return;
         const file = e.target.files?.[0];
         if (!file || !tenderId) return;
+
         setIsUploadingDCE(true);
         try {
-            const { erreur } = await deposerFichier(file, {
-                // On réécrit à l'emplacement existant : le dossier est celui du
-                // document remplacé, sans son nom de fichier.
-                dossier: doc.path.split('/').slice(0, -1).join('/'),
+            const dossier = doc.path.split('/').slice(0, -1).join('/');
+            const versionSuivante = (doc.version ?? 1) + 1;
+
+            // Nom versionné : l'ancien objet n'est pas écrasé, il reste
+            // téléchargeable depuis l'historique.
+            const { chemin, erreur } = await deposerFichier(file, {
+                dossier,
                 point: 'dce',
-                upsert: true,
+                nom: `v${versionSuivante}-${Date.now()}-${file.name}`,
             });
-            if (erreur) throw new Error(erreur);
-            const updatedDoc = { ...doc, name: file.name, type: file.type.split('/')[1]?.toUpperCase() || 'DOC', size: file.size, uploaded_at: new Date().toISOString() };
+            if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
+
+            const updatedDoc = {
+                ...doc,
+                name: file.name,
+                path: chemin,
+                type: file.type.split('/')[1]?.toUpperCase() || 'DOC',
+                size: file.size,
+                uploaded_at: new Date().toISOString(),
+                version: versionSuivante,
+                // L'entrée la plus récente en tête : c'est l'ordre dans lequel
+                // on remonte le temps quand on cherche « la version d'avant ».
+                historique: [
+                    { version: doc.version ?? 1, name: doc.name, path: doc.path, size: doc.size, uploaded_at: doc.uploaded_at },
+                    ...(doc.historique || []),
+                ],
+            };
+
             const updatedDocs = (formData.dce_documents || []).map((d: any) => d.id === doc.id ? updatedDoc : d);
-            await supabase.from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
+            const { error: dbError } = await supabase
+                .from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
+            if (dbError) throw dbError;
+
             setFormData(prev => ({ ...prev, dce_documents: updatedDocs }));
-            showToast(`"${file.name}" mis à jour.`, 'success');
-        } catch (err) {
+            await notifierNouvelleVersionDCE(updatedDoc);
+
+            showToast(`"${file.name}" remplacé — version ${versionSuivante}. Les membres ont été prévenus.`, 'success');
+        } catch (err: any) {
             console.error('Error replacing DCE doc:', err);
-            showToast('Erreur lors du remplacement.', 'error');
+            showToast(err?.message || 'Erreur lors du remplacement.', 'error');
         } finally {
             setIsUploadingDCE(false);
             if (e.target) e.target.value = '';
         }
+    };
+
+    /**
+     * Prévient les membres du groupement qu'une pièce a été republiée.
+     *
+     * Sans cette alerte, le versionnement ne servirait qu'à celui qui dépose :
+     * l'intérêt est justement que les autres apprennent que ce sur quoi ils
+     * travaillent a changé.
+     */
+    const notifierNouvelleVersionDCE = async (doc: any) => {
+        const destinataires = groupementMembers
+            .filter(m => !m.deleted && m.email && m.email !== userProfile?.email)
+            .map(m => m.email as string);
+
+        if (destinataires.length === 0) return;
+
+        await Promise.all(destinataires.map(async (email) => {
+            const { error } = await supabase.functions.invoke('send-reminder', {
+                body: {
+                    tenderId,
+                    tenderTitle: formData.titre,
+                    email,
+                    senderName: `${userProfile?.prenom || ''} ${userProfile?.nom || ''}`.trim() || 'Le mandataire',
+                    senderUserId: userProfile?.id,
+                    milestoneLabel: `Nouvelle version — ${doc.categorie || 'pièce'} : ${doc.name}`,
+                    milestoneDate: doc.uploaded_at,
+                },
+            });
+            // Un échec de notification ne doit pas remettre en cause le dépôt :
+            // la pièce est en place, c'est le plus important.
+            if (error) console.warn('Notification de version non envoyée', { email, error });
+        }));
     };
 
     const loadUploadedFiles = async (tId: string, membersOverride?: UIGroupementMember[]) => {
@@ -5312,9 +5383,41 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                     ) : (
                                                         <span className="bg-[#00A3E0]/10 text-[#00A3E0] rounded px-1.5 py-0.5">{doc.categorie || 'ANNEXE'}</span>
                                                     )}
+                                                    {(doc.version ?? 1) > 1 && (
+                                                        /* Une pièce republiée doit se voir d'un coup d'œil :
+                                                           c'est tout l'objet du versionnement. */
+                                                        <span className="bg-amber-100 text-amber-800 rounded px-1.5 py-0.5">
+                                                            v{doc.version}
+                                                        </span>
+                                                    )}
                                                     {doc.type} &bull; {doc.size ? (doc.size / 1024 / 1024).toFixed(2) : '0'} Mo
                                                 </span>
                                             </div>
+                                            {/* Versions précédentes. Conservées et téléchargeables :
+                                                un litige sur un marché se tranche souvent sur « quelle
+                                                version faisait foi à telle date ». */}
+                                            {(doc.historique || []).length > 0 && (
+                                                <details className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                                                    <summary className="text-[10px] font-bold text-[#0B1F38]/40 cursor-pointer hover:text-[#00A3E0] list-none">
+                                                        {doc.historique.length} version{doc.historique.length > 1 ? 's' : ''} précédente{doc.historique.length > 1 ? 's' : ''}
+                                                    </summary>
+                                                    <ul className="mt-1 space-y-0.5">
+                                                        {doc.historique.map((v: any, vi: number) => (
+                                                            <li key={vi} className="flex items-center gap-2 text-[10px] text-[#0B1F38]/50">
+                                                                <span className="font-bold">v{v.version}</span>
+                                                                <span className="truncate max-w-[180px]">{v.name}</span>
+                                                                <span className="shrink-0">{v.uploaded_at ? new Date(v.uploaded_at).toLocaleDateString('fr-FR') : ''}</span>
+                                                                <button
+                                                                    onClick={() => telechargerDocument(v.path, v.name || `version-${v.version}`)}
+                                                                    className="text-[#00A3E0] hover:underline font-bold shrink-0"
+                                                                >
+                                                                    Télécharger
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </details>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0 ml-4">
                                             {/* Consultation sans téléchargement : critère de recette
