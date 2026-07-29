@@ -1749,6 +1749,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     deleted: false,
                     skills: [],
                     hasAccount: false,
+                    // Remonte la demande de nouveau lien jusqu'à l'écran Équipe :
+                    // une notification se lit une fois et se perd, alors que la
+                    // ligne du partenaire est là où le mandataire agit.
+                    relance_demandee_le: inv.relance_demandee_le || undefined,
                     access_code: inv.token,
                     is_owner: false
                 }));
@@ -2767,6 +2771,39 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
+    /**
+     * Coupe le lien d'accès d'un partenaire retiré du groupement.
+     *
+     * Un jeton d'invitation reste valable trente jours. Sans révocation, une
+     * entreprise écartée du dossier conservait l'accès en lecture et le droit
+     * d'y déposer des pièces — exactement ce que la révocation existe pour
+     * empêcher.
+     *
+     * Un échec ici n'annule pas le retrait : le membre est bien sorti du
+     * groupement, seul son lien reste actif. On le signale plutôt que de faire
+     * croire à une opération complète.
+     */
+    const revoquerInvitationDe = async (email?: string) => {
+        if (!email || !tenderId) return;
+
+        const { data: invitations, error: errLecture } = await supabase
+            .from('invitations')
+            .select('id')
+            .eq('tender_id', tenderId)
+            .ilike('email', email.trim())
+            .is('revoked_at', null);
+
+        if (errLecture || !invitations?.length) return;
+
+        for (const invitation of invitations) {
+            const { error } = await supabase.rpc('revoquer_invitation', { p_invitation_id: invitation.id });
+            if (error) {
+                console.error('Révocation impossible', { invitation: invitation.id, error });
+                showToast("Le membre est retiré, mais son lien d'accès n'a pas pu être coupé.", 'warning');
+            }
+        }
+    };
+
     const removeCollaborator = async (index: number) => {
         const member = groupementMembers[index];
         if (!member || member.is_owner) return;
@@ -2779,6 +2816,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         if (isOwner) {
             try {
                 await saveCollaboratorsAndInvite(updated);
+                // Retirer quelqu'un du groupement sans couper son lien le
+                // laissait consulter le dossier et y déposer des fichiers
+                // pendant les trente jours de validité du jeton. Le retrait et
+                // la révocation vont ensemble : c'est la même intention.
+                await revoquerInvitationDe(member.email);
                 showToast('Membre retiré du groupement.', 'success');
                 if (onTenderUpdate) onTenderUpdate();
             } catch (err) {
@@ -3922,6 +3964,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                             }
                                                         })()}
 
+                                                        {/* Demande de nouveau lien : l'invité est arrivé après
+                                                            expiration et attend un renvoi. Sans ce repère, sa demande
+                                                            resterait dans une notification lue une fois puis oubliée. */}
+                                                        {isOwner && c.relance_demandee_le && (
+                                                            <span
+                                                                title={`Nouveau lien demandé le ${new Date(c.relance_demandee_le).toLocaleDateString('fr-FR')}`}
+                                                                className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 shrink-0"
+                                                            >
+                                                                Lien demandé
+                                                            </span>
+                                                        )}
                                                         {isOwner && !isLocked && (effectiveStatus === GROUPEMENT_STATUSES.invite) && !isMemberOwner && (
                                                             <button onClick={(e) => { e.stopPropagation(); handleResendInvitation(c.email || '', c.role, c.access_code || '', c.entreprise_id); }}
                                                                 className="p-1 text-[#00A3E0] hover:bg-[#00A3E0]/10 rounded transition-colors" title={effectiveStatus === GROUPEMENT_STATUSES.refuse ? 'Relancer' : 'Inviter'}>

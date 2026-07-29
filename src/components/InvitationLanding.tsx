@@ -3,7 +3,7 @@ import { masquerJeton, masquerJetonDansTexte } from '../helpers/inviteCodeHelper
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
     Briefcase, UserPlus, LogIn, XCircle, Loader2,
-    Calendar, MapPin, Euro, Building2, User
+    Calendar, MapPin, Euro, Building2, User, Clock
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { APP_CONFIG, SECTORS_LABELS, MARKET_TYPES_LABELS } from '../config';
@@ -62,6 +62,31 @@ export const InvitationLanding: React.FC = () => {
     const [invitation, setInvitation] = useState<Invitation | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState(false);
+    // Distingue une invitation expirée d'un lien invalide : la première appelle
+    // une action de la part de l'invité, la seconde non.
+    const [expiree, setExpiree] = useState(false);
+    const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
+
+    /**
+     * Demande d'un nouveau lien.
+     *
+     * Sans cette porte de sortie, un invité arrivé trop tard n'a aucun recours :
+     * il ne connaît pas forcément l'adresse du mandataire, et l'invitation ne
+     * lui en donne aucune. Le mandataire est prévenu et renvoie un lien.
+     */
+    const demanderNouveauLien = async () => {
+        setActionLoading(true);
+        try {
+            const { error } = await supabase.rpc('demander_nouveau_lien', { p_token: token });
+            if (error) throw error;
+            setDemandeEnvoyee(true);
+        } catch (err) {
+            tracer('demande de nouveau lien', err);
+            setError("La demande n'a pas pu être transmise. Contactez directement votre interlocuteur.");
+        } finally {
+            setActionLoading(false);
+        }
+    };
 
     /**
      * Retire le jeton de la barre d'adresse une fois lu.
@@ -104,8 +129,22 @@ export const InvitationLanding: React.FC = () => {
                 .rpc('get_invitation_by_token', { p_token: inviteToken });
 
             const row = rows?.[0];
+
+            // Trois cas, deux messages. Jeton inconnu et jeton révoqué renvoient
+            // tous deux zéro ligne et reçoivent donc le MÊME message : distinguer
+            // les deux permettrait de déterminer par essais successifs quels
+            // jetons ont existé.
             if (fetchError || !row) {
-                setError('Invitation introuvable ou expirée.');
+                setError("Ce lien d'invitation n'est pas valide.");
+                return;
+            }
+
+            // L'expiration, elle, est une situation légitime avec une action à
+            // proposer — la fonction renvoie donc bien la ligne, à charge pour
+            // l'écran de la traiter.
+            if (row.expires_at && new Date(row.expires_at) < new Date()) {
+                setExpiree(true);
+                setError("Cette invitation a expiré.");
                 return;
             }
 
@@ -238,11 +277,33 @@ export const InvitationLanding: React.FC = () => {
         return (
             <div className="min-h-screen bg-gradient-to-br from-[#f5f7fa] to-[#e4e9f0] flex items-center justify-center p-4">
                 <div className="bg-white rounded-3xl p-8 shadow-xl text-center max-w-md">
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <XCircle size={32} className="text-red-500" />
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${expiree ? 'bg-amber-100' : 'bg-red-100'}`}>
+                        {expiree
+                            ? <Clock size={32} className="text-amber-500" />
+                            : <XCircle size={32} className="text-red-500" />}
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-800 mb-2">Invitation invalide</h1>
+                    <h1 className="text-2xl font-bold text-gray-800 mb-2">
+                        {expiree ? 'Invitation expirée' : 'Invitation invalide'}
+                    </h1>
                     <p className="text-gray-500 mb-6">{error}</p>
+
+                    {/* Une invitation expirée appelle une action ; un lien
+                        invalide n'en appelle aucune. */}
+                    {expiree && !demandeEnvoyee && (
+                        <button
+                            onClick={demanderNouveauLien}
+                            disabled={actionLoading}
+                            className="inline-block bg-[#00A3E0] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-all disabled:opacity-50 mb-3 w-full"
+                        >
+                            {actionLoading ? 'Envoi…' : 'Demander un nouveau lien'}
+                        </button>
+                    )}
+                    {expiree && demandeEnvoyee && (
+                        <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-3">
+                            Votre demande a été transmise. Votre interlocuteur vous fera parvenir un nouveau lien.
+                        </p>
+                    )}
+
                     <a
                         href="/"
                         className="inline-block bg-[#0B1F38] text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition-all"

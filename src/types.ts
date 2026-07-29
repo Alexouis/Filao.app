@@ -166,6 +166,8 @@ export interface UIGroupementMember {
     specialty_ids?: string[];
     hasAccount?: boolean;
     access_code?: string;
+    /** Horodatage d'une demande de nouveau lien par l'invité, le cas échéant. */
+    relance_demandee_le?: string;
     is_owner?: boolean;
 }
 
