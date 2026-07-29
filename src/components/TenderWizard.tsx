@@ -1420,10 +1420,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     const ent = g.entreprise;
                     const referent = ent?.membres?.[0];
                     const memberSpecs = specialtiesMap[g.entreprise_id] || [];
+                    // `name` désigne le CONTACT, `company` l'entreprise — c'est la
+                    // convention de `addCollaborator` et de la construction du
+                    // créateur plus bas. Mettre le nom de l'entreprise dans `name`
+                    // faisait basculer la carte d'un libellé à l'autre après
+                    // finalisation : la vue initiale venait de l'état local, la
+                    // vue rechargée de cette fonction.
+                    const nomReferent = referent
+                        ? `${referent.prenom || ''} ${referent.nom || ''}`.trim()
+                        : '';
+
                     return {
                         id: referent?.id || g.id,
                         groupement_id: g.id,
-                        name: ent?.nom || 'Entreprise inconnue',
+                        name: nomReferent || ent?.nom || 'Entreprise inconnue',
                         email: referent?.email || '',
                         role: g.role_groupement || 'Co-traitant',
                         company: ent?.nom || '',
