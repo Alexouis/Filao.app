@@ -25,6 +25,7 @@ import { telechargerDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
+import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
@@ -3762,16 +3763,32 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                 <span className="text-[#0B1F38]/40 block mb-1">Codes CPV</span>
                                                 <div className="flex flex-wrap gap-1">
                                                     {formData.cpv_codes.slice(0, 4).map(code => (
-                                                        <span key={code} className="text-[10px] font-mono font-bold text-[#0B1F38]/70 bg-[#0B1F38]/5 px-1.5 py-0.5 rounded" title={`Code CPV ${code}`}>
+                                                        <span
+                                                            key={code}
+                                                            className="text-[10px] font-mono font-bold text-[#0B1F38]/70 bg-[#0B1F38]/5 px-1.5 py-0.5 rounded"
+                                                            // Un code nu n'évoque rien : le libellé de la
+                                                            // division situe le marché au survol.
+                                                            title={cpvLisible(code, formatCpv(code))}
+                                                        >
                                                             {formatCpv(code)}
                                                         </span>
                                                     ))}
                                                     {formData.cpv_codes.length > 4 && (
-                                                        <span className="text-[10px] font-bold text-[#0B1F38]/40 px-1 py-0.5" title={formData.cpv_codes.slice(4).join(', ')}>
+                                                        <span
+                                                            className="text-[10px] font-bold text-[#0B1F38]/40 px-1 py-0.5"
+                                                            title={formData.cpv_codes.slice(4).map(c => cpvLisible(c)).join('\n')}
+                                                        >
                                                             +{formData.cpv_codes.length - 4}
                                                         </span>
                                                     )}
                                                 </div>
+                                                {/* Le libellé du premier code, en clair : le survol ne
+                                                    fonctionne ni au doigt ni au lecteur d'écran. */}
+                                                {libelleCpv(formData.cpv_codes[0]) && (
+                                                    <p className="text-[10px] text-[#0B1F38]/50 mt-1 leading-snug">
+                                                        {libelleCpv(formData.cpv_codes[0])}
+                                                    </p>
+                                                )}
                                             </div>
                                         )}
                                         {formData.lien_telechargement ? (
@@ -4349,6 +4366,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     <p className="text-[10px] text-[#0B1F38]/40 mt-1">
                                         Un code = 8 chiffres. Séparez-en plusieurs par une virgule, un point-virgule ou un espace.
                                     </p>
+                                    {/* Retour immédiat sur ce que représentent les codes saisis :
+                                        sans lui, on ne sait pas si l'on s'est trompé de chiffre. */}
+                                    {(formData.cpv_codes || []).length > 0 && (
+                                        <ul className="mt-2 space-y-0.5">
+                                            {formData.cpv_codes.map(code => (
+                                                <li key={code} className="text-[10px] text-[#0B1F38]/50 flex gap-1.5">
+                                                    <span className="font-mono font-bold text-[#0B1F38]/70 shrink-0">{formatCpv(code)}</span>
+                                                    <span className="truncate">{libelleCpv(code) ?? 'Division inconnue'}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
                             </div>
 
