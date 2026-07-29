@@ -63,6 +63,52 @@ import { useChat } from '../context/ChatContext';
  * absent ou inconnu, s'y fier produisait des « .bin » que l'acheteur public ne
  * peut pas ouvrir.
  */
+/**
+ * Typologie des pièces d'un dossier de consultation.
+ *
+ * Le champ `type` d'un document contenait jusqu'ici le sous-type MIME — « PDF »,
+ * « JPEG » — c'est-à-dire le format, pas la nature de la pièce. Or c'est la
+ * seconde qui compte : un acheteur publie un RC, un CCAP, un CCTP, et c'est
+ * ainsi que les répondants les désignent entre eux.
+ */
+export const CATEGORIES_DCE = [
+    { value: 'RC', label: 'RC — Règlement de consultation' },
+    { value: 'CCAP', label: 'CCAP — Cahier des clauses administratives' },
+    { value: 'CCTP', label: 'CCTP — Cahier des clauses techniques' },
+    { value: 'DPGF', label: 'DPGF / BPU — Décomposition du prix' },
+    { value: 'AE', label: "AE — Acte d'engagement" },
+    { value: 'AVIS', label: "Avis de marché" },
+    { value: 'PLAN', label: 'Plans et pièces graphiques' },
+    { value: 'ANNEXE', label: 'Annexe' },
+] as const;
+
+/**
+ * Devine la catégorie d'après le nom du fichier.
+ *
+ * Les acheteurs nomment leurs pièces de façon très reconnaissable
+ * (« RC_2026.pdf », « CCTP lot 3.pdf »). Une proposition juste évite une
+ * saisie ; quand elle est fausse, elle se corrige en un clic. Le repli est
+ * « Annexe » plutôt qu'un champ vide, qui obligerait à classer chaque pièce.
+ */
+export const devinerCategorieDCE = (nom: string): string => {
+    // Sans accents ni séparateurs : « C.C.T.P_lot3 » doit correspondre à « CCTP ».
+    const n = (nom || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    if (n.includes('REGLEMENTDECONSULTATION')) return 'RC';
+    // « RC » est court et se rencontre à l'intérieur d'autres mots — « ARCHIVE »
+    // en contient un. On exige donc un sigle isolé, pas une sous-chaîne.
+    if (/(^|[^A-Z])RC([^A-Z]|$)/.test(nom.toUpperCase())) return 'RC';
+    if (n.includes('CCTP') || n.includes('CLAUSESTECHNIQUES')) return 'CCTP';
+    if (n.includes('CCAP') || n.includes('CLAUSESADMINISTRATIVES')) return 'CCAP';
+    if (n.includes('DPGF') || n.includes('BPU') || n.includes('DECOMPOSITION')) return 'DPGF';
+    if (n.includes('ACTEDENGAGEMENT') || /(^|[^A-Z])AE([^A-Z]|$)/.test(nom.toUpperCase())) return 'AE';
+    if (n.includes('AVIS') || n.includes('AAPC')) return 'AVIS';
+    if (n.includes('PLAN') || n.includes('SCHEMA') || n.includes('COUPE')) return 'PLAN';
+    return 'ANNEXE';
+};
+
 const EXTENSIONS_PAR_TYPE: Partial<Record<TypeFichier, string>> = {
     pdf: 'pdf', png: 'png', jpeg: 'jpg', gif: 'gif', webp: 'webp',
     docx: 'docx', xlsx: 'xlsx', pptx: 'pptx', doc: 'doc', xls: 'xls',
@@ -999,6 +1045,40 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
+    /**
+     * Renommage et retypage d'une pièce du marché.
+     *
+     * Le nom d'origine d'un fichier d'acheteur est souvent illisible
+     * (« 20260728_DCE_v3_final.pdf ») et la catégorie devinée peut être fausse.
+     * La fiche demande les deux : « ajout, renommage, suppression et retypage ».
+     *
+     * Seules les métadonnées changent — l'objet du bucket n'est pas déplacé, son
+     * chemin sert de référence à l'export et aux téléchargements.
+     */
+    const majPieceDCE = async (docId: string, champs: { name?: string; categorie?: string }) => {
+        if (refuserSiNonMandataire('modifier une pièce du marché')) return;
+        if (!tenderId) return;
+
+        const nettoyes = {
+            ...(champs.name !== undefined ? { name: nettoyerTexteLibre(champs.name, 120) || 'Sans titre' } : {}),
+            ...(champs.categorie !== undefined ? { categorie: champs.categorie } : {}),
+        };
+
+        const updatedDocs = (formData.dce_documents || []).map((d: any) =>
+            d.id === docId ? { ...d, ...nettoyes } : d
+        );
+
+        setFormData(prev => ({ ...prev, dce_documents: updatedDocs }));
+
+        const { error } = await supabase
+            .from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
+
+        if (error) {
+            console.error('Mise à jour pièce DCE:', error);
+            showToast("La modification n'a pas pu être enregistrée.", 'error');
+        }
+    };
+
     const handleDCEFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (refuserSiNonMandataire('ajouter une pièce du marché')) return;
         const file = e.target.files?.[0];
@@ -1019,7 +1099,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 id: crypto.randomUUID(),
                 name: fileName,
                 path: filePath,
+                // `type` reste le format du fichier, `categorie` la nature de la
+                // pièce — ce sont deux informations distinctes, et c'est la
+                // seconde que la fiche demande d'afficher et de corriger.
                 type: file.type.split('/')[1]?.toUpperCase() || 'DOC',
+                categorie: devinerCategorieDCE(fileName),
                 size: file.size,
                 uploaded_at: new Date().toISOString()
             };
@@ -5193,8 +5277,41 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                 <FileText size={18} />
                                             </div>
                                             <div className="min-w-0">
-                                                <span className="text-sm font-bold text-[#0B1F38] block truncate">{doc.name}</span>
-                                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase">
+                                                {/* Renommage en place. Le nom d'origine d'un fichier
+                                                    d'acheteur est souvent illisible ; le corriger ne
+                                                    déplace pas l'objet, seul le libellé change. */}
+                                                {isOwner && !isLocked ? (
+                                                    <input
+                                                        defaultValue={doc.name}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onBlur={(e) => {
+                                                            const nouveau = e.target.value.trim();
+                                                            if (nouveau && nouveau !== doc.name) majPieceDCE(doc.id, { name: nouveau });
+                                                        }}
+                                                        aria-label="Nom de la pièce"
+                                                        className="text-sm font-bold text-[#0B1F38] block truncate w-full bg-transparent border border-transparent hover:border-[#0B1F38]/10 focus:border-[#00A3E0] focus:bg-white rounded px-1 -ml-1 focus:outline-none"
+                                                    />
+                                                ) : (
+                                                    <span className="text-sm font-bold text-[#0B1F38] block truncate">{doc.name}</span>
+                                                )}
+                                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase flex items-center gap-1.5 flex-wrap mt-0.5">
+                                                    {/* Retypage : la catégorie est devinée au dépôt,
+                                                        elle se corrige ici. */}
+                                                    {isOwner && !isLocked ? (
+                                                        <select
+                                                            value={doc.categorie || 'ANNEXE'}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            onChange={(e) => majPieceDCE(doc.id, { categorie: e.target.value })}
+                                                            aria-label="Type de pièce"
+                                                            className="text-[10px] font-bold uppercase bg-[#00A3E0]/10 text-[#00A3E0] rounded px-1.5 py-0.5 border border-[#00A3E0]/20 focus:outline-none focus:ring-1 focus:ring-[#00A3E0]"
+                                                        >
+                                                            {CATEGORIES_DCE.map(c => (
+                                                                <option key={c.value} value={c.value}>{c.value}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="bg-[#00A3E0]/10 text-[#00A3E0] rounded px-1.5 py-0.5">{doc.categorie || 'ANNEXE'}</span>
+                                                    )}
                                                     {doc.type} &bull; {doc.size ? (doc.size / 1024 / 1024).toFixed(2) : '0'} Mo
                                                 </span>
                                             </div>
