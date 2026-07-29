@@ -546,6 +546,37 @@ export const CollaboratorSubmission: React.FC = () => {
    const role = myCollabData.role || "Sous-traitant";
    const requiredDocs = REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || [];
 
+   // Avancement de l'invité, calculé une fois pour le rappel en tête de page et
+   // le décompte de l'en-tête — deux affichages d'une même réalité.
+   const manquantes = requiredDocs.filter((d: any) => !tenderFiles.some(f => f.docType === d.value));
+   const deposees = requiredDocs.length - manquantes.length;
+
+   /**
+    * Glisser-déposer sur chaque emplacement de pièce.
+    *
+    * La conception le demande explicitement. Sur ordinateur, c'est le geste
+    * naturel quand on a déjà son attestation ouverte dans un dossier ; le
+    * parcours par bouton reste disponible et inchangé.
+    *
+    * `dragCible` retient l'emplacement survolé pour ne mettre en évidence que
+    * celui-là : un état booléen global allumerait toute la grille.
+    */
+   const [dragCible, setDragCible] = useState<string | null>(null);
+
+   const surDepotGlisse = (e: React.DragEvent, docType: string) => {
+      e.preventDefault();
+      setDragCible(null);
+      const fichier = e.dataTransfer.files?.[0];
+      if (!fichier) return;
+      // On réutilise le gestionnaire du bouton : validation, quota et
+      // rafraîchissement doivent rester strictement identiques aux deux
+      // parcours, sous peine de diverger à la première évolution.
+      handleFileUpload(
+         { target: { files: e.dataTransfer.files, value: '' } } as unknown as React.ChangeEvent<HTMLInputElement>,
+         docType
+      );
+   };
+
    // Format Owner Name
    const ownerName = owner
       ? `${owner.prenom} ${owner.nom}${owner.entreprise ? ` (${owner.entreprise})` : ''}`
@@ -705,15 +736,49 @@ export const CollaboratorSubmission: React.FC = () => {
                      </div>
                   )}
 
-                  <div className="flex justify-between items-center mb-8">
+                  <div className="flex justify-between items-center gap-4 mb-4 flex-wrap">
                      <div>
                         <h2 className="text-2xl font-bold text-filao-dark">Vos documents requis</h2>
                         <p className="text-gray-500 text-sm mt-1">Liste des pièces à fournir pour le rôle de {role}</p>
                      </div>
-                     <span className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">
-                        {requiredDocs.length} fichiers attendus
+                     <span className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold shrink-0">
+                        {deposees} sur {requiredDocs.length} déposées
                      </span>
                   </div>
+
+                  {/* Rappel de ce qui manque, en HAUT de page.
+                      La conception l'impose : « un rappel de ce qui manque en haut
+                      de page, pas en bas ». Sur mobile, la liste des pièces occupe
+                      plusieurs écrans — un décompte relégué en bas ne serait jamais
+                      lu, et l'invité repartirait en croyant avoir terminé. */}
+                  {manquantes.length > 0 ? (
+                     <div className="mb-8 p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                        <p className="text-sm font-bold text-amber-800">
+                           Il vous reste {manquantes.length} pièce{manquantes.length > 1 ? 's' : ''} à déposer
+                        </p>
+                        <p className="text-xs text-amber-700 mt-1">
+                           {manquantes.map(d => d.label).join(' · ')}
+                        </p>
+                        <div className="mt-3 h-1.5 bg-amber-200/60 rounded-full overflow-hidden">
+                           <div
+                              className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.round((deposees / Math.max(requiredDocs.length, 1)) * 100)}%` }}
+                           />
+                        </div>
+                     </div>
+                  ) : (
+                     requiredDocs.length > 0 && (
+                        <div className="mb-8 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+                           <CheckCircle size={20} className="text-emerald-600 shrink-0" />
+                           <div>
+                              <p className="text-sm font-bold text-emerald-800">Toutes vos pièces sont déposées</p>
+                              <p className="text-xs text-emerald-700 mt-0.5">
+                                 Vous pouvez fermer cette page. Vos dépôts restent modifiables via ce même lien.
+                              </p>
+                           </div>
+                        </div>
+                     )
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      {requiredDocs.map((doc, idx) => {
@@ -721,7 +786,18 @@ export const CollaboratorSubmission: React.FC = () => {
                         const isTenderEnCours = tender.statut === 'En cours';
 
                         return (
-                           <div key={idx} className={`border rounded-2xl p-5 flex items-center justify-between transition-all ${uploaded ? 'border-green-200 bg-green-50/30' : 'border-gray-200 hover:border-filao-primary/50'}`}>
+                           <div
+                              key={idx}
+                              // Zone de dépôt : toute la carte accepte un fichier
+                              // glissé, pas seulement le bouton.
+                              onDragOver={(e) => { if (isTenderEnCours) { e.preventDefault(); setDragCible(doc.value); } }}
+                              onDragLeave={() => setDragCible(null)}
+                              onDrop={(e) => { if (isTenderEnCours) surDepotGlisse(e, doc.value); }}
+                              className={`border rounded-2xl p-5 flex items-center justify-between transition-all ${
+                                 dragCible === doc.value
+                                    ? 'border-filao-primary border-dashed bg-filao-primary/5 ring-2 ring-filao-primary/20'
+                                    : uploaded ? 'border-green-200 bg-green-50/30' : 'border-gray-200 hover:border-filao-primary/50'
+                              }`}>
                               <div className="flex items-center gap-4">
                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${uploaded ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
                                     {uploaded ? <CheckCircle size={24} /> : <FileText size={24} />}
@@ -760,7 +836,16 @@ export const CollaboratorSubmission: React.FC = () => {
                                              type="file"
                                              className="hidden"
                                              onChange={(e) => handleFileUpload(e, doc.value)}
-                                             accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.png"
+                                             // Les types MIME en plus des extensions : sur mobile,
+                                             // c'est `image/*` qui fait apparaître « Appareil photo »
+                                             // dans le sélecteur. Sans lui, l'artisan qui reçoit son
+                                             // lien sur le téléphone ne peut pas photographier son
+                                             // attestation — c'est pourtant le cas d'usage principal.
+                                             //
+                                             // Volontairement sans `capture` : cet attribut ouvrirait
+                                             // directement l'appareil photo et retirerait la
+                                             // possibilité de joindre un PDF déjà enregistré.
+                                             accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
                                           />
                                        </label>
                                     )
