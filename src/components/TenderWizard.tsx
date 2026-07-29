@@ -52,6 +52,7 @@ import { supabase } from '../lib/supabaseClient';
 import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
+import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
 
 // --- STYLES ---
@@ -274,6 +275,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 }) => {
     const { showToast } = useToast();
     const { unreadCounts } = useChat();
+    // Conditionne les actions à impact externe — voir la garde de
+    // `saveCollaboratorsAndInvite`.
+    const { emailVerifie } = useAuth();
     // --- STATE MANAGEMENT ---
     // Views: 'start' (Search) -> 'results' -> 'wizard_steps' -> 'decision' (Go/NoGo) -> 'verification' (Screenshot 2) -> 'team' (Screenshot 1)
     const [currentView, setCurrentView] = useState<'start' | 'results' | 'wizard_steps' | 'decision' | 'verification' | 'team' | 'manual'>(initialTenderId ? 'decision' : 'start');
@@ -1893,6 +1897,23 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const invalid = membersToSave.find(c => !c.deleted && (!c.email?.trim() || !c.role?.trim()));
             if (invalid) {
                 showToast('Veuillez remplir email et rôle pour tous les membres.', 'warning');
+                setLoading(false); return;
+            }
+
+            // Adresse non vérifiée : aucune invitation ne part.
+            //
+            // Tant que l'utilisateur se contente de consulter, une adresse fausse
+            // ne coûte rien. Dès qu'un e-mail est envoyé en notre nom à un tiers,
+            // elle coûte la réputation d'expéditeur du produit — un signalement
+            // en spam affecte la délivrabilité de tous les envois, pas seulement
+            // des siens. D'où l'exigence dès le premier jour, sans délai de
+            // grâce, contrairement aux autres actions.
+            const nouveauxInvites = membersToSave.filter(c => !c.deleted && !c.groupement_id);
+            if (nouveauxInvites.length > 0 && !emailVerifie) {
+                showToast(
+                    "Vérifiez votre adresse e-mail avant d'inviter des partenaires. Le lien vous a été envoyé à l'inscription.",
+                    'warning'
+                );
                 setLoading(false); return;
             }
 

@@ -10,6 +10,16 @@ interface AuthContextType {
     userProfile: UserProfile | null;
     loading: boolean;
     signOut: () => Promise<void>;
+    /**
+     * Adresse vérifiée ou non.
+     *
+     * L'information vit dans `auth.users.email_confirmed_at`, pas dans la table
+     * `utilisateurs` : elle est donc lue depuis la session plutôt que depuis le
+     * profil. Elle conditionne les actions à impact externe — envoyer une
+     * invitation depuis une adresse non vérifiée expose la réputation
+     * d'expéditeur du produit tout entier.
+     */
+    emailVerifie: boolean;
     refreshProfile: () => Promise<void>;
 }
 
@@ -178,12 +188,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     }, [userProfile]);
 
+    // `email_confirmed_at` est renseigné par Supabase à la validation du lien.
+    // Un compte créé par Google OAuth est vérifié d'emblée, le fournisseur ayant
+    // déjà validé l'adresse.
+    const emailVerifie = Boolean(session?.user?.email_confirmed_at);
+
     const value: AuthContextType = {
         session,
         user: session?.user ?? null,
         userProfile,
         loading,
         signOut,
+        emailVerifie,
         refreshProfile,
     };
 
