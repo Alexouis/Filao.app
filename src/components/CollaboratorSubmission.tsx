@@ -74,7 +74,8 @@ export const CollaboratorSubmission: React.FC = () => {
          date_limite: row.date_limite,
          date_publication: row.date_publication,
          date_depot_souhaitee: row.date_depot_souhaitee,
-         montant_estime: row.montant_estime,
+         // Le montant n'est plus transmis à un invité (migration 041) : une
+         // invitation ne doit pas renseigner sur le budget d'un marché.
          lieu_execution: row.lieu_execution,
          secteur_activite: row.secteur_activite,
          type_marche: row.type_marche,
@@ -657,7 +658,8 @@ export const CollaboratorSubmission: React.FC = () => {
                   <InfoItem icon={Building2} label="Organisme Acheteur" value={tender.organisme_acheteur} />
                   <InfoItem icon={MapPin} label="Lieu d'exécution" value={tender.lieu_execution} />
                   <InfoItem icon={Briefcase} label="Secteur" value={SECTORS_LABELS[tender.secteur_activite]} />
-                  <InfoItem icon={Euro} label="Montant Estimé" value={formatCurrency(tender.montant_estime)} />
+                  {/* Montant retiré : critère d'acceptation « l'invité ne voit
+                      ni les pièces des autres membres, ni aucun prix ». */}
                   <InfoItem icon={Calendar} label="Date de publication" value={formatDate(tender.date_publication)} />
                   <div className="bg-orange-50 border-orange-100 p-4 rounded-xl border flex flex-col gap-1">
                      <div className="flex text-orange-600 items-start gap-3">
