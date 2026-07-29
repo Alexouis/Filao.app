@@ -12,7 +12,7 @@ import {
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
-import { Plus, Clock, TrendingUp, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket } from 'lucide-react';
+import { Plus, Clock, TrendingUp, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 
 interface DashboardProps {
@@ -364,7 +364,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       >
                         <div className="flex justify-between items-start mb-3">
                           <div>
-                            <h3 className="text-xl font-bold text-[#0B1F38] transition-colors line-clamp-1">{tender.titre}</h3>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-xl font-bold text-[#0B1F38] transition-colors line-clamp-1">{tender.titre}</h3>
+                              {/* Même repère que dans « Mes AO » et l'en-tête du dossier :
+                                  les trois écrans montrent les mêmes AO, un partenaire
+                                  identifié sur l'un et pas sur l'autre entretiendrait le
+                                  doute plutôt que de le lever. */}
+                              {tender.createur_id !== userProfile?.id && (
+                                <span
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100 uppercase tracking-tight flex items-center gap-1 shrink-0"
+                                  title="Ce dossier est piloté par une autre entreprise. Vous y participez comme partenaire."
+                                >
+                                  <Users size={10} /> Partenaire
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-[#0B1F38]/60 font-medium mt-1">
                               {tender.organisme_acheteur} • {tender.montant_estime ? `${tender.montant_estime}€` : 'N/C'}
                               {tender.type_groupement && (

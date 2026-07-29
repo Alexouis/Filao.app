@@ -921,7 +921,12 @@ export const Tenders: React.FC<TendersProps> = ({
                 const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
                 const isRefused = myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused';
                 
-                const myRoleBadge = tender.createur_id === userId ? 'Mandataire' : (myGroupement || myInvitation) ? (myGroupement?.role_groupement || myInvitation?.role || 'Collaborateur') : 'Collaborateur';
+                // Un dossier que l'on porte et un dossier que l'on a rejoint
+                // n'appellent ni les mêmes actions ni la même lecture. Rien ne
+                // les distinguait à l'écran : le rôle s'affichait dans le même
+                // gris discret pour tout le monde.
+                const jeSuisPorteur = tender.createur_id === userId;
+                const myRoleBadge = jeSuisPorteur ? 'Mandataire' : (myGroupement || myInvitation) ? (myGroupement?.role_groupement || myInvitation?.role || 'Collaborateur') : 'Collaborateur';
                 const effectiveStatus = getEffectiveStatus(tender);
                 
                 let displayStatus = effectiveStatus;
@@ -948,7 +953,18 @@ export const Tenders: React.FC<TendersProps> = ({
                         <h3 className="text-lg font-bold text-[#0B1F38] line-clamp-2 leading-tight group-hover:text-[#00A3E0] transition-colors">{tender.titre}</h3>
                         <div className="flex items-center gap-2 mt-2">
                             {(tender.success_score || 0) > 0 && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 uppercase tracking-tight">Probabilité: {tender.success_score}%</span>}
-                            <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{myRoleBadge}</span>
+                            {jeSuisPorteur ? (
+                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{myRoleBadge}</span>
+                            ) : (
+                                /* Le partenaire est signalé explicitement : sans repère,
+                                   on croit piloter un dossier que l'on a seulement rejoint. */
+                                <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100 uppercase tracking-tight flex items-center gap-1"
+                                    title={`Vous participez à ce dossier en tant que ${myRoleBadge.toLowerCase()}. Il est piloté par une autre entreprise.`}
+                                >
+                                    <Users size={10} /> Partenaire · {myRoleBadge}
+                                </span>
+                            )}
                         </div>
                       </div>
                       <div className="shrink-0 flex flex-col items-end gap-2">

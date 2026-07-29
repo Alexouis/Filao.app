@@ -3386,6 +3386,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             <div className="min-w-0">
                                 <div className="flex items-center gap-2.5 flex-wrap">
                                     <h1 className="text-xl font-bold text-[#0B1F38] leading-tight line-clamp-2">{formData.titre || 'Nouvel appel d\'offres'}</h1>
+                                    {/* Repère permanent pour qui n'est pas le porteur du
+                                        dossier. Les actions de pilotage sont déjà masquées,
+                                        mais rien ne disait POURQUOI : on pouvait croire à une
+                                        interface incomplète plutôt qu'à un rôle différent. */}
+                                    {tenderId && !isOwner && (
+                                        <span
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border shrink-0 bg-violet-50 text-violet-700 border-violet-200 flex items-center gap-1"
+                                            title="Ce dossier est piloté par une autre entreprise. Vous y participez comme partenaire : vous déposez vos pièces, sans action sur le cycle de vie du dossier."
+                                        >
+                                            <Users size={11} /> Partenaire
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-3 mt-1.5 flex-wrap text-[#0B1F38]/50">
                                     {tenderId && <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border shrink-0 ${statusColor}`}>{statusLabel}</span>}
