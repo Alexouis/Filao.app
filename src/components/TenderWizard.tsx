@@ -933,6 +933,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
 
     const handleDCEFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (refuserSiNonMandataire('ajouter une pièce du marché')) return;
         const file = e.target.files?.[0];
         if (!file || !tenderId) return;
 
@@ -1779,6 +1780,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
 
     const saveRequiredSkills = async () => {
+        if (refuserSiNonMandataire('modifier les compétences requises')) return;
         if (!tenderId) return;
         setLoading(true);
         try {
@@ -1828,7 +1830,28 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      *   doit transmettre la nouvelle valeur ici plutôt que de compter sur le
      *   state, qui serait encore périmé au moment de la requête.
      */
+    /**
+     * Refuse une écriture sur le dossier à qui n'en est pas le mandataire.
+     *
+     * Matrice de permissions : seul le créateur modifie le contexte, le
+     * rétroplanning, les compétences requises, les pièces du marché et le cycle
+     * de vie. Un co-traitant a une vue en lecture.
+     *
+     * Ces fonctions ne s'appuyaient que sur le masquage des boutons. La RLS de
+     * `reponses_ao` refuse déjà l'UPDATE (`createur_id = auth.uid()`), mais
+     * l'échec était silencieux : l'état local était mis à jour, l'écriture
+     * rejetée, et l'écran affichait une modification qui n'existait pas en base
+     * jusqu'au rechargement.
+     */
+    const refuserSiNonMandataire = (action: string): boolean => {
+        if (isOwner) return false;
+        console.warn('Écriture refusée : rôle insuffisant', { action });
+        showToast("Seul le mandataire du dossier peut effectuer cette action.", 'warning');
+        return true;
+    };
+
     const saveTenderContext = async (overrides?: Partial<TenderFormData>) => {
+        if (refuserSiNonMandataire('modifier le contexte')) return;
         if (!tenderId) return;
         const data = { ...formData, ...overrides };
 
@@ -4841,7 +4864,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                                             if (realIdx !== -1) {
                                                                                 newJalons[realIdx] = { ...jalon, ...editingJalon };
                                                                                 setFormData(prev => ({ ...prev, jalons: newJalons }));
-                                                                                if (tenderId) supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId).then();
+                                                                                if (tenderId && isOwner) supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId).then();
                                                                             }
                                                                             setEditingJalonIndex(null);
                                                                             setEditingJalon(null);
@@ -4912,7 +4935,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                                         if (!confirm("Supprimer ce jalon ?")) return;
                                                                         const newJalons = formData.jalons.filter((j: any) => !(j.label === jalon.label && j.date === jalon.date));
                                                                         setFormData(prev => ({ ...prev, jalons: newJalons }));
-                                                                        if (tenderId) await supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId);
+                                                                        if (tenderId && isOwner) await supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId);
                                                                     }}
                                                                     className="p-2 text-[#0B1F38]/30 hover:text-red-500 hover:bg-white rounded-lg transition-all"
                                                                 >
@@ -4965,7 +4988,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                         }
                                                         const newJalons = [...(formData.jalons || []), { ...newJalon, color: '#00A3E0', source: 'Manuel', editable: true }];
                                                         setFormData(prev => ({ ...prev, jalons: newJalons }));
-                                                        if (tenderId) supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId).then();
+                                                        if (tenderId && isOwner) supabase.from('reponses_ao').update({ jalons: newJalons }).eq('id', tenderId).then();
                                                         setNewJalon({ label: '', date: '' });
                                                         setShowAddJalonForm(false);
                                                     }}
@@ -5729,6 +5752,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
 
     const executeOutcome = async (outcome: 'won' | 'lost') => {
+        if (refuserSiNonMandataire("changer l'issue du dossier")) return;
         if (!tenderId) return;
         setLoading(true);
         try {
