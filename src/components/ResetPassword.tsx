@@ -107,6 +107,25 @@ export const ResetPassword: React.FC = () => {
                 console.warn('Déconnexion globale incomplète', errDeconnexion);
             }
 
+            // Notification du changement. C'est le seul signal qu'a un
+            // utilisateur dont le compte est en train d'être détourné : sans
+            // elle, une prise de contrôle passe totalement inaperçue.
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.email) {
+                const { error: errAvis } = await supabase.functions.invoke('send-reminder', {
+                    body: {
+                        email: user.email,
+                        senderName: 'Filao',
+                        tenderTitle: 'votre compte',
+                        milestoneLabel: 'Votre mot de passe a été modifié',
+                        milestoneDate: new Date().toISOString(),
+                    },
+                });
+                // Le mot de passe est changé : un avis non parti ne doit pas
+                // faire croire à un échec.
+                if (errAvis) console.warn('Avis de changement non envoyé', errAvis);
+            }
+
             setSucces(true);
             // Laisse le message s'afficher avant de renvoyer vers la connexion.
             setTimeout(() => { window.location.href = '/'; }, 2500);

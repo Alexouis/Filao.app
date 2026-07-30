@@ -126,6 +126,24 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
         setError(null);
         setLoading(true);
         try {
+            // 3 demandes par heure et par adresse. Sans limite, ce formulaire
+            // permet d'inonder la boîte de n'importe qui de courriels signés
+            // Filao : notre domaine finit signalé, et la délivrabilité de tous
+            // nos envois en pâtit.
+            //
+            // Le refus emprunte le message neutre : dire « trop de demandes pour
+            // cette adresse » révélerait qu'elle est connue.
+            const { data: autorise } = await supabase.rpc('peut_demander_reinitialisation', {
+                p_email: adresse,
+            });
+            if (autorise === false) {
+                showToast(
+                    "Si un compte existe pour cette adresse, un lien de réinitialisation vient d'être envoyé.",
+                    'success'
+                );
+                return;
+            }
+
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(adresse, {
                 redirectTo: `${window.location.origin}/reset-password`,
             });
@@ -140,6 +158,46 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    /**
+     * Renvoi du lien de vérification.
+     *
+     * Deux limites de nature différente : un envoi par minute, tenu ici par un
+     * compte à rebours — c'est une gêne d'ergonomie, contournable en rechargeant
+     * la page —, et cinq par jour, comptés en base et donc réellement opposables.
+     *
+     * Sans la seconde, le bouton permettait d'envoyer autant de courriels que
+     * voulu à l'adresse saisie à l'inscription.
+     */
+    const [attenteRenvoi, setAttenteRenvoi] = useState(0);
+
+    useEffect(() => {
+        if (attenteRenvoi <= 0) return;
+        const t = setTimeout(() => setAttenteRenvoi(v => v - 1), 1000);
+        return () => clearTimeout(t);
+    }, [attenteRenvoi]);
+
+    const renvoyerVerification = async () => {
+        if (attenteRenvoi > 0 || !registeredEmail) return;
+
+        const { data: autorise } = await supabase.rpc('peut_renvoyer_verification', {
+            p_email: registeredEmail,
+        });
+        if (autorise === false) {
+            showToast("Limite d'envois atteinte pour aujourd'hui. Réessayez demain.", 'warning');
+            return;
+        }
+
+        const { error } = await supabase.auth.resend({ type: 'signup', email: registeredEmail });
+        if (error) {
+            console.error('resend:', error);
+            showToast("L'envoi a échoué. Réessayez dans un instant.", 'error');
+            return;
+        }
+
+        setAttenteRenvoi(60);
+        showToast('E-mail renvoyé.', 'success');
     };
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -307,13 +365,11 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
             <p className="text-xs text-gray-400">
                 Vous n'avez pas reçu d'email ?{' '}
                 <button
-                    className="underline text-filao-dark hover:text-filao-primary"
-                    onClick={async () => {
-                        await supabase.auth.resend({ type: 'signup', email: registeredEmail });
-                        showToast('Email renvoyé !', 'success');
-                    }}
+                    disabled={attenteRenvoi > 0}
+                    className="underline text-filao-dark hover:text-filao-primary disabled:opacity-50 disabled:no-underline"
+                    onClick={renvoyerVerification}
                 >
-                    Renvoyer
+                    {attenteRenvoi > 0 ? `Renvoyer dans ${attenteRenvoi} s` : 'Renvoyer'}
                 </button>
             </p>
         </div>

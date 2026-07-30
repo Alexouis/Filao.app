@@ -69,7 +69,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     const prenom = meta.prenom || firstNameFromGoogle || 'Prénom';
                     const avatar = meta.avatar_url || meta.picture || null;
 
-                    const newProfile: Record<string, any> = {
+                     const newProfile: Record<string, any> = {
                         id: user.id,
                         email: user.email,
                         nom,
