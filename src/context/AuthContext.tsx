@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
+import { chargerForfaits } from '../helpers/planLimits';
 import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../config';
 
@@ -69,7 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     const prenom = meta.prenom || firstNameFromGoogle || 'Prénom';
                     const avatar = meta.avatar_url || meta.picture || null;
 
-                     const newProfile: Record<string, any> = {
+                    const newProfile: Record<string, any> = {
                         id: user.id,
                         email: user.email,
                         nom,
@@ -192,6 +193,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Un compte créé par Google OAuth est vérifié d'emblée, le fournisseur ayant
     // déjà validé l'adresse.
     const emailVerifie = Boolean(session?.user?.email_confirmed_at);
+
+    // Chargement des forfaits au démarrage. Les quotas sont consultés par des
+    // fonctions synchrones réparties dans plusieurs écrans, qui ne peuvent pas
+    // attendre une requête : la table est donc lue une fois et mise en cache.
+    useEffect(() => { chargerForfaits(); }, []);
 
     const value: AuthContextType = {
         session,
