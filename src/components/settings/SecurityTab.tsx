@@ -51,8 +51,11 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             setPasswordError('Les mots de passe ne correspondent pas');
             return;
         }
-        if (passwordForm.newPassword.length < 6) {
-            setPasswordError('Le mot de passe doit contenir au moins 6 caractères');
+        // 12 caractères, comme sur l'écran de réinitialisation. Deux seuils
+        // différents pour un même mot de passe n'auraient aucun sens : il
+        // suffirait de passer par le formulaire le plus permissif.
+        if (passwordForm.newPassword.length < 12) {
+            setPasswordError('Le mot de passe doit contenir au moins 12 caractères');
             return;
         }
         try {
@@ -60,6 +63,32 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             setPasswordError(null);
             const { error } = await supabase.auth.updateUser({ password: passwordForm.newPassword });
             if (error) throw error;
+
+            // Notification du changement. Ce chemin n'en envoyait aucune, alors
+            // que la réinitialisation le fait : un compte détourné dont
+            // l'attaquant change le mot de passe depuis l'application ne
+            // produisait donc aucun signal, là où le même geste par « mot de
+            // passe oublié » en produit deux.
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.email) {
+                const { error: errAvis } = await supabase.functions.invoke('send-reminder', {
+                    body: {
+                        email: user.email,
+                        senderName: 'Filao',
+                        tenderTitle: 'votre compte',
+                        milestoneLabel: 'Votre mot de passe a été modifié',
+                        milestoneDate: new Date().toISOString(),
+                    },
+                });
+                if (errAvis) console.warn('Avis de changement non envoyé', errAvis);
+            }
+
+            // Déconnexion des autres sessions. Changer son mot de passe sans
+            // fermer les sessions ouvertes ailleurs laisserait un accès actif à
+            // qui détiendrait l'ancien.
+            const { error: errDeconnexion } = await supabase.auth.signOut({ scope: 'others' });
+            if (errDeconnexion) console.warn('Déconnexion des autres sessions incomplète', errDeconnexion);
+
             setPasswordSuccess(true);
             setTimeout(() => {
                 setShowPasswordModal(false);
