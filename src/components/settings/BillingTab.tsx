@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { forfait, tousLesForfaits, prixLisible, illimite } from '../../helpers/planLimits';
 import { CreditCard, AlertCircle, Loader2, ExternalLink, X, ArrowUpRight } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
@@ -23,14 +24,20 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     useEffect(() => {
         const fetchTenderCount = async () => {
             if (!userProfile) return;
-            const { data, error } = await supabase
-                .from('reponses_ao')
-                .select('statut, date_limite')
-                .eq('createur_id', userProfile.id);
-
-            if (!error && data) {
-                const count = data.filter(t => isActive(t as any)).length;
-                setActiveTendersCount(count);
+            // Décompte de référence, calculé en base : il porte sur l'ENTREPRISE
+            // et non sur l'utilisateur. La version précédente filtrait sur
+            // `createur_id`, donc chaque membre voyait son propre compteur — un
+            // collègue pouvait saturer le quota sans que cela n'apparaisse ici.
+            //
+            // `isActive` incluait de surcroît les dossiers déposés, qui ne
+            // consomment plus de place : le compteur affichait plus que la
+            // réalité, ce qui est précisément le « KPI incohérent » relevé.
+            if (userProfile.entreprise_id) {
+                const { data, error } = await supabase.rpc('dossiers_portes_entreprise', {
+                    p_entreprise_id: userProfile.entreprise_id,
+                });
+                if (!error && typeof data === 'number') setActiveTendersCount(data);
+                else console.error('dossiers_portes_entreprise:', error);
             }
             setCountLoading(false);
         };
@@ -97,14 +104,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    let currentPlanKey = (userProfile?.plan as PlanType) || PLANS_TYPES.free;
-    if (!PLANS_CONFIG[currentPlanKey]) currentPlanKey = PLANS_TYPES.free;
-    const limitConfig = PLANS_CONFIG[currentPlanKey];
+    // Forfait lu depuis `plan_limits` : les valeurs de `PLANS_CONFIG`
+    // divergeaient de la base, et un changement de tarif imposait une livraison.
+    const offre = forfait(userProfile?.plan);
+    const currentPlanKey = offre.code;
     const currentPlanInfo = PLANS.find(p => p.id === currentPlanKey);
     const usedStorage = (userProfile as any)?.storage_used || 0;
-    const totalStorage = limitConfig.limits.storage;
-    const storagePercentage = Math.min(100, Math.max(0, (usedStorage / totalStorage) * 100));
-    const hasStripeSubscription = currentPlanKey !== PLANS_TYPES.free;
+    const totalStorage = offre.maxStockageOctets;
+    // Stockage illimité : aucun pourcentage n'a de sens, la barre reste vide.
+    const storagePercentage = totalStorage
+        ? Math.min(100, Math.max(0, (usedStorage / totalStorage) * 100))
+        : 0;
+    const hasStripeSubscription = Boolean((userProfile as any)?.stripe_subscription_id)
+        || currentPlanKey !== PLANS_TYPES.free;
 
     return (
         <div className="space-y-3">
@@ -132,7 +144,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                             {currentPlanInfo?.name || 'Réseau'}
                         </h3>
                         <p className="text-gray-400 text-sm mt-0.5">
-                            {limitConfig.price > 0 ? `${limitConfig.price}€/mois HT` : 'Gratuit'}
+                            {prixLisible(offre)}
                         </p>
                     </div>
                     {currentPlanKey !== 'partenaire' && currentPlanKey !== 'organisation' && (
@@ -156,19 +168,34 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                     </div>
 
                     <div>
-                        <div className="flex justify-between text-xs mb-1.5">
-                            <span className="text-gray-400">Appels d'offres actifs</span>
-                            <span className="text-white font-medium">
-                                {activeTendersCount} / {limitConfig.limits.activeTenders === 9999 ? 'Illimité' : limitConfig.limits.activeTenders}
+                        <div className="flex justify-between text-xs mb-1.5 gap-2">
+                            {/* Libellé explicite, comme le demande la conception.
+                                « Appels d'offres actifs » ne disait ni ce qui est
+                                compté — les dossiers créés, pas ceux rejoints — ni
+                                que le quota est partagé par l'entreprise. C'est cette
+                                imprécision qui a fait passer un comportement normal
+                                pour un bug en recette. */}
+                            <span className="text-gray-400">
+                                Dossiers en cours créés par votre entreprise
+                            </span>
+                            <span className="text-white font-medium shrink-0">
+                                {activeTendersCount} / {illimite(offre) ? 'Illimité' : offre.maxAoSimultanes}
                             </span>
                         </div>
                         <div className="w-full bg-white/10 rounded-full h-1.5">
                             <div className="bg-filao-primary h-1.5 rounded-full transition-all" style={{
-                                width: limitConfig.limits.activeTenders === 9999
+                                width: illimite(offre)
                                     ? '100%'
-                                    : `${Math.min(100, (activeTendersCount / limitConfig.limits.activeTenders) * 100)}%`
+                                    : `${Math.min(100, (activeTendersCount / Math.max(offre.maxAoSimultanes ?? 1, 1)) * 100)}%`
                             }}></div>
                         </div>
+                        {/* Le forfait Partenaire n'autorise aucun dossier porté :
+                            « 0 / 0 » sans explication laisse croire à une erreur. */}
+                        {offre.maxAoSimultanes === 0 && (
+                            <p className="text-[11px] text-gray-400 mt-1.5">
+                                Ce forfait permet de rejoindre les dossiers d'autres entreprises, sans en créer.
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>
