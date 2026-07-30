@@ -1,4 +1,4 @@
-tsimport { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabaseClient';
 import { PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 
 /**
@@ -31,6 +31,12 @@ export interface Forfait {
     surDevis: boolean;
     fonctionnalites: Record<string, boolean>;
     ordre: number;
+    /** Nom affiché au public — « Réseau » pour le code `partenaire`. */
+    nomCommercial: string;
+    /** Arguments affichés en liste dans le comparatif. */
+    descriptif: string[];
+    populaire: boolean;
+    libelleAction: string;
 }
 
 let cache: Map<string, Forfait> | null = null;
@@ -50,6 +56,12 @@ const depuisConfig = (code: string): Forfait => {
         surDevis: false,
         fonctionnalites: { ia: conf.limits.aiAccess },
         ordre: conf.level,
+        nomCommercial: conf.label,
+        // Le repli n'a pas d'argumentaire : il ne sert qu'au temps de chargement
+        // et à un incident, pas à l'affichage du comparatif.
+        descriptif: [],
+        populaire: false,
+        libelleAction: 'Choisir cette offre',
     };
 };
 
@@ -67,7 +79,7 @@ export const chargerForfaits = async (): Promise<void> => {
     chargementEnCours = (async () => {
         const { data, error } = await supabase
             .from('plan_limits')
-            .select('plan, label, max_ao_simultanes, max_utilisateurs, max_stockage_octets, prix_mensuel_ht, prix_annuel_ht, sur_devis, fonctionnalites, ordre')
+            .select('plan, label, nom_commercial, descriptif, populaire, libelle_action, max_ao_simultanes, max_utilisateurs, max_stockage_octets, prix_mensuel_ht, prix_annuel_ht, sur_devis, fonctionnalites, ordre')
             .order('ordre');
 
         if (error || !data) {
@@ -89,6 +101,10 @@ export const chargerForfaits = async (): Promise<void> => {
             surDevis: Boolean(l.sur_devis),
             fonctionnalites: l.fonctionnalites ?? {},
             ordre: l.ordre ?? 9,
+            nomCommercial: l.nom_commercial || l.label || l.plan,
+            descriptif: Array.isArray(l.descriptif) ? l.descriptif : [],
+            populaire: Boolean(l.populaire),
+            libelleAction: l.libelle_action || 'Choisir cette offre',
         }]));
         chargementEnCours = null;
     })();

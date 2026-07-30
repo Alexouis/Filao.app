@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { forfait, tousLesForfaits } from '../helpers/planLimits';
 import { Check, Crown, ArrowRight, Mail, Loader2 } from 'lucide-react';
 import { PLANS, PLANS_CONFIG, STRIPE_PRICES, PlanType, UserProfile } from '../config';
 import { supabase } from '../lib/supabaseClient';
@@ -73,11 +74,25 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
 
                 {/* Plans Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                    {PLANS.map((plan) => {
+                    {/* Comparatif alimenté par `plan_limits` : tarifs, quotas,
+                        argumentaire et mise en avant y vivent désormais. Le
+                        descriptif de `partenaire` annonçait « 1 AO offert » alors
+                        que la table n'en autorise aucun — vendre autre chose que
+                        ce qu'on applique. */}
+                    {tousLesForfaits().map((offre) => {
+                        const plan = {
+                            id: offre.code,
+                            name: offre.nomCommercial,
+                            price: offre.prixMensuelHt ? Math.round(offre.prixMensuelHt / 100) : 0,
+                            popular: offre.populaire,
+                            cta: offre.libelleAction,
+                            features: offre.descriptif,
+                        };
                         const isCurrentPlan = plan.id === currentPlan;
                         const isPopular = plan.popular;
-                        const planConfig = PLANS_CONFIG[plan.id as PlanType];
-                        const isUpgrade = planConfig.level > PLANS_CONFIG[currentPlan].level;
+                        // L'ordre de la table remplace le `level` codé en dur :
+                        // il définit aussi ce qui compte comme montée de gamme.
+                        const isUpgrade = offre.ordre > forfait(currentPlan).ordre;
                         const isLoading = loadingPlan === plan.id;
 
                         return (
@@ -120,7 +135,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                                             <span className="text-4xl font-extrabold text-[#0B1F38]">{plan.price}€</span>
                                             <span className="text-[#0B1F38]/50 text-sm font-medium">/mois HT</span>
                                         </div>
-                                    ) : plan.id === 'organisation' ? (
+                                    ) : offre.surDevis ? (
                                         <div className="flex items-baseline">
                                             <span className="text-2xl font-extrabold text-[#0B1F38]">Sur devis</span>
                                         </div>
@@ -147,7 +162,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                                     disabled={isCurrentPlan || isLoading}
                                     className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${isCurrentPlan
                                         ? 'bg-green-100 text-green-700 cursor-default'
-                                        : plan.id === 'organisation'
+                                        : offre.surDevis
                                             ? 'bg-[#0B1F38] text-white hover:bg-[#0B1F38]/90'
                                             : isPopular
                                                 ? 'bg-[#00A3E0] text-white hover:bg-[#008CC1] shadow-md shadow-[#00A3E0]/20'
@@ -163,7 +178,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                                             <Check size={16} />
                                             Plan actuel
                                         </>
-                                    ) : plan.id === 'organisation' ? (
+                                    ) : offre.surDevis ? (
                                         <>
                                             <Mail size={16} />
                                             {plan.cta}
