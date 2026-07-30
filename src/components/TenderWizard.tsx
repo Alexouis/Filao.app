@@ -1672,6 +1672,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     cpv_codes: data.cpv_codes || [],
                     criteres_attribution: data.criteres_attribution || null,
                     reference_marche: data.reference_marche || '',
+                    verrouille_par_quota: Boolean(data.verrouille_par_quota),
                     required_skills: data.required_skills || [],
                     required_specialty_ids: specialtyIds,
                     type_groupement: data.type_groupement || undefined,
@@ -2118,6 +2119,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * jusqu'au rechargement.
      */
     const refuserSiNonMandataire = (action: string): boolean => {
+        // Dossier au-delà du quota de l'offre : lecture seule. Le contrôle est
+        // aussi posé en RLS (migration 049), mais l'échec y serait silencieux —
+        // l'état local se mettrait à jour et l'écran afficherait une
+        // modification qui n'existe pas en base.
+        if (formData.verrouille_par_quota) {
+            showToast(
+                "Ce dossier dépasse le quota de votre offre : il est en lecture seule. Rouvrez-le depuis « Mes appels d'offres ».",
+                'warning'
+            );
+            return true;
+        }
         if (isOwner) return false;
         console.warn('Écriture refusée : rôle insuffisant', { action });
         showToast("Seul le mandataire du dossier peut effectuer cette action.", 'warning');

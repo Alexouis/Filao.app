@@ -14,6 +14,7 @@ import {
   PLANS_CONFIG, PlanType, PLANS_TYPES
 } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -876,6 +877,16 @@ export const Tenders: React.FC<TendersProps> = ({
 
         {/* Tender Grid/List */}
         <div className="flex-1 overflow-auto custom-scrollbar-dark p-6">
+          {/* Dossiers au-delà du quota. Placé au-dessus de la liste et non dans
+              un écran de facturation : c'est ici que l'utilisateur constate qu'un
+              dossier ne répond plus, donc ici que l'explication doit se trouver.
+              Le composant ne s'affiche pas s'il n'y a aucun dépassement. */}
+          <BandeauQuotaDepasse
+            userProfile={userProfile}
+            tenders={tenders}
+            onChange={fetchTenders}
+          />
+
           {processedTenders.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-[#0B1F38]/40 gap-4">
                 {showInvitationsOnly ? (

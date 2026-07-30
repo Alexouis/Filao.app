@@ -26,6 +26,8 @@ export interface Tender {
     groupements?: Groupement[];
     modified_at?: string;
     success_score?: number;
+    /** Dossier au-delà du quota de l'offre : lecture seule, réversible. */
+    verrouille_par_quota?: boolean;
     nb_fichiers_recus?: number;
     nombre_pj_attendues?: number;
     nb_collaborateurs?: number;
@@ -172,6 +174,8 @@ export interface UIGroupementMember {
 }
 
 export interface TenderFormData {
+    /** Dossier au-delà du quota : lecture seule, réversible (migration 049). */
+    verrouille_par_quota?: boolean;
     titre: string;
     organisme_acheteur: string;
     lieu_execution: string[];
