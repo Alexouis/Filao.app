@@ -64,9 +64,13 @@ DECLARE
     v_max INTEGER;
     v_verrouilles INTEGER := 0;
 BEGIN
+    -- Le forfait appartient à l'ENTREPRISE, pas à l'utilisateur : tous ses
+    -- membres partagent donc le même quota. `utilisateurs` n'a pas de colonne
+    -- `plan` — le profil applicatif la reçoit par jointure.
     SELECT pl.max_ao_simultanes INTO v_max
       FROM utilisateurs u
-      JOIN plan_limits pl ON pl.plan = u.plan
+      JOIN entreprises e  ON e.id = u.entreprise_id
+      JOIN plan_limits pl ON pl.plan = e.plan
      WHERE u.id = p_user_id;
 
     -- Offre illimitée ou inconnue : on lève tout verrou existant plutôt que de
@@ -138,7 +142,9 @@ BEGIN
     END IF;
 
     SELECT pl.max_ao_simultanes INTO v_max
-      FROM utilisateurs u JOIN plan_limits pl ON pl.plan = u.plan
+      FROM utilisateurs u
+      JOIN entreprises e  ON e.id = u.entreprise_id
+      JOIN plan_limits pl ON pl.plan = e.plan
      WHERE u.id = auth.uid();
 
     SELECT count(*) INTO v_ouverts
