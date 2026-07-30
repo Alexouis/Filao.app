@@ -46,7 +46,10 @@ export const canCreateTender = (
     // emplacement immédiatement.
     return {
       allowed: false,
-      message: `Vous portez déjà ${activeCount} dossier(s) en cours, la limite du forfait ${offre.libelle}. Finalisez-en un — un dossier déposé libère aussitôt sa place — ou passez au forfait supérieur.`
+      // « Vous portez » était impropre : le décompte porte sur les dossiers
+      // CRÉÉS, par n'importe quel membre de l'entreprise, et le mandariat est
+      // cessible. Le message doit dire ce qui est réellement compté.
+      message: `Votre entreprise a déjà ${activeCount} dossier(s) en cours, la limite du forfait ${offre.libelle}. Finalisez-en un — un dossier déposé libère aussitôt sa place — ou passez au forfait supérieur.`
     };
   }
 

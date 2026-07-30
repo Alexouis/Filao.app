@@ -2609,10 +2609,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             console.error('Final Catch in handleGoToVerification:', error);
             // « Voir console » n'est actionnable pour personne. Les erreurs
             // d'enum et de NOT NULL désignent précisément un champ : on le dit.
-            showToast(
-                messageErreurBase(error) ?? "Erreur lors de l'initialisation du dossier.",
-                'error'
-            );
+            // Le déclencheur de quota (migration 050) renvoie un message déjà
+            // rédigé, préfixé pour être reconnaissable : il est affiché tel quel
+            // plutôt que remplacé par « erreur d'initialisation », qui
+            // n'expliquerait rien.
+            const brut = String((error as any)?.message ?? '');
+            if (brut.includes('QUOTA_DOSSIERS:')) {
+                showToast(brut.split('QUOTA_DOSSIERS:')[1].trim(), 'warning');
+            } else {
+                showToast(
+                    messageErreurBase(error) ?? "Erreur lors de l'initialisation du dossier.",
+                    'error'
+                );
+            }
         } finally {
             setLoading(false);
         }
