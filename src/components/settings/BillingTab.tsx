@@ -196,6 +196,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                                 Ce forfait permet de rejoindre les dossiers d'autres entreprises, sans en créer.
                             </p>
                         )}
+                        {/* Explication visible sans interaction. Repliée derrière une
+                            icône, elle n'expliquerait rien : c'est précisément parce
+                            que la distinction n'était écrite nulle part qu'un
+                            comportement correct est passé pour un bug. */}
+                        {offre.maxAoSimultanes !== 0 && (
+                            <p className="text-[11px] text-gray-400 mt-1.5 leading-snug">
+                                Les dossiers que vous avez rejoints comme co-traitant ou sous-traitant
+                                ne comptent pas dans votre offre.
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>

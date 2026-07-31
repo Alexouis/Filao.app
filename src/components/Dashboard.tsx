@@ -10,6 +10,7 @@ import {
   REQUIRED_DOCS_BY_ROLE // <--- Added this import
 } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { forfait, illimite } from '@/helpers/planLimits';
 import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { Plus, Clock, TrendingUp, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
@@ -271,14 +272,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // --- DYNAMIC DATA ---
-  let currentPlanKey = (userProfile?.plan as PlanType) || PLANS_TYPES.free;
-  // If the user has a plan that doesn't exist in config (e.g. old data), fallback to free
-  if (!PLANS_CONFIG[currentPlanKey]) {
-    currentPlanKey = PLANS_TYPES.free;
-  }
-  const currentPlanConfig = PLANS_CONFIG[currentPlanKey];
-  const tenderLimit = currentPlanConfig.limits.activeTenders;
-  const isLimitReached = tenderLimit !== 9999 && activeTendersCount >= tenderLimit;
+  // Forfait lu depuis `plan_limits` : `9999` était une valeur sentinelle pour
+  // « illimité », comparée ensuite comme un nombre réel — d'où les tests
+  // `!== 9999` disséminés dans le rendu.
+  const offre = forfait(userProfile?.plan);
+  const tenderLimit = offre.maxAoSimultanes;
+  const isLimitReached = !illimite(offre) && activeTendersCount >= (tenderLimit ?? 0);
 
   // Generate Recent Activity
   const dynamicActivity = tenders.slice(0, 5).map(t => {
@@ -331,7 +330,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <section className={`lg:col-span-2 ${GLASS_STYLE} rounded-3xl flex flex-col h-full overflow-hidden`}>
               <div className="p-6 flex justify-between items-center shrink-0 gap-4">
                 <p className={`text-sm font-medium ${isLimitReached ? 'text-red-500' : 'text-[#0B1F38]/60'}`}>
-                  {activeTendersCount}/{tenderLimit === 9999 ? '∞' : tenderLimit} dossiers actifs (Plan {currentPlanConfig.label})
+                  {/* « Actif » est ambigu : actif pour qui, à quel titre ? Le
+                      compteur ne parle que des dossiers PORTÉS, la liste montre
+                      aussi ceux rejoints comme co-traitant — deux notions justes
+                      sous un même mot, d'où le faux bug signalé en recette. */}
+                  {activeTendersCount}/{illimite(offre) ? '∞' : offre.maxAoSimultanes} dossiers portés (Plan {offre.libelle})
                 </p>
                 <button
                   onClick={handleAddTenderClick}
@@ -415,7 +418,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
 
                 {/* Upsell Banner - Fixed visual and alignment */}
-                {activeTendersCount >= tenderLimit - 1 && tenderLimit !== 9999 && (
+                {!illimite(offre) && activeTendersCount >= (tenderLimit ?? 0) - 1 && (
                   <div
                     onClick={() => onNavigate('pricing')}
                     className="p-5 rounded-2xl border border-[#0B1F38]/10 bg-gradient-to-br from-white/60 to-white/40 flex flex-col items-center justify-center text-center gap-3 group hover:bg-white/90 hover:shadow-md transition-all cursor-pointer relative overflow-hidden"
@@ -429,7 +432,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="relative z-10">
                       <h3 className="font-bold text-[#0B1F38]">Débloquer plus de dossiers</h3>
                       <p className="text-xs text-[#0B1F38]/60 mt-1 max-w-xs mx-auto">
-                        Votre plan actuel est limité à <span className="text-[#0B1F38] font-bold">{tenderLimit} AO actifs simultanés</span>.
+                        Votre offre permet <span className="text-[#0B1F38] font-bold">{illimite(offre) ? 'un nombre illimité de' : offre.maxAoSimultanes} dossier(s) porté(s)</span> simultanément. Les dossiers que vous avez rejoints comme co-traitant ne comptent pas.
                       </p>
                     </div>
 

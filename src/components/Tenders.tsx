@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from './ui/Toast';
 import {
-  CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
+  CheckCircle2, AlertCircle, ArrowUpDown, Search, Users, Crown,
   Pencil, Trash2, X, Plus,
   MoreVertical, Eye, Archive, Lock, LayoutGrid, List, Trophy, Frown,
   Clock, TrendingUp, Briefcase, FileText
@@ -61,6 +61,14 @@ export const Tenders: React.FC<TendersProps> = ({
   // Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('Tous');
+  /**
+   * Filtre par rôle : porté ou rejoint.
+   *
+   * Il permet à l'utilisateur de vérifier lui-même le compteur en deux clics
+   * plutôt que d'en douter. Le nombre de résultats « Portés » doit égaler le
+   * compteur affiché sur l'écran Abonnement — c'est le critère d'acceptation.
+   */
+  const [filterRole, setFilterRole] = useState<'tous' | 'portes' | 'rejoints'>('tous');
   const [outcomeConfirm, setOutcomeConfirm] = useState<{ id: string; type: 'won' | 'lost' } | null>(null);
   const [filterCategory, setFilterCategory] = useState('Tous');
   const [filterDomain, setFilterDomain] = useState('Tous');
@@ -473,6 +481,14 @@ export const Tenders: React.FC<TendersProps> = ({
   const processedTenders = useMemo(() => {
     let result = [...tenders];
 
+    // Rôle : « porté » signifie créé par soi. Le mandariat étant cessible, il
+    // ne peut pas servir de critère — c'est la création qui fixe le quota.
+    if (filterRole !== 'tous') {
+      result = result.filter(t =>
+        filterRole === 'portes' ? t.createur_id === userId : t.createur_id !== userId
+      );
+    }
+
     // 1. Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
@@ -544,7 +560,7 @@ export const Tenders: React.FC<TendersProps> = ({
       return 0;
     });
     return result;
-  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id]);
+  }, [tenders, searchQuery, filterStatus, filterRole, filterCategory, filterDomain, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id]);
 
 
   useEffect(() => {
@@ -822,6 +838,34 @@ export const Tenders: React.FC<TendersProps> = ({
 
             {/* Redesigned Selects */}
             <div className="flex items-center gap-2">
+              {/* Filtre par rôle. Permet de vérifier le compteur soi-même :
+                  « Portés » doit donner exactement le nombre affiché sur
+                  l'écran Abonnement. */}
+              <div className="flex rounded-xl overflow-hidden border border-white/90 shadow-sm shrink-0">
+                {([
+                  ['tous', 'Tous'],
+                  ['portes', 'Portés'],
+                  ['rejoints', 'Rejoints'],
+                ] as const).map(([valeur, libelle]) => (
+                  <button
+                    key={valeur}
+                    onClick={() => setFilterRole(valeur)}
+                    title={valeur === 'portes'
+                      ? "Dossiers que vous avez créés — ce sont eux qui comptent dans votre offre"
+                      : valeur === 'rejoints'
+                        ? "Dossiers auxquels vous participez sans les porter — ils ne comptent pas dans votre offre"
+                        : "Tous les dossiers"}
+                    className={`px-3 py-2.5 text-[11px] font-bold transition-all ${
+                      filterRole === valeur
+                        ? 'bg-[#00A3E0] text-white'
+                        : 'bg-white/70 text-[#0B1F38]/70 hover:bg-white/95'
+                    }`}
+                  >
+                    {libelle}
+                  </button>
+                ))}
+              </div>
+
               <div className="relative group">
                 <select 
                   value={filterCategory} 
@@ -965,15 +1009,25 @@ export const Tenders: React.FC<TendersProps> = ({
                         <div className="flex items-center gap-2 mt-2">
                             {(tender.success_score || 0) > 0 && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 uppercase tracking-tight">Probabilité: {tender.success_score}%</span>}
                             {jeSuisPorteur ? (
-                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{myRoleBadge}</span>
+                                /* Porté : pastille pleine. Le dossier compte dans
+                                   l'offre, et son porteur en pilote le cycle de vie. */
+                                <span
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#00A3E0] text-white uppercase tracking-tight flex items-center gap-1"
+                                    title="Vous avez créé ce dossier : il compte dans votre offre."
+                                >
+                                    <Crown size={10} /> Porté
+                                </span>
                             ) : (
                                 /* Le partenaire est signalé explicitement : sans repère,
                                    on croit piloter un dossier que l'on a seulement rejoint. */
                                 <span
                                     className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100 uppercase tracking-tight flex items-center gap-1"
-                                    title={`Vous participez à ce dossier en tant que ${myRoleBadge.toLowerCase()}. Il est piloté par une autre entreprise.`}
+                                    title={`Vous participez à ce dossier en tant que ${myRoleBadge.toLowerCase()} : il ne compte pas dans votre offre. Il est piloté par une autre entreprise.`}
                                 >
-                                    <Users size={10} /> Partenaire · {myRoleBadge}
+                                    {/* Rejoint : pastille en contour, neutre. Le rôle
+                                        précis — co-traitant, sous-traitant — reste
+                                        affiché, c'est lui qui dit ce qu'on doit fournir. */}
+                                    <Users size={10} /> Rejoint · {myRoleBadge}
                                 </span>
                             )}
                         </div>
