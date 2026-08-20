@@ -12,7 +12,7 @@ import {
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
-import { Plus, Clock, TrendingUp, TrendingDown, Minus, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
+import { Plus, Clock, TrendingUp, TrendingDown, Minus, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 
 interface DashboardProps {
@@ -459,7 +459,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <div className="px-6 pb-2 flex flex-wrap gap-2 shrink-0">
                   {urgentCount > 0 && (
                     <button
-                      onClick={() => onNavigate('tenders')}
+                      onClick={() => onNavigate('tenders', 'urgents')}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#FF8575]/10 text-[#FF8575] hover:bg-[#FF8575]/20 transition-colors"
                       title="Échéance dans moins de 7 jours"
                     >

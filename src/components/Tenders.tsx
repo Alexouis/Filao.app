@@ -33,6 +33,8 @@ export interface TendersProps {
   onEditDraft?: (id: string) => void;
   userProfile: UserProfile;
   onNavigate?: (tab: string) => void;
+  /** Filtre statut initial (ex. 'Urgents' depuis un lien du tableau de bord). */
+  initialFilter?: string;
 }
 
 
@@ -41,7 +43,7 @@ export interface TendersProps {
 export const Tenders: React.FC<TendersProps> = ({
   onAddTender, cachedTenders, onTendersLoad, onTenderUpdate,
   cachedCollaborators, onCollaboratorsLoad, onEditDraft, userProfile,
-  onNavigate
+  onNavigate, initialFilter
 }) => {
   const { showToast } = useToast();
   const userId = userProfile?.id;
@@ -60,7 +62,7 @@ export const Tenders: React.FC<TendersProps> = ({
 
   // Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('Tous');
+  const [filterStatus, setFilterStatus] = useState(initialFilter || 'Tous');
   const [outcomeConfirm, setOutcomeConfirm] = useState<{ id: string; type: 'won' | 'lost' } | null>(null);
   const [filterCategory, setFilterCategory] = useState('Tous');
   const [filterDomain, setFilterDomain] = useState('Tous');

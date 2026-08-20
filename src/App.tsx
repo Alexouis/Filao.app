@@ -282,6 +282,7 @@ const AppContent = () => {
             onEditDraft={handleEditDraft}
             userProfile={userProfile}
             onNavigate={(tab) => navigateTo(tab as NavItem, null)}
+            initialFilter={editingTenderId === 'urgents' ? 'Urgents' : undefined}
           />
         );
       case 'calendar':
