@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useToast } from './ui/Toast';
 import { CollaboratorPicker } from './ui/CollaboratorPicker';
+import { EmailLogPanel } from './EmailLogPanel';
 
 import { LimitReachedModal } from './LimitReachedModal';
 import { SkillInput } from './ui/SkillInput';
@@ -3179,9 +3180,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </details>
                             );
                         })}
-                    </div>
 
-                    {/* Footer - Global Actions */}
+                        {/* Journal des emails et dépôts liés au dossier —
+                            réservé au mandataire (créateur), une fois le dossier
+                            créé. La RLS restreint déjà les données visibles. */}
+                        {isOwner && tenderId && (
+                          <div className="mt-6 pt-4 border-t border-white/10">
+                            <EmailLogPanel tenderId={tenderId} />
+                          </div>
+                        )}
+                    </div>
                     <div className="p-6 border-t border-[#0B1F38]/10 bg-gray-50/80 shrink-0">
                         <button
                             onClick={() => handleDownloadAllFiles()}
