@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
+import { metaEmail } from "./emailTypes.ts";
 
 /**
  * consommer-emails — consomme la file `emails_a_envoyer` et envoie via Brevo.
@@ -52,6 +53,21 @@ const construireEmail = (type: string, payload: any, appUrl: string) => {
         sujet: `Échéance dans ${j} jour${j > 1 ? "s" : ""} : ${titre}`,
         texte: `La date limite approche (dans ${j} jour${j > 1 ? "s" : ""}) pour « ${titre} ».\n\nAccéder au dossier : ${lien}`,
         html: `<p>La date limite approche (dans <strong>${j} jour${j > 1 ? "s" : ""}</strong>) pour « ${titre} ».</p><p><a href="${lien}">Accéder au dossier</a></p>`,
+      };
+    }
+    case "recap_documents": {
+      const nb = payload?.nb_pieces ?? 0;
+      const nbDossiers = payload?.nb_dossiers ?? 0;
+      const detail = (payload?.pieces ?? [])
+        .map((p: any) => `• ${p.auteur ?? "Un partenaire"} a déposé ${p.type ?? "une pièce"}`)
+        .join("\n");
+      const detailHtml = (payload?.pieces ?? [])
+        .map((p: any) => `<li>${p.auteur ?? "Un partenaire"} a déposé ${p.type ?? "une pièce"}</li>`)
+        .join("");
+      return {
+        sujet: `${nb} pièce${nb > 1 ? "s" : ""} déposée${nb > 1 ? "s" : ""} aujourd'hui`,
+        texte: `Récapitulatif du jour : ${nb} pièce${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.\n\n${detail}\n\nVoir vos dossiers : ${appUrl}`,
+        html: `<p>Récapitulatif du jour : <strong>${nb} pièce${nb > 1 ? "s" : ""}</strong> sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.</p><ul>${detailHtml}</ul><p><a href="${appUrl}">Voir vos dossiers</a></p>`,
       };
     }
     default:
@@ -118,7 +134,65 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      const meta = metaEmail(item.type_email);
+
+      // --- Préférence par famille + plafond quotidien ---
+      // Les emails de sécurité (auth) ne passent pas par la file : tout ce qui
+      // est ici est donc plafonnable et soumis aux préférences. Un email de
+      // sécurité éventuel (meta.securite) resterait toutefois exempt.
+      if (!meta.securite) {
+        // 1. Préférence email de la famille : si l'utilisateur a coupé l'email
+        //    pour cette famille, on annule (pas une erreur).
+        if (meta.famille) {
+          const { data: dest } = await admin
+            .from("utilisateurs")
+            .select("notification_preferences")
+            .eq("email", item.destinataire)
+            .maybeSingle();
+          const prefEmail = dest?.notification_preferences?.[meta.famille]?.email;
+          if (prefEmail === false) {
+            await admin.from("emails_a_envoyer")
+              .update({ statut: "annule", derniere_erreur: "préférence email désactivée" })
+              .eq("id", item.id);
+            ignores++;
+            continue;
+          }
+        }
+
+        // 2. Plafond : au plus 5 emails par jour et par destinataire (hors
+        //    sécurité). On compte ce qui a DÉJÀ été journalisé aujourd'hui.
+        const debutJour = new Date();
+        debutJour.setUTCHours(0, 0, 0, 0);
+        const { count } = await admin
+          .from("emails_envoyes")
+          .select("id", { count: "exact", head: true })
+          .eq("destinataire", item.destinataire)
+          .gte("horodatage", debutJour.toISOString());
+
+        if ((count ?? 0) >= 5) {
+          // Plafond atteint : on REPORTE (reste 'en_attente' pour un jour futur)
+          // plutôt que d'annuler, pour ne pas perdre l'email. On le laisse en
+          // file ; il repartira quand le compteur du destinataire sera retombé.
+          await admin.from("emails_a_envoyer")
+            .update({ statut: "en_attente", derniere_erreur: "plafond quotidien atteint (reporté)" })
+            .eq("id", item.id);
+          ignores++;
+          continue;
+        }
+      }
+
       const contenu = construireEmail(item.type_email, item.payload, appUrl);
+
+      // List-Unsubscribe : requis sur les emails NON transactionnels
+      // (communications/marketing). Brevo accepte des en-têtes personnalisés.
+      // Le lien de désinscription pointe vers une route applicative qui inscrira
+      // l'adresse dans emails_bloques (motif desinscription).
+      const enTetes: Record<string, string> = {};
+      if (!meta.transactionnel) {
+        const lienDesinscription = `${appUrl}/desinscription?email=${encodeURIComponent(item.destinataire)}`;
+        enTetes["List-Unsubscribe"] = `<${lienDesinscription}>`;
+        enTetes["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+      }
 
       try {
         const res = await fetch("https://api.brevo.com/v3/smtp/email", {
@@ -130,6 +204,7 @@ Deno.serve(async (req: Request) => {
             subject: contenu.sujet,
             htmlContent: contenu.html,
             textContent: contenu.texte, // version texte systématique
+            ...(Object.keys(enTetes).length > 0 ? { headers: enTetes } : {}),
           }),
         });
 

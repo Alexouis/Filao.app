@@ -454,6 +454,24 @@ export const CollaboratorSubmission: React.FC = () => {
             docType
          );
 
+         // Trace le dépôt pour le récapitulatif quotidien 18h (un email groupé
+         // au lieu d'un par pièce) et le journal côté fiche partenaire.
+         // Best-effort : un échec de tracking ne doit pas bloquer le dépôt.
+         try {
+            await supabase.from('depots_pieces').insert({
+               tender_id: tender.id,
+               destinataire_id: tender.createur_id,
+               // auteur_id laissé null : l'auteur est souvent un invité sans
+               // compte (myCollabData.id est un id d'invitation, pas d'utilisateur).
+               // Son identité est portée par auteur_libelle.
+               auteur_libelle: myCollabData.name || myCollabData.email,
+               type_piece: docType,
+               nom_piece: fileName,
+            });
+         } catch (e) {
+            console.error('Suivi dépôt (depots_pieces) échoué:', e);
+         }
+
       } catch (err) {
          console.error(err);
          showToast('Erreur lors du téléchargement.', 'error');
