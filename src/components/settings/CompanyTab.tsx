@@ -137,13 +137,24 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
         { key: 'autres', label: 'Autres Documents', icon: FileStack, description: 'Tout autre document pertinent pour vos candidatures.', defaultDocs: [], placeholder: 'Nom du document...' },
     ];
 
-    // Standard administrative document slots (stored on utilisateurs table)
+    // Standard administrative document slots.
+    // Depuis le Lot 2, ces documents sont stockés dans `documents_candidature`
+    // (categorie = type normalisé), non plus sur `utilisateurs.*_url`. `field`
+    // reste la clé d'état locale (formData/docStatuses) ; `categorie` est la clé
+    // de persistance et de jointure avec ref_durees_validite_document.
+    // `saisieExpiration` = le document porte une échéance réelle à saisir
+    // (assurance) ; les autres dérivent leur fraîcheur d'une durée conventionnelle.
     const STANDARD_DOC_SLOTS = [
-        { label: 'Kbis / Extrait D1', field: 'kbis_url' as const },
-        { label: 'Attestation sur l\'honneur', field: 'attestation_honneur_url' as const },
-        { label: 'Attestation Assurance', field: 'attestation_assurance_url' as const },
-        { label: 'Statuts', field: 'presentation_societe_url' as const },
+        { label: 'Kbis / Extrait D1', field: 'kbis_url' as const, categorie: 'kbis', saisieExpiration: false },
+        { label: 'Attestation sur l\'honneur', field: 'attestation_honneur_url' as const, categorie: 'attestation_honneur', saisieExpiration: false },
+        { label: 'Attestation Assurance', field: 'attestation_assurance_url' as const, categorie: 'attestation_assurance', saisieExpiration: true },
+        { label: 'Statuts', field: 'presentation_societe_url' as const, categorie: 'presentation_societe', saisieExpiration: false },
     ];
+
+    // Ensemble des catégories standard : sert à séparer, à la lecture, les
+    // documents administratifs des documents personnalisés qui partagent
+    // désormais la même table.
+    const STANDARD_CATEGORIES = ['kbis', 'attestation_honneur', 'attestation_assurance', 'presentation_societe'];
 
     // Custom documents
     interface CustomDoc {
@@ -168,6 +179,15 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
         attestation_honneur_url: { status: 'en_attente', uploaded_at: null },
         attestation_assurance_url: { status: 'en_attente', uploaded_at: null },
     });
+
+    // Id de la ligne documents_candidature correspondant à chaque slot standard
+    // (pour cibler l'upsert/update). Vide tant qu'aucun document n'est déposé.
+    const [standardDocIds, setStandardDocIds] = useState<Record<string, string>>({});
+    // Date d'expiration saisie par slot (uniquement l'assurance en pratique).
+    const [standardDocExpiry, setStandardDocExpiry] = useState<Record<string, string>>({});
+    // Passe les URLs standard chargées vers le setFormData qui suit, sans
+    // dupliquer la requête.
+    const standardUrlsRef = useRef<Record<string, string>>({});
 
     const [uploadingLogo, setUploadingLogo] = useState(false);
 
@@ -295,13 +315,51 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
             // Fetch Hierarchical Data
             await fetchHierarchicalData(entId);
 
-            // Fetch custom documents
+            // Fetch documents (standard + custom partagent désormais la table).
             const { data: docs } = await supabase
                 .from('documents_candidature')
-                .select('id, label, url, statut, categorie, created_at, uploaded_by')
+                .select('id, label, url, statut, categorie, created_at, uploaded_by, date_emission, date_expiration')
                 .eq('entreprise_id', entId)
                 .order('created_at', { ascending: true });
-            setCustomDocs((docs || []).map(d => ({ ...d, categorie: d.categorie || 'presentation' })));
+
+            const allDocs = docs || [];
+
+            // Les documents personnalisés excluent les catégories standard, qui
+            // ont leur propre grille — sans ce filtre, ils apparaîtraient en
+            // double depuis le backfill du Lot 1.
+            setCustomDocs(
+                allDocs
+                    .filter(d => !STANDARD_CATEGORIES.includes(d.categorie))
+                    .map(d => ({ ...d, categorie: d.categorie || 'presentation' }))
+            );
+
+            // Hydrater l'état des slots standard depuis leurs lignes. En cas de
+            // doublon résiduel pour une catégorie, la première ligne (plus
+            // ancienne, tri created_at asc) fait foi.
+            const standardRows = allDocs.filter(d => STANDARD_CATEGORIES.includes(d.categorie));
+            const idsByField: Record<string, string> = {};
+            const statusesByField: Record<string, DocStatusEntry> = {};
+            const urlsByField: Record<string, string> = {};
+            const expiryByField: Record<string, string> = {};
+            for (const slot of STANDARD_DOC_SLOTS) {
+                const row = standardRows.find(d => d.categorie === slot.categorie);
+                if (row) {
+                    idsByField[slot.field] = row.id;
+                    urlsByField[slot.field] = row.url || '';
+                    statusesByField[slot.field] = {
+                        status: (row.statut as DocStatus) || 'en_attente',
+                        uploaded_at: row.date_emission || row.created_at || null,
+                    };
+                    if (row.date_expiration) expiryByField[slot.field] = row.date_expiration;
+                }
+            }
+            setStandardDocIds(idsByField);
+            setStandardDocExpiry(expiryByField);
+            if (Object.keys(statusesByField).length > 0) {
+                setDocStatuses(prev => ({ ...prev, ...statusesByField }));
+            }
+            // Injecter les URLs standard dans formData (fait plus bas via setFormData).
+            (standardUrlsRef as any).current = urlsByField;
 
             setFormData({
                 nom: ent.nom || '',
@@ -320,33 +378,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                 prenom: ent.prenom || '',
                 nom_famille: ent.nom_famille || '',
                 effectif: ent.effectif || 1,
-                kbis_url: userProfile?.kbis_url || '',
-                presentation_societe_url: userProfile?.presentation_societe_url || '',
-                attestation_honneur_url: userProfile?.attestation_honneur_url || '',
-                attestation_assurance_url: userProfile?.attestation_assurance_url || '',
+                // URLs des documents administratifs : désormais issues de
+                // documents_candidature (hydratées ci-dessus), plus de userProfile.
+                kbis_url: standardUrlsRef.current.kbis_url || '',
+                presentation_societe_url: standardUrlsRef.current.presentation_societe_url || '',
+                attestation_honneur_url: standardUrlsRef.current.attestation_honneur_url || '',
+                attestation_assurance_url: standardUrlsRef.current.attestation_assurance_url || '',
             });
-
-            // Load document statuses
-            if (userProfile?.document_statuses) {
-                const raw = userProfile.document_statuses as Record<string, any>;
-                const loaded: Record<string, DocStatusEntry> = {};
-                let needsDbUpdate = false;
-                for (const [key, val] of Object.entries(raw)) {
-                    const entry: DocStatusEntry = typeof val === 'string'
-                        ? { status: val as DocStatus, uploaded_at: null }
-                        : { status: val.status || 'en_attente', uploaded_at: val.uploaded_at || null };
-                    const effective = computeEffectiveStatus(entry);
-                    if (effective !== entry.status) {
-                        entry.status = effective;
-                        needsDbUpdate = true;
-                    }
-                    loaded[key] = entry;
-                }
-                setDocStatuses(prev => ({ ...prev, ...loaded }));
-                if (needsDbUpdate && userProfile?.id) {
-                    supabase.from('utilisateurs').update({ document_statuses: loaded }).eq('id', userProfile.id);
-                }
-            }
 
             setSiretInput('');
         } catch (err: any) {
@@ -659,6 +697,8 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
     const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>, dbField: string) => {
         const file = e.target.files?.[0];
         if (!file || !userProfile) return;
+        const slot = STANDARD_DOC_SLOTS.find(s => s.field === dbField);
+        if (!slot || !entrepriseData?.id) return;
         try {
             setError(null);
             setUploadingField(dbField);
@@ -682,13 +722,60 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
 
             // Le bucket `documents` étant privé, on conserve le CHEMIN : une URL
             // signée expire au bout d'une heure et ne peut pas être persistée.
-            setFormData(prev => ({ ...prev, [dbField]: chemin }));
             oublierUrl(chemin);
 
-            const now = new Date().toISOString();
-            const newStatuses = { ...docStatuses, [dbField]: { status: 'valide' as DocStatus, uploaded_at: now } };
-            setDocStatuses(newStatuses);
-            await supabase.from('utilisateurs').update({ [dbField]: chemin, document_statuses: newStatuses }).eq('id', userProfile.id);
+            const today = new Date().toISOString().slice(0, 10); // date_emission (DATE)
+            const existingId = standardDocIds[dbField];
+            // La date d'expiration n'est pertinente que pour les documents qui
+            // en portent une (assurance) ; sinon NULL, l'échéance étant dérivée
+            // de la durée conventionnelle par la vue.
+            const dateExpiration = slot.saisieExpiration
+                ? (standardDocExpiry[dbField] || null)
+                : null;
+
+            let rowId = existingId;
+            if (existingId) {
+                // Remplacement d'un document existant : on met à jour la ligne,
+                // on repart d'un statut « à vérifier » (le document a changé) et
+                // on redate l'émission.
+                const { error: updErr } = await supabase
+                    .from('documents_candidature')
+                    .update({
+                        url: chemin,
+                        statut: 'valide',
+                        date_emission: today,
+                        date_expiration: dateExpiration,
+                        updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', existingId);
+                if (updErr) throw updErr;
+            } else {
+                // Premier dépôt : nouvelle ligne standard.
+                const { data: inserted, error: insErr } = await supabase
+                    .from('documents_candidature')
+                    .insert({
+                        entreprise_id: entrepriseData.id,
+                        uploaded_by: userProfile.id,
+                        label: slot.label,
+                        url: chemin,
+                        statut: 'valide',
+                        categorie: slot.categorie,
+                        date_emission: today,
+                        date_expiration: dateExpiration,
+                    })
+                    .select('id')
+                    .single();
+                if (insErr) throw insErr;
+                rowId = inserted?.id;
+            }
+
+            // Refléter l'état localement (URL, id de ligne, statut).
+            setFormData(prev => ({ ...prev, [dbField]: chemin }));
+            if (rowId) setStandardDocIds(prev => ({ ...prev, [dbField]: rowId as string }));
+            setDocStatuses(prev => ({
+                ...prev,
+                [dbField]: { status: 'valide', uploaded_at: today },
+            }));
             onUpdate();
         } catch (err: any) {
             setError(err.message);
@@ -758,10 +845,29 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
     };
 
     const handleValidateDoc = async (field: string) => {
-        if (!userProfile?.id) return;
-        const newStatuses = { ...docStatuses, [field]: { status: 'valide' as DocStatus, uploaded_at: docStatuses[field]?.uploaded_at || new Date().toISOString() } };
-        setDocStatuses(newStatuses);
-        await supabase.from('utilisateurs').update({ document_statuses: newStatuses }).eq('id', userProfile.id);
+        const rowId = standardDocIds[field];
+        if (!rowId) return; // rien à valider tant que le document n'est pas déposé
+        const { error } = await supabase
+            .from('documents_candidature')
+            .update({ statut: 'valide', updated_at: new Date().toISOString() })
+            .eq('id', rowId);
+        if (!error) {
+            setDocStatuses(prev => ({
+                ...prev,
+                [field]: { status: 'valide', uploaded_at: prev[field]?.uploaded_at || new Date().toISOString().slice(0, 10) },
+            }));
+        }
+    };
+
+    // Persiste la date d'expiration saisie (assurance) sur la ligne standard.
+    const handleUpdateExpiry = async (field: string) => {
+        const rowId = standardDocIds[field];
+        if (!rowId) return;
+        const value = standardDocExpiry[field] || null;
+        await supabase
+            .from('documents_candidature')
+            .update({ date_expiration: value, updated_at: new Date().toISOString() })
+            .eq('id', rowId);
     };
 
     const handleValidateCustomDoc = async (docId: string) => {
@@ -1475,6 +1581,23 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
                                                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleDocumentUpload(e, slot.field)} className="hidden" disabled={uploadingField === slot.field} />
                                             </label>
                                         </div>
+                                        {/* Date d'expiration : seulement pour les documents qui en
+                                            portent une (assurance). Les autres dérivent leur fraîcheur
+                                            d'une durée conventionnelle, sans saisie. Visible une fois le
+                                            document déposé. */}
+                                        {slot.saisieExpiration && url && (
+                                            <div className="flex items-center gap-1.5 px-1">
+                                                <CalendarIcon size={11} className="text-gray-400 shrink-0" />
+                                                <label className="text-[10px] text-gray-500 shrink-0">Expire le</label>
+                                                <input
+                                                    type="date"
+                                                    value={standardDocExpiry[slot.field] || ''}
+                                                    onChange={(e) => setStandardDocExpiry(prev => ({ ...prev, [slot.field]: e.target.value }))}
+                                                    onBlur={() => handleUpdateExpiry(slot.field)}
+                                                    className="text-[10px] text-gray-700 bg-transparent border-b border-gray-200 focus:border-blue-400 focus:outline-none flex-1 min-w-0"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
