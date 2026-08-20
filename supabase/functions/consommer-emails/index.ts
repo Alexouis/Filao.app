@@ -70,6 +70,61 @@ const construireEmail = (type: string, payload: any, appUrl: string) => {
         html: `<p>Récapitulatif du jour : <strong>${nb} pièce${nb > 1 ? "s" : ""}</strong> sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.</p><ul>${detailHtml}</ul><p><a href="${appUrl}">Voir vos dossiers</a></p>`,
       };
     }
+    case "document_expirant": {
+      const label = payload?.document_label ?? "Un document";
+      const dateExp = payload?.date_expiration
+        ? new Date(payload.date_expiration).toLocaleDateString("fr-FR") : "prochainement";
+      return {
+        sujet: `${label} expire bientôt`,
+        texte: `${label} arrive à expiration le ${dateExp}. Pensez à le renouveler dans votre coffre-fort pour qu'il reste valide dans vos candidatures.\n\n${appUrl}`,
+        html: `<p><strong>${label}</strong> arrive à expiration le ${dateExp}.</p><p>Pensez à le renouveler dans votre coffre-fort pour qu'il reste valide dans vos candidatures.</p><p><a href="${appUrl}">Accéder au coffre-fort</a></p>`,
+      };
+    }
+    case "jalon_echu": {
+      const titre = payload?.tender_titre ?? "votre dossier";
+      const liste = (payload?.jalons ?? [])
+        .map((j: any) => `• ${j.label}${j.date ? ` (prévu le ${new Date(j.date).toLocaleDateString("fr-FR")})` : ""}`)
+        .join("\n");
+      const listeHtml = (payload?.jalons ?? [])
+        .map((j: any) => `<li>${j.label}${j.date ? ` (prévu le ${new Date(j.date).toLocaleDateString("fr-FR")})` : ""}</li>`)
+        .join("");
+      return {
+        sujet: `Jalon(s) dépassé(s) : ${titre}`,
+        texte: `Des jalons de votre rétroplanning sont dépassés sur « ${titre} » :\n\n${liste}\n\nAccéder au dossier : ${lien}`,
+        html: `<p>Des jalons de votre rétroplanning sont dépassés sur « ${titre} » :</p><ul>${listeHtml}</ul><p><a href="${lien}">Accéder au dossier</a></p>`,
+      };
+    }
+    case "bienvenue": {
+      const prenom = payload?.prenom ? ` ${payload.prenom}` : "";
+      return {
+        sujet: "Bienvenue sur Filao",
+        texte: `Bonjour${prenom},\n\nBienvenue sur Filao. Votre espace est prêt : centralisez vos appels d'offres, invitez vos partenaires et suivez vos échéances au même endroit.\n\nCommencer : ${appUrl}`,
+        html: `<p>Bonjour${prenom},</p><p>Bienvenue sur Filao. Votre espace est prêt : centralisez vos appels d'offres, invitez vos partenaires et suivez vos échéances au même endroit.</p><p><a href="${appUrl}">Commencer</a></p>`,
+      };
+    }
+    case "document_expirant": {
+      const label = payload?.document_label ?? "Un document";
+      const dateExp = payload?.date_expiration ? new Date(payload.date_expiration).toLocaleDateString("fr-FR") : "prochainement";
+      return {
+        sujet: `Document bientôt expiré : ${label}`,
+        texte: `Votre document « ${label} » expire le ${dateExp}. Pensez à le renouveler pour qu'il reste valide dans vos candidatures.\n\nGérer mes documents : ${appUrl}/?tab=company&id=docs`,
+        html: `<p>Votre document « <strong>${label}</strong> » expire le <strong>${dateExp}</strong>.</p><p>Pensez à le renouveler pour qu'il reste valide dans vos candidatures.</p><p><a href="${appUrl}/?tab=company&id=docs">Gérer mes documents</a></p>`,
+      };
+    }
+
+    case "jalon_echu": {
+      const titre = payload?.tender_titre ?? "votre appel d'offres";
+      const jalons = payload?.jalons ?? [];
+      const detail = jalons.map((j: any) => `• ${j.label} (prévu le ${j.date ? new Date(j.date).toLocaleDateString("fr-FR") : "?"})`).join("\n");
+      const detailHtml = jalons.map((j: any) => `<li>${j.label} — prévu le ${j.date ? new Date(j.date).toLocaleDateString("fr-FR") : "?"}</li>`).join("");
+      const nb = jalons.length;
+      return {
+        sujet: `${nb} jalon${nb > 1 ? "s" : ""} en retard : ${titre}`,
+        texte: `Des étapes de votre rétroplanning sont dépassées sur « ${titre} » :\n\n${detail}\n\nMettre à jour le dossier : ${lien}`,
+        html: `<p>Des étapes de votre rétroplanning sont dépassées sur « ${titre} » :</p><ul>${detailHtml}</ul><p><a href="${lien}">Mettre à jour le dossier</a></p>`,
+      };
+    }
+
     default:
       return {
         sujet: "Notification Filao",

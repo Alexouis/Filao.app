@@ -127,6 +127,90 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Helper d'enfilage idempotent (conflit d'unicité ignoré).
+    const enfiler = async (row: any): Promise<boolean> => {
+      if (!row.destinataire || bloques.has(row.destinataire)) return false;
+      const { error } = await admin.from("emails_a_envoyer")
+        .insert({ ...row, jour_cible: aujourdhui }).select("id");
+      if (error && error.code !== "23505") {
+        console.error("enfilage:", error, row.type_email);
+        return false;
+      }
+      return !error;
+    };
+
+    // --- Producteur : documents d'entreprise expirant sous 7 jours ---
+    // Source : documents_candidature_view (date_expiration_effective). On
+    // prévient le propriétaire pour qu'il renouvelle avant que la pièce ne
+    // devienne invalide dans une candidature.
+    {
+      const dansSeptJours = jourParis(7);
+      const { data: docs } = await admin
+        .from("documents_candidature_view")
+        .select("id, label, entreprise_id, date_expiration_effective, statut_effectif")
+        .eq("date_expiration_effective", dansSeptJours);
+
+      for (const doc of docs ?? []) {
+        // Destinataires : les membres de l'entreprise propriétaire.
+        const { data: membres } = await admin
+          .from("utilisateurs")
+          .select("email")
+          .eq("entreprise_id", doc.entreprise_id);
+
+        for (const m of membres ?? []) {
+          const ok = await enfiler({
+            type_email: "document_expirant",
+            objet_id: doc.id,
+            destinataire: (m as any).email,
+            payload: { document_label: doc.label, date_expiration: doc.date_expiration_effective },
+          });
+          if (ok) enfiles++;
+        }
+      }
+    }
+
+    // --- Producteur : jalons de rétroplanning échus ---
+    // Un jalon dont la date est passée et qui n'est pas marqué « fait » : on
+    // alerte le créateur du dossier. Les jalons échus d'un même dossier sont
+    // agrégés en UNE alerte par jour (idempotence par la clé de file :
+    // type_email=jalon_echu, objet_id=dossier, destinataire, jour).
+    {
+      const { data: dossiers } = await admin
+        .from("reponses_ao")
+        .select("id, titre, createur_id, jalons, statut, createur:utilisateurs!createur_id(email)")
+        .eq("statut", "En cours")
+        .not("jalons", "is", null);
+
+      for (const dossier of dossiers ?? []) {
+        const jalons = Array.isArray((dossier as any).jalons) ? (dossier as any).jalons : [];
+        const email = (dossier as any).createur?.email;
+        if (!email) continue;
+
+        // Agrège les jalons échus du dossier (date passée, non « fait », hors
+        // date limite de dépôt qui est couverte par les rappels d'échéance) en
+        // UNE alerte par dossier et par jour — la clé d'idempotence de la file
+        // (type, objet_id=dossier, destinataire, jour) évite les doublons.
+        const echus = jalons.filter((j: any) =>
+          j?.date && j.statut !== "fait" &&
+          String(j.date).split("T")[0] < aujourdhui &&
+          j.label !== "Date limite de dépôt"
+        );
+        if (echus.length === 0) continue;
+
+        const ok = await enfiler({
+          type_email: "jalon_echu",
+          objet_id: dossier.id,
+          destinataire: email,
+          payload: {
+            tender_id: dossier.id,
+            tender_titre: dossier.titre,
+            jalons: echus.map((j: any) => ({ label: j.label, date: j.date })),
+          },
+        });
+        if (ok) enfiles++;
+      }
+    }
+
     return new Response(
       JSON.stringify({ ok: true, jour: aujourdhui, enfiles }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
