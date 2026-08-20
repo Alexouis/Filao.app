@@ -4,9 +4,7 @@
 
 import { supabase } from '../lib/supabaseClient';
 import { Notifications } from '@/config';
-
-// Preference keys matching the notification_preferences JSONB structure
-type NotifPrefKey = 'nouveau_document' | 'rappels' | 'messages_feed' | 'communications';
+import { typeDef, type NotifPrefKey } from './notificationTypes';
 
 /**
  * Fetch a user's notification preferences
@@ -70,9 +68,15 @@ const sendNotificationEmail = async (
 export const addNotification = async (
   userId: string,
   notificationData: Omit<Notifications, 'id' | 'date' | 'read'>,
-  prefKey: NotifPrefKey | null = null
+  prefKey?: NotifPrefKey | null
 ): Promise<boolean> => {
   try {
+    // Source unique : si l'appelant ne précise pas de prefKey, on le dérive du
+    // type via le registre central. Un `null` EXPLICITE reste respecté (force
+    // l'émission critique). `undefined` (argument omis) déclenche la dérivation.
+    const prefEffective: NotifPrefKey | null =
+      prefKey !== undefined ? prefKey : (typeDef(notificationData.type)?.prefKey ?? null);
+
     const { data: { session } } = await supabase.auth.getSession();
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
@@ -90,7 +94,7 @@ export const addNotification = async (
       body: JSON.stringify({
         userId,
         notification: notificationData,
-        prefKey,
+        prefKey: prefEffective,
       }),
     });
 
@@ -379,4 +383,4 @@ export const notifyNetworkInviteAccepted = async (
     sender_name: accepterName,
     sender_avatar: accepterAvatar,
   });
-};
+};

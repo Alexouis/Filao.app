@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, Trash2, Check, Loader2, FileText, Users, CheckCircle, Clock, MessageSquare } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { estDeCategorie, CATEGORIES_FILTRE, type NotifCategorie } from '../helpers/notificationTypes';
 
 interface Notification {
   id: string;
@@ -330,14 +331,7 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
     }
 
     if (categoryFilter !== 'all') {
-      result = result.filter(n => {
-        if (categoryFilter === 'invitations') return ['collaboration_accepted', 'collaboration_rejected', 'collaborator_invited', 'network_invite', 'network_invite_accepted'].includes(n.type);
-        if (categoryFilter === 'documents') return ['document_added', 'document_reminder'].includes(n.type);
-        if (categoryFilter === 'results') return ['tender_won', 'tender_lost'].includes(n.type);
-        if (categoryFilter === 'reminders') return ['deadline_reminder', 'document_reminder'].includes(n.type);
-        if (categoryFilter === 'comments') return n.type === 'comment_added';
-        return true;
-      });
+      result = result.filter(n => estDeCategorie(n.type, categoryFilter as any));
     }
 
     return result;
@@ -347,6 +341,33 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
 
   const filtered = getFilteredNotifications();
   const displayedNotifications = filtered.slice(0, visibleCount);
+
+  // Regroupement par date pour l'affichage : Aujourd'hui / Hier / Cette semaine
+  // / Plus ancien. Les notifications sont déjà triées de la plus récente à la
+  // plus ancienne ; on préserve cet ordre à l'intérieur de chaque groupe.
+  const groupesParDate = (() => {
+    const maintenant = new Date();
+    const debutJour = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate()).getTime();
+    const debutHier = debutJour - 24 * 60 * 60 * 1000;
+    const debutSemaine = debutJour - 7 * 24 * 60 * 60 * 1000;
+
+    const groupes: { cle: string; label: string; items: Notification[] }[] = [
+      { cle: 'today', label: "Aujourd'hui", items: [] },
+      { cle: 'yesterday', label: 'Hier', items: [] },
+      { cle: 'week', label: 'Cette semaine', items: [] },
+      { cle: 'older', label: 'Plus ancien', items: [] },
+    ];
+
+    for (const n of displayedNotifications) {
+      const t = n.date ? new Date(n.date).getTime() : 0;
+      if (t >= debutJour) groupes[0].items.push(n);
+      else if (t >= debutHier) groupes[1].items.push(n);
+      else if (t >= debutSemaine) groupes[2].items.push(n);
+      else groupes[3].items.push(n);
+    }
+    return groupes.filter((g) => g.items.length > 0);
+  })();
+
   const allSelected = filtered.length > 0 && selectedNotifications.size === filtered.length;
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -360,13 +381,11 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
 
   const glassStyle = "bg-gradient-to-br from-white/40 via-white/20 to-white/5 backdrop-blur-3xl border border-white/80 shadow-[0_8px_32px_0_rgba(31,38,135,0.1),inset_0_1px_0_0_rgba(255,255,255,0.5)]";
 
+  // Liste des filtres dérivée du module central (source unique). « Toutes » en
+  // tête, puis les catégories déclarées une seule fois dans notificationTypes.
   const categories = [
     { id: 'all', label: 'Toutes' },
-    { id: 'invitations', label: 'Invitations' },
-    { id: 'documents', label: 'Documents' },
-    { id: 'results', label: 'Résultats' },
-    { id: 'reminders', label: 'Rappels' },
-    { id: 'comments', label: 'Commentaires' }
+    ...CATEGORIES_FILTRE.map((c) => ({ id: c.cle as string, label: c.label })),
   ];
 
   if (loading) {
@@ -536,17 +555,24 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
               className="flex-1 overflow-y-auto custom-scrollbar-dark p-2 md:p-4"
               onScroll={handleScroll}
             >
-              <div className="flex flex-col rounded-2xl overflow-hidden bg-white/20 border border-white/30 shadow-sm">
-                {displayedNotifications.map(notif => (
-                  <NotificationItem
-                    key={notif.id}
-                    notification={notif}
-                    selected={selectedNotifications.has(notif.id)}
-                    onSelect={handleToggleSelect}
-                    onDelete={handleDeleteNotification}
-                    onMarkAsRead={handleMarkAsRead}
-                    onNavigate={onNavigate}
-                  />
+              <div className="flex flex-col gap-3">
+                {groupesParDate.map(groupe => (
+                  <div key={groupe.cle}>
+                    <h3 className="px-2 py-1.5 text-xs font-bold text-[#0B1F38]/50 uppercase tracking-wider">{groupe.label}</h3>
+                    <div className="flex flex-col rounded-2xl overflow-hidden bg-white/20 border border-white/30 shadow-sm">
+                      {groupe.items.map(notif => (
+                        <NotificationItem
+                          key={notif.id}
+                          notification={notif}
+                          selected={selectedNotifications.has(notif.id)}
+                          onSelect={handleToggleSelect}
+                          onDelete={handleDeleteNotification}
+                          onMarkAsRead={handleMarkAsRead}
+                          onNavigate={onNavigate}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 ))}
 
                 {displayedNotifications.length === 0 && (
