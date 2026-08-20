@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
 import { metaEmail } from "./emailTypes.ts";
+import { composerEmail, type ContenuEmail } from "./emailTemplate.ts";
 
 /**
  * consommer-emails — consomme la file `emails_a_envoyer` et envoie via Brevo.
@@ -42,6 +43,13 @@ const roleDuJeton = (enTete: string | null): string | null => {
  */
 const construireEmail = (type: string, payload: any, appUrl: string) => {
   const lien = payload?.tender_id ? `${appUrl}/?tab=tenders&id=${payload.tender_id}` : appUrl;
+  const dateFr = (d: any) => (d ? new Date(d).toLocaleDateString("fr-FR") : null);
+
+  // Chaque type produit un CONTENU structuré (titre, paragraphes, un seul
+  // bouton, détails). Le gabarit commun (_shared/emailTemplate) l'enveloppe et
+  // génère HTML + texte de façon uniforme. Un seul bouton d'action par email.
+  let sujet: string;
+  let contenu: ContenuEmail;
 
   switch (type) {
     case "deadline_j7":
@@ -49,89 +57,81 @@ const construireEmail = (type: string, payload: any, appUrl: string) => {
     case "deadline_j1": {
       const j = payload?.jours_restants ?? "quelques";
       const titre = payload?.tender_titre ?? "votre appel d'offres";
-      return {
-        sujet: `Échéance dans ${j} jour${j > 1 ? "s" : ""} : ${titre}`,
-        texte: `La date limite approche (dans ${j} jour${j > 1 ? "s" : ""}) pour « ${titre} ».\n\nAccéder au dossier : ${lien}`,
-        html: `<p>La date limite approche (dans <strong>${j} jour${j > 1 ? "s" : ""}</strong>) pour « ${titre} ».</p><p><a href="${lien}">Accéder au dossier</a></p>`,
+      const pluriel = typeof j === "number" && j > 1 ? "s" : "";
+      sujet = `Échéance dans ${j} jour${pluriel} : ${titre}`;
+      contenu = {
+        titre: "Date limite proche",
+        paragraphes: [`La date limite approche (dans ${j} jour${pluriel}) pour « ${titre} ».`],
+        action: { label: "Accéder au dossier", url: lien },
       };
+      break;
     }
+
     case "recap_documents": {
       const nb = payload?.nb_pieces ?? 0;
       const nbDossiers = payload?.nb_dossiers ?? 0;
-      const detail = (payload?.pieces ?? [])
-        .map((p: any) => `• ${p.auteur ?? "Un partenaire"} a déposé ${p.type ?? "une pièce"}`)
-        .join("\n");
-      const detailHtml = (payload?.pieces ?? [])
-        .map((p: any) => `<li>${p.auteur ?? "Un partenaire"} a déposé ${p.type ?? "une pièce"}</li>`)
-        .join("");
-      return {
-        sujet: `${nb} pièce${nb > 1 ? "s" : ""} déposée${nb > 1 ? "s" : ""} aujourd'hui`,
-        texte: `Récapitulatif du jour : ${nb} pièce${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.\n\n${detail}\n\nVoir vos dossiers : ${appUrl}`,
-        html: `<p>Récapitulatif du jour : <strong>${nb} pièce${nb > 1 ? "s" : ""}</strong> sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.</p><ul>${detailHtml}</ul><p><a href="${appUrl}">Voir vos dossiers</a></p>`,
+      sujet = `${nb} pièce${nb > 1 ? "s" : ""} déposée${nb > 1 ? "s" : ""} aujourd'hui`;
+      contenu = {
+        titre: "Récapitulatif des dépôts du jour",
+        paragraphes: [`${nb} pièce${nb > 1 ? "s" : ""} déposée${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.`],
+        details: (payload?.pieces ?? []).map((p: any) => `${p.auteur ?? "Un partenaire"} a déposé ${p.type ?? "une pièce"}`),
+        action: { label: "Voir vos dossiers", url: appUrl },
       };
+      break;
     }
+
     case "document_expirant": {
       const label = payload?.document_label ?? "Un document";
-      const dateExp = payload?.date_expiration
-        ? new Date(payload.date_expiration).toLocaleDateString("fr-FR") : "prochainement";
-      return {
-        sujet: `${label} expire bientôt`,
-        texte: `${label} arrive à expiration le ${dateExp}. Pensez à le renouveler dans votre coffre-fort pour qu'il reste valide dans vos candidatures.\n\n${appUrl}`,
-        html: `<p><strong>${label}</strong> arrive à expiration le ${dateExp}.</p><p>Pensez à le renouveler dans votre coffre-fort pour qu'il reste valide dans vos candidatures.</p><p><a href="${appUrl}">Accéder au coffre-fort</a></p>`,
+      const dateExp = dateFr(payload?.date_expiration) ?? "prochainement";
+      sujet = `Document bientôt expiré : ${label}`;
+      contenu = {
+        titre: "Un document arrive à expiration",
+        paragraphes: [
+          `« ${label} » expire le ${dateExp}.`,
+          "Pensez à le renouveler pour qu'il reste valide dans vos candidatures.",
+        ],
+        action: { label: "Gérer mes documents", url: `${appUrl}/?tab=company&id=docs` },
       };
-    }
-    case "jalon_echu": {
-      const titre = payload?.tender_titre ?? "votre dossier";
-      const liste = (payload?.jalons ?? [])
-        .map((j: any) => `• ${j.label}${j.date ? ` (prévu le ${new Date(j.date).toLocaleDateString("fr-FR")})` : ""}`)
-        .join("\n");
-      const listeHtml = (payload?.jalons ?? [])
-        .map((j: any) => `<li>${j.label}${j.date ? ` (prévu le ${new Date(j.date).toLocaleDateString("fr-FR")})` : ""}</li>`)
-        .join("");
-      return {
-        sujet: `Jalon(s) dépassé(s) : ${titre}`,
-        texte: `Des jalons de votre rétroplanning sont dépassés sur « ${titre} » :\n\n${liste}\n\nAccéder au dossier : ${lien}`,
-        html: `<p>Des jalons de votre rétroplanning sont dépassés sur « ${titre} » :</p><ul>${listeHtml}</ul><p><a href="${lien}">Accéder au dossier</a></p>`,
-      };
-    }
-    case "bienvenue": {
-      const prenom = payload?.prenom ? ` ${payload.prenom}` : "";
-      return {
-        sujet: "Bienvenue sur Filao",
-        texte: `Bonjour${prenom},\n\nBienvenue sur Filao. Votre espace est prêt : centralisez vos appels d'offres, invitez vos partenaires et suivez vos échéances au même endroit.\n\nCommencer : ${appUrl}`,
-        html: `<p>Bonjour${prenom},</p><p>Bienvenue sur Filao. Votre espace est prêt : centralisez vos appels d'offres, invitez vos partenaires et suivez vos échéances au même endroit.</p><p><a href="${appUrl}">Commencer</a></p>`,
-      };
-    }
-    case "document_expirant": {
-      const label = payload?.document_label ?? "Un document";
-      const dateExp = payload?.date_expiration ? new Date(payload.date_expiration).toLocaleDateString("fr-FR") : "prochainement";
-      return {
-        sujet: `Document bientôt expiré : ${label}`,
-        texte: `Votre document « ${label} » expire le ${dateExp}. Pensez à le renouveler pour qu'il reste valide dans vos candidatures.\n\nGérer mes documents : ${appUrl}/?tab=company&id=docs`,
-        html: `<p>Votre document « <strong>${label}</strong> » expire le <strong>${dateExp}</strong>.</p><p>Pensez à le renouveler pour qu'il reste valide dans vos candidatures.</p><p><a href="${appUrl}/?tab=company&id=docs">Gérer mes documents</a></p>`,
-      };
+      break;
     }
 
     case "jalon_echu": {
       const titre = payload?.tender_titre ?? "votre appel d'offres";
       const jalons = payload?.jalons ?? [];
-      const detail = jalons.map((j: any) => `• ${j.label} (prévu le ${j.date ? new Date(j.date).toLocaleDateString("fr-FR") : "?"})`).join("\n");
-      const detailHtml = jalons.map((j: any) => `<li>${j.label} — prévu le ${j.date ? new Date(j.date).toLocaleDateString("fr-FR") : "?"}</li>`).join("");
       const nb = jalons.length;
-      return {
-        sujet: `${nb} jalon${nb > 1 ? "s" : ""} en retard : ${titre}`,
-        texte: `Des étapes de votre rétroplanning sont dépassées sur « ${titre} » :\n\n${detail}\n\nMettre à jour le dossier : ${lien}`,
-        html: `<p>Des étapes de votre rétroplanning sont dépassées sur « ${titre} » :</p><ul>${detailHtml}</ul><p><a href="${lien}">Mettre à jour le dossier</a></p>`,
+      sujet = `${nb} jalon${nb > 1 ? "s" : ""} en retard : ${titre}`;
+      contenu = {
+        titre: "Étapes de rétroplanning dépassées",
+        paragraphes: [`Des étapes sont dépassées sur « ${titre} » :`],
+        details: jalons.map((j: any) => `${j.label}${dateFr(j.date) ? ` — prévu le ${dateFr(j.date)}` : ""}`),
+        action: { label: "Mettre à jour le dossier", url: lien },
       };
+      break;
+    }
+
+    case "bienvenue": {
+      const prenom = payload?.prenom ? ` ${payload.prenom}` : "";
+      sujet = "Bienvenue sur Filao";
+      contenu = {
+        titre: `Bienvenue${prenom}`,
+        paragraphes: [
+          "Votre espace est prêt : centralisez vos appels d'offres, invitez vos partenaires et suivez vos échéances au même endroit.",
+        ],
+        action: { label: "Commencer", url: appUrl },
+      };
+      break;
     }
 
     default:
-      return {
-        sujet: "Notification Filao",
-        texte: `Vous avez une nouvelle notification sur Filao.\n\n${lien}`,
-        html: `<p>Vous avez une nouvelle notification sur Filao.</p><p><a href="${lien}">Ouvrir Filao</a></p>`,
+      sujet = "Notification Filao";
+      contenu = {
+        titre: "Notification",
+        paragraphes: ["Vous avez une nouvelle notification sur Filao."],
+        action: { label: "Ouvrir Filao", url: lien },
       };
   }
+
+  return composerEmail(sujet, contenu);
 };
 
 Deno.serve(async (req: Request) => {
