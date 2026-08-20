@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Building2, Wrench, FolderOpen, Rocket, Search, Loader2, Check, X,
-    PenLine, ChevronRight, ChevronLeft, Upload, FileText, ArrowRight,
+    PenLine, ChevronRight, ChevronLeft, ArrowRight,
     LayoutDashboard, Sparkles, LogOut,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
@@ -110,13 +110,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
     const [loadingRef, setLoadingRef] = useState(true);
     const [skillSearch, setSkillSearch] = useState('');
-
-    // --- Step 3: Documents ---
-    const [uploadingField, setUploadingField] = useState<string | null>(null);
-    const [docUrls, setDocUrls] = useState({
-        kbis_url: '', presentation_societe_url: '',
-        attestation_honneur_url: '', attestation_assurance_url: '',
-    });
 
     // --- Step 4: Summary ---
 
@@ -297,7 +290,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const completionData = {
         company: !!entrepriseId,
         skills: selectedSpecialties.length,
-        docs: Object.values(docUrls).filter(Boolean).length
     };
 
     // --- SAVE STEP 1 ---

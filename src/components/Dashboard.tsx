@@ -392,13 +392,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Styles — using shared GLASS_STYLE for uniform shadow across all pages
 
-  // Waffle chart — points proportionnels aux chiffres réels de docStats
-  // (chargés depuis documents_candidature_view). Garde contre la division par
-  // zéro quand l'entreprise n'a encore déposé aucune pièce.
-  const totalGridPoints = 24;
-  const validPointsCount = docStats.total > 0 ? Math.round((docStats.valid / docStats.total) * totalGridPoints) : 0;
-  const expiringPointsCount = docStats.total > 0 ? Math.round((docStats.expiring / docStats.total) * totalGridPoints) : 0;
-  const expiredPointsCount = docStats.total > 0 ? Math.max(0, totalGridPoints - validPointsCount - expiringPointsCount) : 0;
+  // Validité des documents : un point = un document réel (plus de waffle
+  // proportionnel sur une grille fixe, qui affichait 24 points pour 4 documents
+  // et faussait la lecture). Le nombre de points égale donc docStats.total.
 
   if (loading) {
     return (
@@ -609,11 +605,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <section className={`${GLASS_STYLE} rounded-3xl flex flex-col h-full overflow-hidden`}>
               <div className="flex-1 flex flex-col justify-between p-6 z-10">
                 <div>
-                  <div className="flex flex-wrap gap-2 justify-start content-start mb-4">
-                    {[...Array(validPointsCount)].map((_, i) => <div key={`valid-${i}`} className="w-4 h-4 rounded-full bg-[#00A3E0] shadow-sm"></div>)}
-                    {[...Array(expiringPointsCount)].map((_, i) => <div key={`expiring-${i}`} className="w-4 h-4 rounded-full bg-[#FF8D6D] shadow-sm"></div>)}
-                    {[...Array(expiredPointsCount)].map((_, i) => <div key={`expired-${i}`} className="w-4 h-4 rounded-full bg-[#94A3B8] shadow-sm"></div>)}
-                  </div>
+                  {docStats.total > 0 ? (
+                    <div className="flex flex-wrap gap-2 justify-start content-start mb-4">
+                      {[...Array(docStats.valid)].map((_, i) => <div key={`valid-${i}`} className="w-4 h-4 rounded-full bg-[#00A3E0] shadow-sm"></div>)}
+                      {[...Array(docStats.expiring)].map((_, i) => <div key={`expiring-${i}`} className="w-4 h-4 rounded-full bg-[#FF8D6D] shadow-sm"></div>)}
+                      {[...Array(docStats.expired)].map((_, i) => <div key={`expired-${i}`} className="w-4 h-4 rounded-full bg-[#94A3B8] shadow-sm"></div>)}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mb-4 text-[#0B1F38]/40">
+                      <FileText size={16} />
+                      <span className="text-xs font-medium">Aucun document déposé</span>
+                    </div>
+                  )}
                   <p className="text-sm text-[#0B1F38]/80 font-medium">Validité des documents ({docStats.total})</p>
                 </div>
                 <div className="flex flex-wrap gap-3 w-full">
