@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { EXPEDITEUR } from "./emailConfig.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -148,7 +149,7 @@ Deno.serve(async (req: Request) => {
     const brevoApiKey = Deno.env.get("BREVO_API_KEY");
     if (brevoApiKey) {
       const emailPayload = {
-        sender: { name: "Filao", email: "contact@filao.io" },
+        sender: EXPEDITEUR,
         to: [{ email: email.toLowerCase().trim() }],
         subject: estJalon
           ? `Jalon dans 2 jours : ${milestoneLabel} — "${tenderTitle}"`

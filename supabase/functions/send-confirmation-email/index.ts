@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { EXPEDITEUR } from "./emailConfig.ts";
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -46,7 +47,7 @@ Deno.serve(async (req: Request) => {
         }
 
         const emailPayload = {
-            sender: { name: "Filao", email: "noreply@filao.io" },
+            sender: EXPEDITEUR,
             to: [{ email }],
             subject: "Confirmez votre compte Filao",
             templateId: 1,

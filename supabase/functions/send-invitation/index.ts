@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { genererJetonInvitation, empreinteJeton } from "./invitationTokens.ts";
+import { EXPEDITEUR } from "./emailConfig.ts";
 
 /**
  * Échappement HTML.
@@ -237,7 +238,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const emailPayload = {
-      sender: { name: "Filao", email: "contact@filao.io" },
+      sender: EXPEDITEUR,
       to: [{ email: email! }],
       // Un objet d'e-mail ne peut pas contenir de saut de ligne : il servirait à
       // injecter des en-têtes supplémentaires. Brevo passant par une API JSON le
