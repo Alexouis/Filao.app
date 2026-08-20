@@ -45,7 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   });
 
   // Validité des documents de l'entreprise — chiffres réels, plus de mock.
-  // Source : `documents_entreprise_view`, qui expose `statut_effectif`
+  // Source : `documents_candidature_view`, qui expose `statut_effectif`
   // (valide / expire recalculé depuis date_expiration). L'état « bientôt
   // expiré » n'existe pas en base — on le dérive ici d'une fenêtre de 30 jours
   // sur date_expiration, seule interprétation cohérente avec le schéma.
@@ -86,13 +86,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     let cancelled = false;
     (async () => {
       const { data, error } = await supabase
-        .from('documents_entreprise_view')
-        .select('statut_effectif, date_expiration')
+        .from('documents_candidature_view')
+        .select('statut_effectif, date_expiration_effective')
         .eq('entreprise_id', userProfile.entreprise_id);
 
       if (cancelled) return;
       if (error) {
-        console.error('documents_entreprise_view:', error);
+        console.error('documents_candidature_view:', error);
         return;
       }
 
@@ -105,11 +105,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         if (d.statut_effectif === 'expire') {
           expired++;
         } else if (d.statut_effectif === 'valide') {
-          const exp = d.date_expiration ? new Date(d.date_expiration).getTime() : null;
+          const exp = d.date_expiration_effective ? new Date(d.date_expiration_effective).getTime() : null;
           if (exp !== null && exp - now <= SOON_MS) expiring++;
           else valid++;
         }
-        // 'en_attente' / 'manquant' : pas une pièce valide déposée, exclu des trois compteurs.
+        // 'en_attente' / autres : pas une pièce valide déposée, exclu des compteurs.
       }
 
       setDocStats({ valid, expiring, expired, total: valid + expiring + expired });
@@ -393,7 +393,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Styles — using shared GLASS_STYLE for uniform shadow across all pages
 
   // Waffle chart — points proportionnels aux chiffres réels de docStats
-  // (chargés depuis documents_entreprise_view). Garde contre la division par
+  // (chargés depuis documents_candidature_view). Garde contre la division par
   // zéro quand l'entreprise n'a encore déposé aucune pièce.
   const totalGridPoints = 24;
   const validPointsCount = docStats.total > 0 ? Math.round((docStats.valid / docStats.total) * totalGridPoints) : 0;

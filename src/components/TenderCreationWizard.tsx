@@ -136,21 +136,44 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     const searchRef = useRef<HTMLDivElement>(null);
     const [uploadingField, setUploadingField] = useState<string | null>(null);
     const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+    // Id de la ligne documents_candidature par champ standard (pour upsert).
+    const [docIds, setDocIds] = useState<Record<string, string>>({});
 
-    const hasMissingDocs = !userProfile?.kbis_url || !userProfile?.presentation_societe_url || !userProfile?.attestation_honneur_url || !userProfile?.attestation_assurance_url;
+    // Champ (héritage *_url) → catégorie normalisée dans documents_candidature.
+    const FIELD_TO_CATEGORIE: Record<string, string> = {
+        kbis_url: 'kbis',
+        presentation_societe_url: 'presentation_societe',
+        attestation_honneur_url: 'attestation_honneur',
+        attestation_assurance_url: 'attestation_assurance',
+    };
+
+    // Documents administratifs manquants : calculé depuis l'état chargé
+    // (documents_candidature), non plus depuis userProfile.*_url.
+    const hasMissingDocs = !docUrls.kbis_url || !docUrls.presentation_societe_url || !docUrls.attestation_honneur_url || !docUrls.attestation_assurance_url;
     // We only show the admin step if it's the first time (docs missing)
     const showAdminStep = hasMissingDocs;
 
     useEffect(() => {
-        if (userProfile) {
-            setDocUrls({
-                kbis_url: userProfile.kbis_url || '',
-                presentation_societe_url: userProfile.presentation_societe_url || '',
-                attestation_honneur_url: userProfile.attestation_honneur_url || '',
-                attestation_assurance_url: userProfile.attestation_assurance_url || ''
-            });
-        }
-    }, [userProfile]);
+        if (!userProfile?.entreprise_id) return;
+        let cancelled = false;
+        (async () => {
+            const { data } = await supabase
+                .from('documents_candidature')
+                .select('id, url, categorie')
+                .eq('entreprise_id', userProfile.entreprise_id)
+                .in('categorie', ['kbis', 'presentation_societe', 'attestation_honneur', 'attestation_assurance']);
+            if (cancelled) return;
+            const urls: Record<string, string> = {};
+            const ids: Record<string, string> = {};
+            for (const row of data || []) {
+                const field = Object.keys(FIELD_TO_CATEGORIE).find(f => FIELD_TO_CATEGORIE[f] === row.categorie);
+                if (field) { urls[field] = row.url || ''; ids[field] = row.id; }
+            }
+            setDocUrls(urls);
+            setDocIds(ids);
+        })();
+        return () => { cancelled = true; };
+    }, [userProfile?.entreprise_id]);
 
     const TOTAL = showAdminStep ? 6 : 5;
 
@@ -252,12 +275,11 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
     const handleAdminDocUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
         const file = e.target.files?.[0];
-        if (!file || !userProfile) return;
+        if (!file || !userProfile || !userProfile.entreprise_id) return;
+        const categorie = FIELD_TO_CATEGORIE[field];
+        if (!categorie) return;
         try {
             setUploadingField(field);
-            const ext = file.name.split('.').pop();
-            const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${ext}`;
-            const filePath = `documents/${userProfile.id}/${fileName}`;
 
             const { chemin: cheminDepose, erreur: erreurDepot } = await deposerFichier(file, {
                 dossier: `documents/${userProfile.id}`,
@@ -270,10 +292,25 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             // expire au bout d'une heure — elle ne peut pas être persistée.
             setDocUrls(prev => ({ ...prev, [field]: cheminDepose }));
 
-            // Save to user record immediately
-            await supabase.from('utilisateurs').update({
-                [field]: cheminDepose,
-            }).eq('id', userProfile.id);
+            // Persistance dans documents_candidature (source unique). Upsert par
+            // entreprise + catégorie : update si la ligne existe, insert sinon.
+            const today = new Date().toISOString().slice(0, 10);
+            const existingId = docIds[field];
+            const label = DOCUMENTS.find(d => d.field === field)?.label || categorie;
+            if (existingId) {
+                await supabase.from('documents_candidature').update({
+                    url: cheminDepose, statut: 'valide', date_emission: today,
+                    updated_at: new Date().toISOString(),
+                }).eq('id', existingId);
+            } else {
+                const { data: inserted } = await supabase.from('documents_candidature').insert({
+                    entreprise_id: userProfile.entreprise_id,
+                    uploaded_by: userProfile.id,
+                    label, url: cheminDepose, statut: 'valide',
+                    categorie, date_emission: today,
+                }).select('id').single();
+                if (inserted?.id) setDocIds(prev => ({ ...prev, [field]: inserted.id }));
+            }
 
         } catch (err) {
             console.error('Upload error:', err);

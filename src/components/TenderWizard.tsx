@@ -530,32 +530,43 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
+    // Catégories standard : cf. documents_candidature (Lot 1/2). Sert à séparer
+    // les documents administratifs des documents personnalisés, tous deux dans
+    // la même table depuis la consolidation.
+    const STANDARD_DOC_CATEGORIES: Record<string, string> = {
+        kbis: 'Kbis / Extrait D1',
+        presentation_societe: 'Statuts',
+        attestation_honneur: "Attestation sur l'honneur",
+        attestation_assurance: 'Attestation Assurance',
+    };
+
     const fetchCompanyDocuments = async () => {
         if (!userProfile?.entreprise_id) return;
         try {
-            // Fetch profile for standard docs
-            const { data: profile } = await supabase
-                .from('utilisateurs')
-                .select('kbis_url, presentation_societe_url, attestation_honneur_url, attestation_assurance_url')
-                .eq('id', userProfile.id)
-                .single();
-
-            if (profile) {
-                setCompanyDocs({
-                    "Kbis / Extrait D1": profile.kbis_url,
-                    "Statuts": profile.presentation_societe_url,
-                    "Attestation sur l'honneur": profile.attestation_honneur_url,
-                    "Attestation Assurance": profile.attestation_assurance_url,
-                });
-            }
-
-            // Fetch custom docs
-            const { data: customDocs } = await supabase
+            // Source unique : documents_candidature (plus de lecture des
+            // colonnes utilisateurs.*_url, supprimées au Lot 3).
+            const { data: docs } = await supabase
                 .from('documents_candidature')
-                .select('*')
+                .select('id, label, url, statut, categorie, date_expiration')
                 .eq('entreprise_id', userProfile.entreprise_id);
 
-            setCompanyCustomDocs(customDocs || []);
+            const allDocs = docs || [];
+
+            // Documents administratifs → map label → url (forme attendue par le rendu).
+            const standardMap: Record<string, string | null> = {
+                'Kbis / Extrait D1': null,
+                'Statuts': null,
+                "Attestation sur l'honneur": null,
+                'Attestation Assurance': null,
+            };
+            for (const d of allDocs) {
+                const label = STANDARD_DOC_CATEGORIES[d.categorie];
+                if (label) standardMap[label] = d.url;
+            }
+            setCompanyDocs(standardMap);
+
+            // Documents personnalisés : tout ce qui n'est pas une catégorie standard.
+            setCompanyCustomDocs(allDocs.filter(d => !STANDARD_DOC_CATEGORIES[d.categorie]));
         } catch (err) {
             console.error('Error fetching company docs:', err);
         }

@@ -56,7 +56,6 @@ interface CollaboratorsProps {
 }
 
 // --- DOCUMENT CONSTANTS ---
-// Using documents_entreprise table structure from types
 const DOCUMENT_TYPES = [
     { value: 'kbis', label: 'Kbis' },
     { value: 'assurance', label: 'Attestation Assurance' },
@@ -110,9 +109,6 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     // Hierarchical Skills & Zones State
     const [companiesSpecialties, setCompaniesSpecialties] = useState<Record<string, { natures: string[], domains: string[], specialties: string[], geo_zones: string[], expertise_tags: string[] }>>({});
 
-    // --- STATE: DOCUMENTS (Detail View) ---
-    const [documents, setDocuments] = useState<any[]>([]);
-    const [loadingDocs, setLoadingDocs] = useState(false);
 
     // --- DATA FETCHING ---
     useEffect(() => {
@@ -140,14 +136,6 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         }
     };
 
-    // Fetch Docs when a company is selected
-    useEffect(() => {
-        if (selectedCompanyId) {
-            fetchCompanyDocuments(selectedCompanyId);
-        } else {
-            setDocuments([]);
-        }
-    }, [selectedCompanyId]);
 
     const fetchNetwork = async () => {
         try {
@@ -293,24 +281,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         }
     };
 
-    const fetchCompanyDocuments = async (companyId: string) => {
-        try {
-            setLoadingDocs(true);
-            // Fetch from documents_entreprise table
-            const { data, error } = await supabase
-                .from('documents_entreprise')
-                .select('*')
-                .eq('entreprise_id', companyId);
 
-            if (error) throw error;
-            setDocuments(data || []);
-            setLoadingDocs(false);
-        } catch (error) {
-            console.error('Error fetching docs:', error);
-            setDocuments([]);
-            setLoadingDocs(false);
-        }
-    };
 
     // --- INVITE TO TENDER FLOW ---
     const handleInviteToTender = useCallback(async (company: NetworkCompany) => {

@@ -600,7 +600,6 @@ export interface UserProfile {
     communications: { app: boolean; email: boolean };
   };
   onboarding_completed: boolean;
-  document_statuses?: Record<string, string>;
   entreprise_id?: string;
   entreprise?: string;
 };
