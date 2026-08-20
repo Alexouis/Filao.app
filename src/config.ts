@@ -705,6 +705,8 @@ export interface LayoutProps {
   userProfile: UserProfile | null;
   isCollapsed: boolean;
   setIsCollapsed: (collapsed: boolean) => void;
+  /** Ouvre un dossier précis (relayé au Sidebar pour les notifications). */
+  onOpenTender?: (tenderId: string) => void;
 };
 
 export interface SidebarProps {
@@ -715,6 +717,8 @@ export interface SidebarProps {
   isCollapsed: boolean;
   toggleCollapse: () => void;
   onLogout: () => void;
+  /** Ouvre un dossier précis (depuis une notification). */
+  onOpenTender?: (tenderId: string) => void;
 };
 
 export interface Notifications {

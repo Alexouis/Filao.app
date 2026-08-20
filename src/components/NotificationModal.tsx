@@ -19,12 +19,14 @@ interface Notification {
 interface NotificationModalProps {
   onClose: () => void;
   onViewAll: () => void;
+  onOpenTender?: (tenderId: string) => void;
   unreadCount?: number;
 }
 
 export const NotificationModal: React.FC<NotificationModalProps> = ({
   onClose,
   onViewAll,
+  onOpenTender,
   unreadCount = 0
 }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -88,7 +90,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
         console.error('Error marking read:', error);
       }
     }
-    onViewAll();
+    // Redirection : le dossier lié s'il existe, sinon la page complète.
+    if (notification.related_tender_id && onOpenTender) {
+      onOpenTender(notification.related_tender_id);
+    } else {
+      onViewAll();
+    }
   };
 
   // --- HELPERS ---

@@ -9,7 +9,8 @@ export const Layout: React.FC<LayoutProps> = ({
   onLogout,
   userProfile,
   isCollapsed,
-  setIsCollapsed
+  setIsCollapsed,
+  onOpenTender
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -24,6 +25,7 @@ export const Layout: React.FC<LayoutProps> = ({
         toggleCollapse={() => setIsCollapsed(!isCollapsed)}
         onLogout={onLogout}
         userProfile={userProfile}
+        onOpenTender={onOpenTender}
       />
 
       <main className={`flex-1 h-full overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'ml-0 md:ml-24' : 'ml-0 md:ml-72'}`}>

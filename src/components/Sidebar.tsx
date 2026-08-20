@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabaseClient';
 import { Logo } from './ui/Logo';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import { useToast } from './ui/Toast';
 
 // Helper Component for Navigation Items
 const NavItemBtn: React.FC<{
@@ -68,7 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   toggleCollapse,
   onLogout,
-  userProfile
+  userProfile,
+  onOpenTender
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -76,6 +78,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [avatarError, setAvatarError] = useState(false);
   const { user } = useAuth();
   const { totalUnreadCount } = useChat();
+  const { showToast } = useToast();
+  // Ids des notifications déjà connues, pour ne « toaster » que les nouvelles
+  // arrivées en temps réel (et pas celles présentes au premier chargement).
+  const knownNotifIds = useRef<Set<string>>(new Set());
 
   // Best avatar: DB photo_url > Google OAuth avatar_url > Google picture
   const effectiveAvatar = userProfile?.photo_url
@@ -83,37 +89,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
     || user?.user_metadata?.picture
     || null;
 
-  // Fetch unread count logic
+  // Compteur de non-lus + notifications en temps réel. Remplace l'ancien
+  // polling (30 s) par un abonnement Realtime sur la ligne de l'utilisateur :
+  // le badge se met à jour instantanément, et chaque notification réellement
+  // nouvelle déclenche un toast éphémère (5 s).
   useEffect(() => {
-    const fetchUnreadCount = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+    let channel: any = null;
 
-        const { data, error } = await supabase
-          .from('utilisateurs')
-          .select('notifications')
-          .eq('id', user.id)
-          .single();
+    const appliquer = (notifs: any[], estInitial: boolean) => {
+      setUnreadCount(notifs.filter((n: any) => !n.read).length);
 
-        if (error) {
-          // PGRST116 = no rows found (e.g. account just deleted) — ignore silently
-          if (error.code === 'PGRST116') return;
-          throw error;
-        }
-
-        const notifications = data?.notifications || [];
-        const unread = notifications.filter((n: any) => !n.read).length;
-        setUnreadCount(unread);
-      } catch (error) {
-        console.error('Error fetching notification count:', error);
+      if (estInitial) {
+        // Premier chargement : on mémorise sans notifier (sinon on toasterait
+        // tout l'historique au montage).
+        knownNotifIds.current = new Set(notifs.map((n: any) => n.id));
+        return;
       }
+
+      // Notifications jamais vues → toast (une par nouvelle, plus récente en tête).
+      const nouvelles = notifs.filter((n: any) => n.id && !knownNotifIds.current.has(n.id));
+      for (const n of nouvelles) {
+        knownNotifIds.current.add(n.id);
+        const label = n.titre || 'Nouvelle notification';
+        showToast(
+          n.related_tender_titre ? `${label} — ${n.related_tender_titre}` : label,
+          'info',
+          5000
+        );
+      }
+      // Garde l'ensemble connu à jour même sans nouveauté (retraits, etc.).
+      knownNotifIds.current = new Set(notifs.map((n: any) => n.id));
     };
 
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const init = async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      // Chargement initial.
+      const { data, error } = await supabase
+        .from('utilisateurs')
+        .select('notifications')
+        .eq('id', authUser.id)
+        .single();
+      if (!error) appliquer(data?.notifications || [], true);
+
+      // Abonnement temps réel sur la ligne de l'utilisateur.
+      channel = supabase
+        .channel(`notif-bell:${authUser.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'utilisateurs', filter: `id=eq.${authUser.id}` },
+          (payload: any) => appliquer(payload.new?.notifications || [], false)
+        )
+        .subscribe();
+    };
+
+    init();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [showToast]);
 
   // Close notifications on click outside
   useEffect(() => {
@@ -253,6 +289,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onViewAll={() => {
                       setShowNotifications(false);
                       handleNavClick('notifications');
+                    }}
+                    onOpenTender={(tenderId) => {
+                      setShowNotifications(false);
+                      onOpenTender?.(tenderId);
                     }}
                     unreadCount={unreadCount}
                   />

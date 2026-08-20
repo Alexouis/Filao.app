@@ -446,6 +446,7 @@ const AppContent = () => {
       userProfile={userProfile}
       isCollapsed={isSidebarCollapsed}
       setIsCollapsed={setIsSidebarCollapsed}
+      onOpenTender={(tenderId) => navigateTo('wizard', tenderId)}
     >
       {renderContent()}
       {showSuccessModal && <SuccessModal onClose={closeSuccessModal} />}
