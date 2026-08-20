@@ -33,6 +33,27 @@ export const isActive = (tender: Tender): boolean => {
     return status === STATUSES.on || status === STATUSES.submitted;
 }
 
+/** Jours restants avant l'échéance (négatif si dépassée). NaN si pas de date. */
+export const joursAvantEcheance = (tender: Tender): number => {
+    if (!tender.date_limite) return NaN;
+    const deadline = new Date(tender.date_limite);
+    deadline.setHours(23, 59, 59, 999);
+    return Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+};
+
+/**
+ * Un dossier est-il « urgent » ? Défini une seule fois, partagé entre le
+ * tableau de bord et Mes AO. Critère : dossier encore EN COURS (un déposé n'a
+ * plus d'action liée à l'échéance, un clôturé non plus) dont l'échéance tombe
+ * dans les 7 prochains jours, échéance passée exclue (0 à 7 jours inclus).
+ */
+export const URGENCE_SEUIL_JOURS = 7;
+export const isUrgent = (tender: Tender): boolean => {
+    if (getEffectiveStatus(tender) !== STATUSES.on) return false;
+    const j = joursAvantEcheance(tender);
+    return !Number.isNaN(j) && j >= 0 && j <= URGENCE_SEUIL_JOURS;
+};
+
 /**
  * Un dossier consomme-t-il un emplacement de l'abonnement ?
  *

@@ -15,7 +15,7 @@ import {
 } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
-import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
+import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
 import { RatePartnersModal } from './RatePartnersModal';
@@ -89,10 +89,26 @@ export const Tenders: React.FC<TendersProps> = ({
   const stats = useMemo(() => {
     const won = tenders.filter(t => t.statut === STATUSES.won).length;
     const lost = tenders.filter(t => t.statut === STATUSES.lost).length;
-    const active = tenders.filter(t => isActive(t)).length;
+    // « En cours » et « Déposés » sont deux états distincts : les afficher
+    // séparément évite l'ambiguïté d'un compteur « En cours » qui incluait les
+    // déposés (isActive regroupe les deux). getEffectiveStatus tranche le
+    // statut réel (En cours vs Déposé).
+    const enCours = tenders.filter(t => getEffectiveStatus(t) === STATUSES.on).length;
+    const deposes = tenders.filter(t => getEffectiveStatus(t) === STATUSES.submitted).length;
+    const urgents = tenders.filter(isUrgent).length;
+    const active = enCours + deposes; // conservé pour compat éventuelle
     const winRate = (won + lost) > 0 ? Math.round((won / (won + lost)) * 100) : 0;
-    return { won, lost, active, winRate };
+    return { won, lost, active, enCours, deposes, urgents, winRate };
   }, [tenders]);
+
+  // Si le filtre « Urgents » est actif mais qu'il n'y a plus d'AO urgent (le
+  // chip disparaît alors), on revient à « Tous » pour ne pas laisser une liste
+  // vide sans filtre visible pour en sortir.
+  useEffect(() => {
+    if (filterStatus === 'Urgents' && stats.urgents === 0) {
+      setFilterStatus('Tous');
+    }
+  }, [filterStatus, stats.urgents]);
  
   const pendingInvitationsCount = useMemo(() => {
     return tenders.filter(t => {
@@ -516,7 +532,9 @@ export const Tenders: React.FC<TendersProps> = ({
         return true;
       } else {
         if (isPending || isRefused) return false;
-        
+
+        // Filtre « Urgents » : échéance proche, transverse au statut (défini par isUrgent).
+        if (filterStatus === 'Urgents') return isUrgent(t);
         // Filter by main status only when not in invitations view
         if (filterStatus !== 'Tous' && getEffectiveStatus(t) !== filterStatus) return false;
         return true;
@@ -636,10 +654,14 @@ export const Tenders: React.FC<TendersProps> = ({
             </div>
         </div>
         
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-2">
             <div className="bg-white/40 p-3 rounded-2xl border border-white/60 flex flex-col">
-                <span className="text-2xl font-bold text-[#0B1F38]">{stats.active}</span>
+                <span className="text-2xl font-bold text-[#0B1F38]">{stats.enCours}</span>
                 <span className="text-[10px] font-medium text-[#0B1F38]/50 uppercase">En cours</span>
+            </div>
+            <div className="bg-white/40 p-3 rounded-2xl border border-white/60 flex flex-col">
+                <span className="text-2xl font-bold text-[#0B1F38]">{stats.deposes}</span>
+                <span className="text-[10px] font-medium text-[#0B1F38]/50 uppercase">Déposés</span>
             </div>
             <div className="bg-green-50/40 p-3 rounded-2xl border border-green-100 flex flex-col">
                 <span className="text-2xl font-bold text-green-600">{stats.won}</span>
@@ -795,6 +817,20 @@ export const Tenders: React.FC<TendersProps> = ({
               >
                 Tous
               </button>
+
+              {/* Filtre « Urgents » : conditionnel — n'apparaît que s'il existe
+                  des AO dont l'échéance est proche (< 7 j), et jamais en vue
+                  invitations. Transverse au statut. */}
+              {!showInvitationsOnly && stats.urgents > 0 && (
+                <button
+                  onClick={() => setFilterStatus('Urgents')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${filterStatus === 'Urgents' ? 'bg-[#FF8575] text-white shadow-sm' : 'text-[#FF8575] hover:bg-[#FF8575]/10'}`}
+                  title="Échéance dans moins de 7 jours"
+                >
+                  <AlertCircle size={12} className={filterStatus === 'Urgents' ? 'text-white' : 'text-[#FF8575]'} />
+                  Urgents ({stats.urgents})
+                </button>
+              )}
               
               {(!showInvitationsOnly 
                 ? [STATUSES.on, STATUSES.submitted, STATUSES.won, STATUSES.lost] 
@@ -964,21 +1000,15 @@ export const Tenders: React.FC<TendersProps> = ({
                         <h3 className="text-lg font-bold text-[#0B1F38] line-clamp-2 leading-tight group-hover:text-[#00A3E0] transition-colors">{tender.titre}</h3>
                         <div className="flex items-center gap-2 mt-2">
                             {(tender.success_score || 0) > 0 && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 uppercase tracking-tight">Probabilité: {tender.success_score}%</span>}
-                            {/* Rien sur les dossiers portés : c'est le cas par
-                                défaut, et l'absence de badge le signale mieux qu'une
-                                pastille sur chaque carte. Seul le rôle de partenaire
-                                mérite d'être dit, parce qu'il change ce que l'on peut
-                                faire du dossier. */}
-                            {!jeSuisPorteur && (
+                            {jeSuisPorteur ? (
+                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{myRoleBadge}</span>
+                            ) : (
                                 /* Le partenaire est signalé explicitement : sans repère,
                                    on croit piloter un dossier que l'on a seulement rejoint. */
                                 <span
                                     className="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-100 uppercase tracking-tight flex items-center gap-1"
-                                    title={`Vous participez à ce dossier en tant que ${myRoleBadge.toLowerCase()} : il ne compte pas dans votre offre. Il est piloté par une autre entreprise.`}
+                                    title={`Vous participez à ce dossier en tant que ${myRoleBadge.toLowerCase()}. Il est piloté par une autre entreprise.`}
                                 >
-                                    {/* Le rôle précis — co-traitant, sous-traitant —
-                                        reste affiché : c'est lui qui dit ce que l'on
-                                        doit fournir sur le dossier. */}
                                     <Users size={10} /> Partenaire · {myRoleBadge}
                                 </span>
                             )}

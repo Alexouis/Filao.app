@@ -10,13 +10,13 @@ import {
   REQUIRED_DOCS_BY_ROLE // <--- Added this import
 } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
-import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
+import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
-import { Plus, Clock, TrendingUp, TrendingDown, Minus, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
+import { Plus, Clock, TrendingUp, TrendingDown, Minus, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 
 interface DashboardProps {
-  onNavigate: (tab: any) => void;
+  onNavigate: (tab: any, id?: string | null) => void;
   cachedTenders?: Tender[];
   onTendersLoad?: (tenders: Tender[]) => void;
   cachedCollaborators?: any[]; // Legacy, kept for prop compatibility
@@ -50,6 +50,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // expiré » n'existe pas en base — on le dérive ici d'une fenêtre de 30 jours
   // sur date_expiration, seule interprétation cohérente avec le schéma.
   const [docStats, setDocStats] = useState({ valid: 0, expiring: 0, expired: 0, total: 0 });
+  // Catégories administratives attendues (mêmes clés que documents_candidature).
+  const STANDARD_DOC_CATEGORIES = ['kbis', 'attestation_honneur', 'attestation_assurance', 'presentation_societe'];
+  // Catégories standard absentes → documents à fournir.
+  const [missingDocs, setMissingDocs] = useState<string[]>([]);
+  // Activité récente : vraies notifications de l'utilisateur (source unique,
+  // partagée avec le centre de notifications), plutôt qu'une reconstruction
+  // approximative depuis le statut des dossiers.
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
   // --- 1. FETCH ACTIVE TENDERS COUNT (Plan Limit Logic) ---
   // Décompte de référence, calculé en base via `dossiers_portes_entreprise` :
@@ -87,7 +95,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     (async () => {
       const { data, error } = await supabase
         .from('documents_candidature_view')
-        .select('statut_effectif, date_expiration_effective')
+        .select('statut_effectif, date_expiration_effective, categorie')
         .eq('entreprise_id', userProfile.entreprise_id);
 
       if (cancelled) return;
@@ -113,12 +121,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
 
       setDocStats({ valid, expiring, expired, total: valid + expiring + expired });
+
+      // Documents administratifs manquants : catégories standard attendues
+      // absentes de documents_candidature (aucune ligne, quel que soit le statut).
+      const presentes = new Set((rows as any[]).map(d => d.categorie));
+      const manquants = STANDARD_DOC_CATEGORIES.filter(c => !presentes.has(c));
+      setMissingDocs(manquants);
     })();
 
     return () => { cancelled = true; };
   }, [userProfile?.entreprise_id]);
 
-  // --- 2. DATA FETCHING ---
+  // --- 1c. FETCH RECENT ACTIVITY (vraies notifications) ---
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('utilisateurs')
+        .select('notifications')
+        .eq('id', userProfile.id)
+        .single();
+      if (cancelled) return;
+      if (error) {
+        console.error('recent activity:', error);
+        return;
+      }
+      const notifs = (data?.notifications as any[]) || [];
+      const sorted = [...notifs].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      setRecentActivity(sorted.slice(0, 5));
+    })();
+    return () => { cancelled = true; };
+  }, [userProfile?.id]);
   useEffect(() => {
     // `userProfile` arrive de façon asynchrone : au premier rendu il vaut null,
     // et les deux branches ci-dessous le déréférencent sans garde. L'effet se
@@ -300,6 +336,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     t.statut === STATUSES.draft || isActive(t)
   );
 
+  // AO urgents (échéance < 7 j) — définition partagée avec Mes AO via isUrgent.
+  const urgentCount = tenders.filter(isUrgent).length;
+
   const getDaysRemaining = (dateString: string) => {
     if (!dateString) return 0;
     const today = new Date();
@@ -371,25 +410,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const isLimitReached = tenderLimit !== 9999 && activeTendersCount >= tenderLimit;
 
   // Generate Recent Activity
-  const dynamicActivity = tenders.slice(0, 5).map(t => {
-    let action = "a mis à jour";
-    let icon = <Clock size={14} />;
-    let color = "text-[#007AA8]";
-
-    if (t.statut === STATUSES.won) { action = "a remporté"; icon = <CheckCircle size={14} />; color = "text-green-600"; }
-    else if (t.statut === STATUSES.draft) { action = "a créé le brouillon"; icon = <FileText size={14} />; color = "text-[#D95D4E]"; }
-
-    return {
-      id: t.id,
-      user: "Vous",
-      action: action,
-      target: t.titre,
-      time: new Date(t.modified_at || t.created_at).toLocaleDateString(),
-      icon,
-      color
-    };
-  });
-
   // Styles — using shared GLASS_STYLE for uniform shadow across all pages
 
   // Validité des documents : un point = un document réel (plus de waffle
@@ -431,6 +451,34 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   Répondre à un AO
                 </button>
               </div>
+
+              {/* Bande d'alerte : AO urgents + documents manquants. Chaque
+                  élément est conditionnel et cliquable — la bande disparaît
+                  entièrement s'il n'y a rien à signaler. */}
+              {(urgentCount > 0 || missingDocs.length > 0) && (
+                <div className="px-6 pb-2 flex flex-wrap gap-2 shrink-0">
+                  {urgentCount > 0 && (
+                    <button
+                      onClick={() => onNavigate('tenders')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#FF8575]/10 text-[#FF8575] hover:bg-[#FF8575]/20 transition-colors"
+                      title="Échéance dans moins de 7 jours"
+                    >
+                      <Clock size={12} />
+                      {urgentCount} AO urgent{urgentCount > 1 ? 's' : ''}
+                    </button>
+                  )}
+                  {missingDocs.length > 0 && (
+                    <button
+                      onClick={() => onNavigate('company', 'docs')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                      title="Compléter les pièces administratives"
+                    >
+                      <FileText size={12} />
+                      {missingDocs.length} document{missingDocs.length > 1 ? 's' : ''} manquant{missingDocs.length > 1 ? 's' : ''}
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="px-6 pb-6 space-y-4 flex-1 overflow-y-auto custom-scrollbar-dark">
                 {displayTenders.length === 0 ? (
@@ -539,13 +587,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="px-4 pb-4 pt-6 flex-1 overflow-y-auto custom-scrollbar-dark">
                 <h3 className="px-2 text-sm font-bold text-[#0B1F38]/50 uppercase tracking-wider mb-4">Activité Récente</h3>
                 <ul className="space-y-1">
-                  {dynamicActivity.length > 0 ? dynamicActivity.map((item) => (
+                  {recentActivity.length > 0 ? recentActivity.map((item) => (
                     <li key={item.id} className="p-4 hover:bg-white/80 rounded-2xl transition-colors flex gap-4 group border-l-2 border-transparent hover:border-[#00A3E0]">
-                      <div className="mt-1">{item.icon && <div className={`${item.color} opacity-100`}>{item.icon}</div>}</div>
+                      <div className="mt-1"><div className="text-[#007AA8] opacity-100"><Clock size={14} /></div></div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-[#0B1F38]/90"><span className="font-bold text-[#0B1F38]">{item.user}</span> {item.action}</p>
-                        <p className="text-xs text-[#26367F] mt-0.5 font-medium truncate">{item.target}</p>
-                        <p className="text-[10px] text-[#0B1F38]/50 mt-1">{item.time}</p>
+                        <p className="text-sm text-[#0B1F38]/90">
+                          {item.sender_name && <span className="font-bold text-[#0B1F38]">{item.sender_name} </span>}
+                          {item.titre || item.message}
+                        </p>
+                        {item.related_tender_titre && <p className="text-xs text-[#26367F] mt-0.5 font-medium truncate">{item.related_tender_titre}</p>}
+                        <p className="text-[10px] text-[#0B1F38]/50 mt-1">{item.date ? new Date(item.date).toLocaleDateString() : ''}</p>
                       </div>
                     </li>
                   )) : (

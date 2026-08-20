@@ -13,6 +13,7 @@ import { SpecialtyAccordion } from '../ui/SpecialtyAccordion';
 interface CompanyTabProps {
     userProfile: UserProfile | null;
     onUpdate: () => void;
+    initialSubTab?: 'info' | 'docs';
 }
 
 // Map API employee range to French standard categories
@@ -78,7 +79,7 @@ const getSecteurLabel = (code: string): string => {
     return INSEE_SECTION_LABELS[code] || code;
 };
 
-export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate }) => {
+export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, initialSubTab }) => {
     const [entrepriseData, setEntrepriseData] = useState<Entreprise | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -117,7 +118,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate })
     const [expandedThematic, setExpandedThematic] = useState<string | null>(null);
 
     // Sub-tabs
-    const [subTab, setSubTab] = useState<'info' | 'docs'>('info');
+    const [subTab, setSubTab] = useState<'info' | 'docs'>(initialSubTab || 'info');
 
     // Document categories config
     type DocCategorie = 'presentation' | 'moyens_humains' | 'moyens_techniques' | 'references' | 'autres';

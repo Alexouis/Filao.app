@@ -235,7 +235,7 @@ const AppContent = () => {
       case 'dashboard':
         return (
           <Dashboard
-            onNavigate={(tab) => navigateTo(tab as NavItem | 'wizard', null)}
+            onNavigate={(tab, id) => navigateTo(tab as NavItem | 'wizard', id ?? null)}
             cachedTenders={getCachedTenders()}
             onTendersLoad={handleTendersLoad}
             cachedCollaborators={getCachedCollaborators()}
@@ -312,7 +312,7 @@ const AppContent = () => {
       case 'company':
         return (
           <div className="h-full overflow-y-auto custom-scrollbar p-4 md:p-6">
-            <CompanyTab userProfile={userProfile} onUpdate={handleProfileUpdate} />
+            <CompanyTab userProfile={userProfile} onUpdate={handleProfileUpdate} initialSubTab={editingTenderId === 'docs' ? 'docs' : undefined} />
           </div>
         );
       case 'profile':
