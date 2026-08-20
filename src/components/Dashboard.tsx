@@ -10,10 +10,9 @@ import {
   REQUIRED_DOCS_BY_ROLE // <--- Added this import
 } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
-import { forfait, illimite } from '@/helpers/planLimits';
 import { getEffectiveStatus, isActive } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
-import { Plus, Clock, TrendingUp, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
+import { Plus, Clock, TrendingUp, TrendingDown, Minus, CheckCircle, MessageSquare, Upload, UserCheck, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 
 interface DashboardProps {
@@ -40,22 +39,84 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [loading, setLoading] = useState(!cachedTenders);
   const [showLimitModal, setShowLimitModal] = useState(false);
 
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<{ winRate: number; winRateTrend: number | null }>({
     winRate: 0,
+    winRateTrend: null,
   });
 
+  // Validité des documents de l'entreprise — chiffres réels, plus de mock.
+  // Source : `documents_entreprise_view`, qui expose `statut_effectif`
+  // (valide / expire recalculé depuis date_expiration). L'état « bientôt
+  // expiré » n'existe pas en base — on le dérive ici d'une fenêtre de 30 jours
+  // sur date_expiration, seule interprétation cohérente avec le schéma.
+  const [docStats, setDocStats] = useState({ valid: 0, expiring: 0, expired: 0, total: 0 });
+
   // --- 1. FETCH ACTIVE TENDERS COUNT (Plan Limit Logic) ---
+  // Décompte de référence, calculé en base via `dossiers_portes_entreprise` :
+  // il porte sur l'ENTREPRISE (pas sur l'utilisateur) et ne compte que les
+  // dossiers « En cours » non verrouillés — donc il n'inclut PAS les déposés,
+  // qui restent suivis mais ne consomment plus de quota. C'est la même source
+  // que BillingTab. La version précédente comptait côté client sur
+  // `createur_id === userProfile.id` avec `isActive`, ce qui (a) ignorait les
+  // dossiers portés par un collègue de l'entreprise et (b) incluait les
+  // déposés : le compteur divergeait alors du quota réellement appliqué.
   useEffect(() => {
-    if (!userProfile || !tenders) return;
+    if (!userProfile?.entreprise_id) return;
 
-    // Use exactly the same logic as planHelpers.ts for consistency
-    const activeCount = tenders.filter(t =>
-      t.createur_id === userProfile.id &&
-      isActive(t)
-    ).length;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.rpc('dossiers_portes_entreprise', {
+        p_entreprise_id: userProfile.entreprise_id,
+      });
+      if (cancelled) return;
+      if (!error && typeof data === 'number') {
+        setActiveTendersCount(data);
+      } else if (error) {
+        console.error('dossiers_portes_entreprise:', error);
+      }
+    })();
 
-    setActiveTendersCount(activeCount);
-  }, [userProfile, tenders]);
+    return () => { cancelled = true; };
+  }, [userProfile?.entreprise_id, tenders]);
+
+  // --- 1b. FETCH DOCUMENT VALIDITY STATS (pièces réellement déposées) ---
+  useEffect(() => {
+    if (!userProfile?.entreprise_id) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('documents_entreprise_view')
+        .select('statut_effectif, date_expiration')
+        .eq('entreprise_id', userProfile.entreprise_id);
+
+      if (cancelled) return;
+      if (error) {
+        console.error('documents_entreprise_view:', error);
+        return;
+      }
+
+      const rows = data || [];
+      const SOON_MS = 30 * 24 * 60 * 60 * 1000; // fenêtre « bientôt expiré »
+      const now = Date.now();
+
+      let valid = 0, expiring = 0, expired = 0;
+      for (const d of rows as any[]) {
+        if (d.statut_effectif === 'expire') {
+          expired++;
+        } else if (d.statut_effectif === 'valide') {
+          const exp = d.date_expiration ? new Date(d.date_expiration).getTime() : null;
+          if (exp !== null && exp - now <= SOON_MS) expiring++;
+          else valid++;
+        }
+        // 'en_attente' / 'manquant' : pas une pièce valide déposée, exclu des trois compteurs.
+      }
+
+      setDocStats({ valid, expiring, expired, total: valid + expiring + expired });
+    })();
+
+    return () => { cancelled = true; };
+  }, [userProfile?.entreprise_id]);
 
   // --- 2. DATA FETCHING ---
   useEffect(() => {
@@ -180,7 +241,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const total = won + lost;
     const winRate = total > 0 ? Math.round((won / total) * 100) : 0;
 
-    setStats({ winRate });
+    // Tendance du taux de succès : win rate des dossiers clôturés sur les 90
+    // derniers jours vs. les 90 jours précédents. On situe la clôture avec
+    // `date_decision` (migration 052), qui fige la date du verdict. Repli sur
+    // `modified_at` puis `created_at` pour les dossiers clôturés avant la
+    // migration, encore à NULL. Si l'une des deux fenêtres n'a aucun dossier
+    // clôturé, la tendance n'est pas calculable : winRateTrend reste null et
+    // l'UI affiche « --% ».
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const closedAt = (t: Tender) =>
+      new Date(t.date_decision || t.modified_at || t.created_at).getTime();
+    const closed = tendersData.filter(t => t.statut === STATUSES.won || t.statut === STATUSES.lost);
+
+    const rateOver = (from: number, to: number): number | null => {
+      const bucket = closed.filter(t => {
+        const ts = closedAt(t);
+        return ts > from && ts <= to;
+      });
+      if (bucket.length === 0) return null;
+      const w = bucket.filter(t => t.statut === STATUSES.won).length;
+      return (w / bucket.length) * 100;
+    };
+
+    const recent = rateOver(now - 90 * DAY_MS, now);
+    const previous = rateOver(now - 180 * DAY_MS, now - 90 * DAY_MS);
+    const winRateTrend =
+      recent !== null && previous !== null ? Math.round(recent - previous) : null;
+
+    setStats({ winRate, winRateTrend });
   };
 
   // --- ACTIONS ---
@@ -272,12 +361,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // --- DYNAMIC DATA ---
-  // Forfait lu depuis `plan_limits` : `9999` était une valeur sentinelle pour
-  // « illimité », comparée ensuite comme un nombre réel — d'où les tests
-  // `!== 9999` disséminés dans le rendu.
-  const offre = forfait(userProfile?.plan);
-  const tenderLimit = offre.maxAoSimultanes;
-  const isLimitReached = !illimite(offre) && activeTendersCount >= (tenderLimit ?? 0);
+  let currentPlanKey = (userProfile?.plan as PlanType) || PLANS_TYPES.free;
+  // If the user has a plan that doesn't exist in config (e.g. old data), fallback to free
+  if (!PLANS_CONFIG[currentPlanKey]) {
+    currentPlanKey = PLANS_TYPES.free;
+  }
+  const currentPlanConfig = PLANS_CONFIG[currentPlanKey];
+  const tenderLimit = currentPlanConfig.limits.activeTenders;
+  const isLimitReached = tenderLimit !== 9999 && activeTendersCount >= tenderLimit;
 
   // Generate Recent Activity
   const dynamicActivity = tenders.slice(0, 5).map(t => {
@@ -301,12 +392,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Styles — using shared GLASS_STYLE for uniform shadow across all pages
 
-  // Waffle Chart Mock Data
-  const docStats = { valid: 12, expiring: 3, expired: 2, total: 17 };
+  // Waffle chart — points proportionnels aux chiffres réels de docStats
+  // (chargés depuis documents_entreprise_view). Garde contre la division par
+  // zéro quand l'entreprise n'a encore déposé aucune pièce.
   const totalGridPoints = 24;
-  const validPointsCount = Math.round((docStats.valid / docStats.total) * totalGridPoints);
-  const expiringPointsCount = Math.round((docStats.expiring / docStats.total) * totalGridPoints);
-  const expiredPointsCount = totalGridPoints - validPointsCount - expiringPointsCount;
+  const validPointsCount = docStats.total > 0 ? Math.round((docStats.valid / docStats.total) * totalGridPoints) : 0;
+  const expiringPointsCount = docStats.total > 0 ? Math.round((docStats.expiring / docStats.total) * totalGridPoints) : 0;
+  const expiredPointsCount = docStats.total > 0 ? Math.max(0, totalGridPoints - validPointsCount - expiringPointsCount) : 0;
 
   if (loading) {
     return (
@@ -330,11 +422,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <section className={`lg:col-span-2 ${GLASS_STYLE} rounded-3xl flex flex-col h-full overflow-hidden`}>
               <div className="p-6 flex justify-between items-center shrink-0 gap-4">
                 <p className={`text-sm font-medium ${isLimitReached ? 'text-red-500' : 'text-[#0B1F38]/60'}`}>
-                  {/* « Actif » est ambigu : actif pour qui, à quel titre ? Le
-                      compteur ne parle que des dossiers PORTÉS, la liste montre
-                      aussi ceux rejoints comme co-traitant — deux notions justes
-                      sous un même mot, d'où le faux bug signalé en recette. */}
-                  {activeTendersCount}/{illimite(offre) ? '∞' : offre.maxAoSimultanes} dossiers portés (Plan {offre.libelle})
+                  {activeTendersCount}/{tenderLimit === 9999 ? '∞' : tenderLimit} dossiers actifs (Plan {currentPlanConfig.label})
                 </p>
                 <button
                   onClick={handleAddTenderClick}
@@ -418,7 +506,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
 
                 {/* Upsell Banner - Fixed visual and alignment */}
-                {!illimite(offre) && activeTendersCount >= (tenderLimit ?? 0) - 1 && (
+                {activeTendersCount >= tenderLimit - 1 && tenderLimit !== 9999 && (
                   <div
                     onClick={() => onNavigate('pricing')}
                     className="p-5 rounded-2xl border border-[#0B1F38]/10 bg-gradient-to-br from-white/60 to-white/40 flex flex-col items-center justify-center text-center gap-3 group hover:bg-white/90 hover:shadow-md transition-all cursor-pointer relative overflow-hidden"
@@ -432,7 +520,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="relative z-10">
                       <h3 className="font-bold text-[#0B1F38]">Débloquer plus de dossiers</h3>
                       <p className="text-xs text-[#0B1F38]/60 mt-1 max-w-xs mx-auto">
-                        Votre offre permet <span className="text-[#0B1F38] font-bold">{illimite(offre) ? 'un nombre illimité de' : offre.maxAoSimultanes} dossier(s) porté(s)</span> simultanément. Les dossiers que vous avez rejoints comme co-traitant ne comptent pas.
+                        Votre plan actuel est limité à <span className="text-[#0B1F38] font-bold">{tenderLimit} AO actifs simultanés</span>.
                       </p>
                     </div>
 
@@ -484,9 +572,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </p>
                     <p className="text-sm text-[#0B1F38]/80 font-medium mt-1">Taux de succès</p>
                   </div>
-                  <div className="flex items-center text-[#00A3E0] text-xs font-bold bg-white/60 px-2 py-1 rounded-lg border border-white/60 shadow-sm">
-                    <TrendingUp size={14} className="mr-1" /> --%
-                  </div>
+                  {(() => {
+                    const trend = stats.winRateTrend;
+                    // Tendance non calculable (pas assez d'historique clôturé
+                    // sur les deux fenêtres) : on garde le neutre « --% ».
+                    if (trend === null) {
+                      return (
+                        <div className="flex items-center text-[#0B1F38]/40 text-xs font-bold bg-white/60 px-2 py-1 rounded-lg border border-white/60 shadow-sm" title="Tendance indisponible : historique insuffisant sur les 6 derniers mois">
+                          <Minus size={14} className="mr-1" /> --%
+                        </div>
+                      );
+                    }
+                    const up = trend > 0;
+                    const flat = trend === 0;
+                    const Icon = flat ? Minus : up ? TrendingUp : TrendingDown;
+                    const color = flat ? 'text-[#0B1F38]/50' : up ? 'text-[#00A3E0]' : 'text-[#D95D4E]';
+                    return (
+                      <div className={`flex items-center ${color} text-xs font-bold bg-white/60 px-2 py-1 rounded-lg border border-white/60 shadow-sm`} title="Évolution du taux de succès sur 90 jours vs. les 90 jours précédents">
+                        <Icon size={14} className="mr-1" /> {trend > 0 ? '+' : ''}{trend}%
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex flex-col gap-2 mt-4">
                   <div className="flex gap-1 h-10 w-full items-end">

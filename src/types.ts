@@ -25,6 +25,10 @@ export interface Tender {
     type_groupement?: 'solidaire' | 'conjoint';
     groupements?: Groupement[];
     modified_at?: string;
+    /** Horodatage du passage à Gagné/Perdu (migration 052). NULL si non tranché
+     *  ou clôturé avant la migration — le calcul de tendance retombe alors sur
+     *  `modified_at`. */
+    date_decision?: string | null;
     success_score?: number;
     /** Dossier au-delà du quota de l'offre : lecture seule, réversible. */
     verrouille_par_quota?: boolean;
