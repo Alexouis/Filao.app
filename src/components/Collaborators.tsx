@@ -469,11 +469,13 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             if (insertErr) throw insertErr;
 
             // 3. Notify the inviter
+            // L'admin de l'entreprise est identifié via son rôle (table `roles`,
+            // jointe par role_id) — la colonne `role_entreprise` n'existe pas.
             const { data: adminUsers } = await supabase
                 .from('utilisateurs')
-                .select('id')
+                .select('id, roles!inner(name)')
                 .eq('entreprise_id', invite.senderCompanyId)
-                .eq('role_entreprise', 'admin')
+                .eq('roles.name', 'admin')
                 .limit(1);
 
             if (adminUsers && adminUsers.length > 0) {

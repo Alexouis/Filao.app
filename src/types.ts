@@ -87,7 +87,6 @@ export interface ReseauEntreprise {
 
 export type RoleGroupement = 'Mandataire' | 'Co-traitant' | 'Sous-traitant';
 export type StatutGroupement = 'invite' | 'accepte' | 'refuse' | 'retire';
-export type RoleEntreprise = 'admin' | 'membre';
 export type TypeGroupement = 'solidaire' | 'conjoint';
 
 export interface Groupement {
@@ -146,7 +145,7 @@ export interface UserProfile {
     prenom: string;
     email: string;
     entreprise_id?: string;
-    role_entreprise: RoleEntreprise;
+    role_id?: string;
     fonction?: string;
     avatar_url?: string;
     telephone?: string;
