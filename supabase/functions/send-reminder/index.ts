@@ -88,25 +88,44 @@ Deno.serve(async (req: Request) => {
 
     // 3. In-app notification
     if (recipient) {
-      const newNotification = {
-        id: crypto.randomUUID(),
-        type: estJalon ? "deadline_reminder" : "document_reminder",
-        titre: estJalon ? `Jalon dans 2 jours : ${milestoneLabel}` : "Rappel de documents",
-        message: estJalon
-          ? `« ${milestoneLabel} » est prévu le ${dateJalon} sur`
-          : `${senderName} vous a envoyé un rappel pour les pièces manquantes sur`,
-        sender_name: senderName,
-        sender_avatar: senderAvatar,
-        related_tender_id: tenderId,
-        related_tender_titre: tenderTitle,
-        date: new Date().toISOString(),
-        read: false,
-      };
+      const type = estJalon ? "deadline_reminder" : "document_reminder";
+      const titre = estJalon ? `Jalon dans 2 jours : ${milestoneLabel}` : "Rappel de documents";
 
-      await adminClient
-        .from("utilisateurs")
-        .update({ notifications: [newNotification, ...(recipient.notifications || [])] })
-        .eq("id", recipient.id);
+      // Déduplication : un même rappel (même type + même dossier + même libellé)
+      // ne doit pas être réécrit s'il a déjà été émis dans les dernières 24 h.
+      // Protège contre toutes les causes de doublon — cron rejoué, marquage
+      // d'idempotence échoué, déclenchements manuels rapprochés — puisque
+      // send-reminder est le point de passage commun de tous les rappels.
+      const existantes: any[] = recipient.notifications || [];
+      const il_y_a_24h = Date.now() - 24 * 60 * 60 * 1000;
+      const doublon = existantes.some((n) =>
+        n?.type === type &&
+        n?.related_tender_id === tenderId &&
+        n?.titre === titre &&
+        n?.date && new Date(n.date).getTime() >= il_y_a_24h
+      );
+
+      if (!doublon) {
+        const newNotification = {
+          id: crypto.randomUUID(),
+          type,
+          titre,
+          message: estJalon
+            ? `« ${milestoneLabel} » est prévu le ${dateJalon} sur`
+            : `${senderName} vous a envoyé un rappel pour les pièces manquantes sur`,
+          sender_name: senderName,
+          sender_avatar: senderAvatar,
+          related_tender_id: tenderId,
+          related_tender_titre: tenderTitle,
+          date: new Date().toISOString(),
+          read: false,
+        };
+
+        await adminClient
+          .from("utilisateurs")
+          .update({ notifications: [newNotification, ...existantes] })
+          .eq("id", recipient.id);
+      }
     }
 
     // 4. Fetch Access Code from Invitation
