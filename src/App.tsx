@@ -26,6 +26,7 @@ import { PricingPage } from './components/PricingPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import { ChatCenter } from './components/chat/ChatCenter';
+import { captureAcquisitionParams } from './helpers/acquisitionHelpers';
 // Success Modal Component
 const SuccessModal = ({ onClose }: { onClose: () => void }) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -85,6 +86,13 @@ const AppContent = () => {
 
   const [tendersResetKey, setTendersResetKey] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Capture des UTM au tout premier chargement, avant toute navigation ou
+  // redirection OAuth qui ferait disparaître les paramètres de l'URL. Idempotent
+  // et persisté en session jusqu'à la création de compte (voir Auth.tsx).
+  useEffect(() => {
+    captureAcquisitionParams();
+  }, []);
 
   // Clear tender/collaborator cache on logout
   useEffect(() => {

@@ -3,6 +3,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { chargerForfaits } from '../helpers/planLimits';
 import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../config';
+import { getAcquisitionParams } from '../helpers/acquisitionHelpers';
 
 // --- Types ---
 interface AuthContextType {
@@ -69,6 +70,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     const nom = meta.nom || lastNameFromGoogle || 'Nom';
                     const prenom = meta.prenom || firstNameFromGoogle || 'Prénom';
                     const avatar = meta.avatar_url || meta.picture || null;
+                    // UTM capturés en session au premier contact (repli pour le
+                    // flux Google, qui ne transporte pas de métadonnées signUp).
+                    const acquisition = getAcquisitionParams();
 
                     const newProfile: Record<string, any> = {
                         id: user.id,
@@ -88,6 +92,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         cgu_version: meta.cgu_version || null,
                         source_inscription: meta.source_inscription || null,
                         source_detail: meta.source_detail || null,
+                        // UTM first-touch. Pour l'inscription e-mail ils arrivent
+                        // via les métadonnées `signUp` ; pour Google (qui ne passe
+                        // pas par `signUp`) on retombe sur la capture en session.
+                        // Repli mutualisé dans les deux cas.
+                        utm_source: meta.utm_source || acquisition.utm_source || null,
+                        utm_medium: meta.utm_medium || acquisition.utm_medium || null,
+                        utm_campaign: meta.utm_campaign || acquisition.utm_campaign || null,
+                        utm_term: meta.utm_term || acquisition.utm_term || null,
+                        utm_content: meta.utm_content || acquisition.utm_content || null,
                     };
 
                     // upsert is idempotent — safe even if called twice concurrently

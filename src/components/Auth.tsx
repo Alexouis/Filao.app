@@ -11,6 +11,7 @@ interface AuthProps {
 
 import { APP_CONFIG } from '../config';
 import { supabase } from '../lib/supabaseClient';
+import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acquisitionHelpers';
 
 const GoogleIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -248,12 +249,12 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 }
 
                 // Origine du compte. `InvitationLanding` dépose l'identifiant du
-                // dossier avant de rediriger : sa présence suffit à qualifier la
-                // source, sans paramètre d'URL à transporter.
+                // dossier avant de rediriger : sa présence qualifie une
+                // invitation. Sinon, la source est dérivée des UTM / referrer
+                // capturés au premier contact (voir acquisitionHelpers).
                 const dossierInvitation = sessionStorage.getItem('invitationTenderId');
-                const source = dossierInvitation ? 'invitation'
-                    : document.referrer && !document.referrer.includes(window.location.host) ? 'referral'
-                    : 'direct';
+                const source = resolveSourceInscription(dossierInvitation);
+                const acquisition = getAcquisitionParams();
 
                 const { data: authData, error: authError } = await supabase.auth.signUp({
                     email,
@@ -271,6 +272,13 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                             cgu_version: VERSION_CGU,
                             source_inscription: source,
                             source_detail: dossierInvitation || null,
+                            // UTM de la campagne d'origine (first-touch). Restent
+                            // null pour une entrée organique.
+                            utm_source: acquisition.utm_source || null,
+                            utm_medium: acquisition.utm_medium || null,
+                            utm_campaign: acquisition.utm_campaign || null,
+                            utm_term: acquisition.utm_term || null,
+                            utm_content: acquisition.utm_content || null,
                         }
                     }
                 });
