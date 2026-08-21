@@ -5,7 +5,7 @@ import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Sear
 import { SettingsCard } from './SettingsCard';
 import { DocumentInput } from './DocumentInput';
 import { supabase } from '../../lib/supabaseClient';
-import { UserProfile, SKILLS, INSEE_SECTION_LABELS, FRENCH_REGIONS } from '../../config';
+import { UserProfile, SKILLS, INSEE_SECTION_LABELS, FRENCH_REGIONS, getFormeJuridiqueLabel } from '../../config';
 import { Entreprise } from '../../types';
 import { Undo2 } from 'lucide-react';
 import { SpecialtyAccordion } from '../ui/SpecialtyAccordion';
@@ -55,20 +55,23 @@ const formatDate = (dateStr: string): string => {
     }
 };
 
-// Helper: Map standard legal form codes to readable labels
-const getLegalFormLabel = (code: string, currentLabel: string): string => {
-    if (currentLabel && currentLabel.length > 10 && !/^\d+$/.test(currentLabel)) return currentLabel;
-    const mapping: Record<string, string> = {
-        '1000': 'Entrepreneur individuel',
-        '5499': 'SARL / EURL',
-        '5710': 'SAS / SASU',
-        '5720': 'Société par actions simplifiée',
-        '5599': 'SA à conseil d\'administration',
-        '6599': 'SCI',
-        '5485': 'SELARL',
-        '5785': 'SELAS',
-    };
-    return mapping[code] || code || 'Non défini';
+// Helper: Map standard legal form codes to readable labels.
+// Délègue au catalogue INSEE partagé (config.ts) pour couvrir l'ensemble des
+// catégories juridiques au lieu d'une liste locale partielle.
+const getLegalFormLabel = (code: string, _currentLabel?: string): string =>
+    getFormeJuridiqueLabel(code);
+
+// Réduit les doublons « Autre (champ texte libre) » à une seule entrée,
+// tout en conservant l'ordre et les autres tags intacts.
+const dedupeAutre = <T extends { label?: string }>(rows: T[]): T[] => {
+    let seenAutre = false;
+    return rows.filter(row => {
+        if ((row.label || '').trim().toLowerCase().startsWith('autre')) {
+            if (seenAutre) return false;
+            seenAutre = true;
+        }
+        return true;
+    });
 };
 
 // Helper: Resolve INSEE section code to readable label
@@ -408,7 +411,9 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             ]);
             setRefDomains(doms.data || []);
             setRefSpecialties(specs.data || []);
-            setRefExpertiseTags(tags.data || []);
+            // Une seule entrée « Autre (champ texte libre) » : la table peut
+            // contenir plusieurs lignes « Autre », on ne garde que la première.
+            setRefExpertiseTags(dedupeAutre(tags.data || []));
             setRefGeoZones(zones.data || []);
 
             // 2. Fetch Company Junction Data

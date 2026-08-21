@@ -50,7 +50,7 @@ import {
 } from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
-import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
+import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES, getLieuLabel } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useAuth } from '../context/AuthContext';
@@ -6336,7 +6336,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     <MapPin size={14} />
                                     {formData.lieu_execution.length > 0 ? (
                                         <>
-                                            {DEPARTEMENTS_OBJ[String(formData.lieu_execution[0]).replace(/^0+/, '')] || formData.lieu_execution[1] || formData.lieu_execution[0]}
+                                            {getLieuLabel(formData.lieu_execution[0])}
                                         </>
                                     ) : 'Lieu non spécifié'}
                                 </p>
@@ -6501,7 +6501,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             <h3 className="text-lg font-bold text-[#0B1F38] mb-1 group-hover:text-[#00A3E0] transition-colors">{result.objet}</h3>
                                             <div className="flex flex-wrap gap-4 text-sm text-[#0B1F38]/70">
                                                 <div className="flex items-center gap-1.5"><Building size={14} className="text-[#0B1F38]/40" /><span className="font-medium">{result.nomacheteur}</span></div>
-                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{DEPARTEMENTS_OBJ[String(result.code_departement).padStart(2, '0')] || result.code_departement} ({result.code_departement})</span></div>
+                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{getLieuLabel(result.code_departement)}</span></div>
                                             </div>
                                         </div>
                                         <div className="flex flex-row md:flex-col items-center md:items-end gap-4 min-w-[180px]">

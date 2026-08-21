@@ -28,7 +28,7 @@ import {
     Loader2 as LoaderIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { STATUSES } from '@/config';
+import { STATUSES, getFormeJuridiqueLabel } from '@/config';
 import { Entreprise } from '@/types';
 import { useToast } from './ui/Toast';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
@@ -83,6 +83,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [showFilters, setShowFilters] = useState(true);
 
     // Specific Filters
+    const [filterVille, setFilterVille] = useState('');
     const [filterRegion, setFilterRegion] = useState('');
     const [filterSpecialty, setFilterSpecialty] = useState('');
     const [filterExpertiseTag, setFilterExpertiseTag] = useState('');
@@ -123,7 +124,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                 supabase.from('ref_domains').select('*').order('label'),
                 supabase.from('ref_specialties').select('*').not('label', 'ilike', 'Autre%').order('label'),
                 supabase.from('ref_geo_zones').select('*').order('label'),
-                supabase.from('ref_expertise_tags').select('*').order('label')
+                supabase.from('ref_expertise_tags').select('*').not('label', 'ilike', 'Autre%').order('label')
             ]);
             setRefDomains(doms.data || []);
             setRefSpecialties(specs.data || []);
@@ -527,10 +528,13 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             // Taxonomic matching
             const cTax = companiesSpecialties[c.id];
             
-            // Region matching: check company ville OR geo_zones labels
-            const matchesRegion = filterRegion === '' || 
-                (c.ville && c.ville.toLowerCase().includes(filterRegion.toLowerCase())) || 
-                (cTax && cTax.geo_zones.some(gzid => refGeoZones.find(z => z.id === gzid)?.label.toLowerCase().includes(filterRegion.toLowerCase())));
+            // Ville matching: sur la ville du siège de l'entreprise.
+            const matchesVille = filterVille === '' ||
+                (c.ville && c.ville.toLowerCase() === filterVille.toLowerCase());
+
+            // Région matching: sur les zones géographiques d'intervention (geo_zones).
+            const matchesRegion = filterRegion === '' ||
+                (cTax && cTax.geo_zones.some(gzid => refGeoZones.find(z => z.id === gzid)?.label.toLowerCase() === filterRegion.toLowerCase()));
             
             const matchesForme = filterForme === '' || c.forme_juridique === filterForme;
             const matchesRating = filterRating === '' || (c.average_rating !== undefined && c.average_rating >= Number(filterRating));
@@ -540,15 +544,21 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             const matchesSpecialty = filterSpecialty === '' || (cTax && cTax.specialties.includes(filterSpecialty));
             const matchesExpertiseTag = filterExpertiseTag === '' || (cTax && cTax.expertise_tags.includes(filterExpertiseTag));
 
-            return matchesSearch && matchesRegion && matchesSpecialty && matchesForme && matchesRating && matchesNature && matchesDomain && matchesExpertiseTag;
+            return matchesSearch && matchesVille && matchesRegion && matchesSpecialty && matchesForme && matchesRating && matchesNature && matchesDomain && matchesExpertiseTag;
         });
-    }, [activeTab, myNetwork, filaoNetwork, searchQuery, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain, companiesSpecialties, refGeoZones]);
+    }, [activeTab, myNetwork, filaoNetwork, searchQuery, filterVille, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain, companiesSpecialties, refGeoZones]);
 
-    const uniqueRegions = useMemo(() => {
-        const allVilles = [...new Set([...myNetwork, ...filaoNetwork].map(c => c.ville).filter(Boolean))];
-        const allZones = [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.geo_zones).map(zid => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean))];
-        return [...new Set([...allVilles, ...allZones])].sort();
-    }, [myNetwork, filaoNetwork, companiesSpecialties, refGeoZones]);
+    // Villes des sièges d'entreprise (filtre « Ville »).
+    const uniqueVilles = useMemo(
+        () => [...new Set([...myNetwork, ...filaoNetwork].map(c => c.ville).filter(Boolean))].sort(),
+        [myNetwork, filaoNetwork]
+    );
+
+    // Zones géographiques d'intervention (filtre « Région »).
+    const uniqueRegions = useMemo(
+        () => [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.geo_zones).map(zid => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean))].sort(),
+        [companiesSpecialties, refGeoZones]
+    );
 
     const uniqueSpecialties = useMemo(() => {
         return [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.specialties).map(sid => refSpecialties.find(s => s.id === sid)?.label).filter(Boolean))].sort();
@@ -558,6 +568,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
+        if (filterVille) count++;
         if (filterRegion) count++;
         if (filterSpecialty) count++;
         if (filterExpertiseTag) count++;
@@ -566,9 +577,10 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         if (filterNature) count++;
         if (filterDomain) count++;
         return count;
-    }, [filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain]);
+    }, [filterVille, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain]);
 
     const clearAllFilters = () => {
+        setFilterVille('');
         setFilterRegion('');
         setFilterSpecialty('');
         setFilterExpertiseTag('');
@@ -891,7 +903,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                         <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Forme juridique</label>
                                         <select value={filterForme} onChange={(e) => setFilterForme(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
                                             <option value="">Toutes</option>
-                                            {uniqueFormes.map(f => <option key={f} value={f}>{f}</option>)}
+                                            {uniqueFormes.map(f => <option key={f} value={f}>{getFormeJuridiqueLabel(f)}</option>)}
                                         </select>
                                     </div>
 
@@ -914,7 +926,15 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                     </div>
 
                                     <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Ville / Région</label>
+                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Ville</label>
+                                        <select value={filterVille} onChange={(e) => setFilterVille(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
+                                            <option value="">Toutes</option>
+                                            {uniqueVilles.map(v => <option key={v} value={v}>{v}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Région d'intervention</label>
                                         <select value={filterRegion} onChange={(e) => setFilterRegion(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
                                             <option value="">Toutes</option>
                                             {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
