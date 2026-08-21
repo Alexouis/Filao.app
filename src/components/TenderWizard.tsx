@@ -24,7 +24,7 @@ import { estEnRetard } from '../helpers/jalonHelpers';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
-import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
+import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
@@ -50,7 +50,7 @@ import {
 } from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
-import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES, getLieuLabel } from '../config';
+import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useAuth } from '../context/AuthContext';
@@ -3409,15 +3409,23 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 <div className="bg-white/60 border border-white/60 rounded-3xl p-6 shadow-sm relative overflow-hidden">
 
                     {/* SIRET search bar - compact top row */}
-                    <div className="bg-[#0B1F38]/5 rounded-xl p-3 flex items-center gap-3 mb-6">
-                        <span className="text-xs font-bold text-[#0B1F38]/60 uppercase shrink-0">Recherche acheteur</span>
-                        <div className="flex gap-2 flex-1">
-                            <input value={siretQuery} onChange={e => setSiretQuery(e.target.value)} type="text" placeholder="SIRET, SIREN ou nom..." className={`${inputGlassPlain} w-full`} />
-                            <button onClick={handleSiretSearch} disabled={siretLoading} className="px-4 py-2 bg-[#0B1F38] text-white rounded-xl hover:bg-[#00A3E0] font-bold shadow-sm transition-all shrink-0">
-                                {siretLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                            </button>
+                    <div className="bg-[#0B1F38]/5 rounded-xl p-3 mb-6">
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-[#0B1F38]/60 uppercase shrink-0">Recherche acheteur</span>
+                            <div className="flex gap-2 flex-1">
+                                <input value={siretQuery} onChange={e => setSiretQuery(e.target.value)} type="text" placeholder="SIRET, SIREN ou nom..." className={`${inputGlassPlain} w-full`} />
+                                <button onClick={handleSiretSearch} disabled={siretLoading} className="px-4 py-2 bg-[#0B1F38] text-white rounded-xl hover:bg-[#00A3E0] font-bold shadow-sm transition-all shrink-0">
+                                    {siretLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
+                                </button>
+                            </div>
+                            {siretError && <p className="text-xs text-red-500 font-bold shrink-0">{siretError}</p>}
                         </div>
-                        {siretError && <p className="text-xs text-red-500 font-bold shrink-0">{siretError}</p>}
+                        {/* Contrôle de clé en temps réel : informatif, jamais bloquant.
+                            La recherche par nom passe sans avertissement. */}
+                        {(() => {
+                            const avert = messageErreurIdentifiantAcheteur(siretQuery);
+                            return avert ? <p className="text-[11px] text-amber-600 font-medium mt-1.5">{avert}</p> : null;
+                        })()}
                     </div>
 
                     {/* ALL FIELDS in a single dense grid */}
@@ -3463,6 +3471,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         <div>
                             <label className={labelStyle}>Date limite <span className="text-red-500">*</span></label>
                             <input value={formData.date_limite} onChange={e => setFormData(prev => ({ ...prev, date_limite: e.target.value }))} type="date" className={`${inputGlassPlain} w-full`} />
+                            {/* Cohérence de date, informatif et non bloquant : l'input
+                                natif garantit déjà le format, on ne signale qu'une
+                                date limite déjà passée. */}
+                            {(() => {
+                                if (!dateValide(formData.date_limite)) {
+                                    return <p className="text-[11px] text-amber-600 font-medium mt-1.5">Cette date n'est pas valide.</p>;
+                                }
+                                if (formData.date_limite) {
+                                    const auj = new Date(); auj.setHours(0, 0, 0, 0);
+                                    if (new Date(formData.date_limite) < auj) {
+                                        return <p className="text-[11px] text-amber-600 font-medium mt-1.5">La date limite est déjà passée.</p>;
+                                    }
+                                }
+                                return null;
+                            })()}
                         </div>
 
                         {/* Montant — optional */}
@@ -6336,7 +6359,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     <MapPin size={14} />
                                     {formData.lieu_execution.length > 0 ? (
                                         <>
-                                            {getLieuLabel(formData.lieu_execution[0])}
+                                            {DEPARTEMENTS_OBJ[String(formData.lieu_execution[0]).replace(/^0+/, '')] || formData.lieu_execution[1] || formData.lieu_execution[0]}
                                         </>
                                     ) : 'Lieu non spécifié'}
                                 </p>
@@ -6501,7 +6524,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             <h3 className="text-lg font-bold text-[#0B1F38] mb-1 group-hover:text-[#00A3E0] transition-colors">{result.objet}</h3>
                                             <div className="flex flex-wrap gap-4 text-sm text-[#0B1F38]/70">
                                                 <div className="flex items-center gap-1.5"><Building size={14} className="text-[#0B1F38]/40" /><span className="font-medium">{result.nomacheteur}</span></div>
-                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{getLieuLabel(result.code_departement)}</span></div>
+                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{DEPARTEMENTS_OBJ[String(result.code_departement).padStart(2, '0')] || result.code_departement} ({result.code_departement})</span></div>
                                             </div>
                                         </div>
                                         <div className="flex flex-row md:flex-col items-center md:items-end gap-4 min-w-[180px]">
