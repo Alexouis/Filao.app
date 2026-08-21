@@ -210,6 +210,9 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
             if (mode === 'login') {
                 const { error } = await supabase.auth.signInWithPassword({ email, password });
                 if (error) throw error;
+                // Le challenge 2FA éventuel est géré par la barrière AAL2 centrale
+                // (MfaGate dans App), qui couvre aussi le login Google et les
+                // rechargements de page.
                 onLogin?.();
             } else {
                 if (!nom || !prenom || !email || !confirmEmail || !password || !confirmPassword) {

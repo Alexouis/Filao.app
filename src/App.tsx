@@ -12,6 +12,7 @@ import { Notifications } from './components/Notifications';
 import { Tenders } from './components/Tenders';
 import { CalendarPage } from './components/CalendarPage';
 import { Auth } from './components/Auth';
+import { MfaGate } from './components/MfaGate';
 import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
@@ -93,6 +94,44 @@ const AppContent = () => {
   useEffect(() => {
     captureAcquisitionParams();
   }, []);
+
+  // Barrière 2FA (AAL2). Quand une session existe, on vérifie si un facteur
+  // TOTP vérifié impose une élévation non encore atteinte. Couvre toutes les
+  // voies d'entrée (login e-mail, OAuth Google, rechargement de page).
+  const [mfaGate, setMfaGate] = useState<{ required: boolean; factorId: string | null }>({ required: false, factorId: null });
+  const [mfaChecked, setMfaChecked] = useState(false);
+
+  useEffect(() => {
+    let annule = false;
+    const verifierAal = async () => {
+      if (!session) {
+        setMfaGate({ required: false, factorId: null });
+        setMfaChecked(true);
+        return;
+      }
+      try {
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (annule) return;
+        if (aal?.nextLevel === 'aal2' && aal.nextLevel !== aal.currentLevel) {
+          const { data: factors } = await supabase.auth.mfa.listFactors();
+          const totp = factors?.totp?.[0];
+          setMfaGate({ required: !!totp, factorId: totp?.id ?? null });
+        } else {
+          setMfaGate({ required: false, factorId: null });
+        }
+      } catch {
+        // En cas d'échec de lecture AAL, on ne verrouille pas l'accès : la 2FA
+        // reste appliquée côté login e-mail, et Supabase refusera de toute
+        // façon les opérations exigeant l'AAL2.
+        if (!annule) setMfaGate({ required: false, factorId: null });
+      } finally {
+        if (!annule) setMfaChecked(true);
+      }
+    };
+    setMfaChecked(false);
+    verifierAal();
+    return () => { annule = true; };
+  }, [session]);
 
   // Clear tender/collaborator cache on logout
   useEffect(() => {
@@ -434,6 +473,25 @@ const AppContent = () => {
 
   if (!session) {
     return <Auth />;
+  }
+
+  // Barrière 2FA : session AAL1 alors qu'un facteur TOTP impose l'AAL2.
+  // On attend d'avoir vérifié l'AAL (mfaChecked) pour ne pas faire clignoter
+  // l'app avant de rediriger vers le challenge.
+  if (mfaChecked && mfaGate.required && mfaGate.factorId) {
+    return (
+      <MfaGate
+        factorId={mfaGate.factorId}
+        onVerified={async () => {
+          setMfaGate({ required: false, factorId: null });
+          await refreshProfile();
+        }}
+        onCancel={async () => {
+          await supabase.auth.signOut();
+          setMfaGate({ required: false, factorId: null });
+        }}
+      />
+    );
   }
 
   // Onboarding wizard for first-time users

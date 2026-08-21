@@ -15,6 +15,21 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     const [mfaEnabled, setMfaEnabled] = useState(false);
     const [mfaLastUpdated, setMfaLastUpdated] = useState<string | null>(null);
 
+    // Enrôlement 2FA (TOTP)
+    const [showMfaModal, setShowMfaModal] = useState(false);
+    const [mfaStep, setMfaStep] = useState<'intro' | 'scan' | 'done'>('intro');
+    const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
+    const [mfaQrSvg, setMfaQrSvg] = useState<string | null>(null);
+    const [mfaSecret, setMfaSecret] = useState<string | null>(null);
+    const [mfaCode, setMfaCode] = useState('');
+    const [mfaLoading, setMfaLoading] = useState(false);
+    const [mfaError, setMfaError] = useState<string | null>(null);
+    // Désactivation
+    const [showMfaDisableModal, setShowMfaDisableModal] = useState(false);
+    const [mfaDisableCode, setMfaDisableCode] = useState('');
+    // Codes de secours affichés une seule fois après activation.
+    const [backupCodes, setBackupCodes] = useState<string[]>([]);
+
     // Password modal
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
@@ -43,6 +58,130 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             }
         } catch (err) {
             console.error('MFA check failed:', err);
+        }
+    };
+
+    // Démarre l'enrôlement d'un facteur TOTP. Supabase refuse un nouvel enroll
+    // s'il subsiste un facteur non vérifié (enrôlement précédent abandonné) : on
+    // purge donc d'abord tout facteur `unverified`.
+    const startMfaEnroll = async () => {
+        setMfaError(null);
+        setMfaLoading(true);
+        try {
+            const { data: factors } = await supabase.auth.mfa.listFactors();
+            const orphelins = (factors?.all || []).filter(f => f.status === 'unverified');
+            for (const f of orphelins) {
+                await supabase.auth.mfa.unenroll({ factorId: f.id });
+            }
+
+            const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+            if (error) throw error;
+
+            setMfaFactorId(data.id);
+            // Supabase fournit le QR déjà rendu (SVG) et le secret en clair.
+            setMfaQrSvg(data.totp.qr_code);
+            setMfaSecret(data.totp.secret);
+            setMfaStep('scan');
+        } catch (err: any) {
+            setMfaError(err?.message || "Impossible de démarrer l'activation.");
+        } finally {
+            setMfaLoading(false);
+        }
+    };
+
+    // Vérifie le code à 6 chiffres et fait passer le facteur en `verified`.
+    const verifyMfaEnroll = async () => {
+        if (!mfaFactorId) return;
+        const code = mfaCode.replace(/\s/g, '');
+        if (!/^\d{6}$/.test(code)) {
+            setMfaError('Saisissez le code à 6 chiffres affiché par votre application.');
+            return;
+        }
+        setMfaError(null);
+        setMfaLoading(true);
+        try {
+            const { data: challenge, error: challengeError } =
+                await supabase.auth.mfa.challenge({ factorId: mfaFactorId });
+            if (challengeError) throw challengeError;
+
+            const { error: verifyError } = await supabase.auth.mfa.verify({
+                factorId: mfaFactorId,
+                challengeId: challenge.id,
+                code,
+            });
+            if (verifyError) throw verifyError;
+
+            // Génère les codes de secours (affichés une seule fois à l'étape
+            // suivante). Un échec ici ne doit pas annuler l'activation réussie
+            // du TOTP : on log et on continue sans codes.
+            try {
+                const { data: gen } = await supabase.functions.invoke('mfa-backup-codes', {
+                    body: { action: 'generate' },
+                });
+                if (gen?.success && Array.isArray(gen.codes)) setBackupCodes(gen.codes);
+            } catch (genErr) {
+                console.warn('Génération des codes de secours échouée', genErr);
+            }
+
+            setMfaStep('done');
+            setMfaEnabled(true);
+            setMfaLastUpdated(new Date().toISOString());
+        } catch (err: any) {
+            setMfaError(err?.message || 'Code incorrect. Vérifiez l\'heure de votre téléphone et réessayez.');
+        } finally {
+            setMfaLoading(false);
+        }
+    };
+
+    const closeMfaModal = () => {
+        setShowMfaModal(false);
+        setMfaStep('intro');
+        setMfaFactorId(null);
+        setMfaQrSvg(null);
+        setMfaSecret(null);
+        setMfaCode('');
+        setMfaError(null);
+    };
+
+    // Désactivation : Supabase exige que la session soit en AAL2 pour retirer un
+    // facteur. On demande donc un code TOTP valide (challenge + verify) juste
+    // avant de désenrôler.
+    const disableMfa = async () => {
+        setMfaError(null);
+        const code = mfaDisableCode.replace(/\s/g, '');
+        if (!/^\d{6}$/.test(code)) {
+            setMfaError('Saisissez le code à 6 chiffres pour confirmer la désactivation.');
+            return;
+        }
+        setMfaLoading(true);
+        try {
+            const { data: factors } = await supabase.auth.mfa.listFactors();
+            const totp = factors?.totp?.[0];
+            if (!totp) { setMfaEnabled(false); setShowMfaDisableModal(false); return; }
+
+            const { data: challenge, error: challengeError } =
+                await supabase.auth.mfa.challenge({ factorId: totp.id });
+            if (challengeError) throw challengeError;
+
+            const { error: verifyError } = await supabase.auth.mfa.verify({
+                factorId: totp.id,
+                challengeId: challenge.id,
+                code,
+            });
+            if (verifyError) throw verifyError;
+
+            const { error: unenrollError } = await supabase.auth.mfa.unenroll({ factorId: totp.id });
+            if (unenrollError) throw unenrollError;
+
+            setMfaEnabled(false);
+            setMfaLastUpdated(new Date().toISOString());
+            setShowMfaDisableModal(false);
+            setMfaDisableCode('');
+            showToast('Authentification à deux facteurs désactivée.', 'success');
+        } catch (err: any) {
+            setMfaError(err?.message || 'Code incorrect. Réessayez.');
+        } finally {
+            setMfaLoading(false);
         }
     };
 
@@ -181,6 +320,23 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                     {!mfaLastUpdated && (
                         <p className="text-xs text-gray-400 mt-3">Dernière modification : Inconnue</p>
                     )}
+                    <div className="mt-4">
+                        {mfaEnabled ? (
+                            <button
+                                onClick={() => { setMfaError(null); setMfaDisableCode(''); setShowMfaDisableModal(true); }}
+                                className="px-4 py-2 border border-red-200 text-red-500 hover:bg-red-50 rounded-xl text-sm font-medium transition-colors"
+                            >
+                                Désactiver
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => { setMfaStep('intro'); setMfaError(null); setShowMfaModal(true); }}
+                                className="px-4 py-2 bg-[#0B1F38] hover:bg-[#00A3E0] text-white rounded-xl text-sm font-medium transition-colors"
+                            >
+                                Activer
+                            </button>
+                        )}
+                    </div>
                 </SettingsCard>
 
                 {/* Password */}
@@ -210,6 +366,134 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                     </button>
                 </SettingsCard>
             </div>
+
+            {/* MFA Enrollment Modal */}
+            {showMfaModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeMfaModal}></div>
+                    <div className="relative bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                        <button onClick={closeMfaModal} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                        <h3 className="text-lg font-bold text-gray-900 mb-4">Activer la double authentification</h3>
+                        {mfaError && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm mb-4">{mfaError}</div>}
+
+                        {mfaStep === 'intro' && (
+                            <div className="space-y-4">
+                                <p className="text-sm text-gray-600">
+                                    Utilisez une application d'authentification (Google Authenticator, Authy, 1Password…). À chaque connexion, elle générera un code à 6 chiffres à saisir en plus de votre mot de passe.
+                                </p>
+                                <button
+                                    onClick={startMfaEnroll}
+                                    disabled={mfaLoading}
+                                    className="w-full bg-filao-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 flex justify-center items-center gap-2"
+                                >
+                                    {mfaLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    Commencer
+                                </button>
+                            </div>
+                        )}
+
+                        {mfaStep === 'scan' && (
+                            <div className="space-y-4">
+                                <p className="text-sm text-gray-600">Scannez ce QR code avec votre application d'authentification :</p>
+                                {mfaQrSvg && (
+                                    <div className="flex justify-center bg-white p-3 rounded-xl border border-gray-100" dangerouslySetInnerHTML={{ __html: mfaQrSvg }} />
+                                )}
+                                {mfaSecret && (
+                                    <div>
+                                        <p className="text-xs text-gray-500 mb-1">Ou saisissez cette clé manuellement :</p>
+                                        <code className="block text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all text-gray-800 font-mono">{mfaSecret}</code>
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="text-xs font-medium text-gray-600 block mb-1">Code de vérification</label>
+                                    <input
+                                        type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                                        value={mfaCode}
+                                        onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                                        placeholder="123456"
+                                        className={`${modalInputClass} tracking-[0.4em] text-center font-mono`}
+                                    />
+                                </div>
+                                <button
+                                    onClick={verifyMfaEnroll}
+                                    disabled={mfaLoading}
+                                    className="w-full bg-filao-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 flex justify-center items-center gap-2"
+                                >
+                                    {mfaLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    Vérifier et activer
+                                </button>
+                            </div>
+                        )}
+
+                        {mfaStep === 'done' && (
+                            <div className="space-y-4 text-center">
+                                <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-green-50 mx-auto">
+                                    <Check className="text-green-500" size={28} />
+                                </div>
+                                <p className="text-sm text-gray-700 font-medium">La double authentification est activée.</p>
+                                <p className="text-xs text-gray-500">Un code vous sera demandé à chaque connexion.</p>
+
+                                {backupCodes.length > 0 && (
+                                    <div className="text-left bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                                        <p className="text-xs font-bold text-amber-800">Codes de secours</p>
+                                        <p className="text-[11px] text-amber-700">
+                                            Conservez-les en lieu sûr. En cas de perte de votre téléphone, chaque code permet de récupérer l'accès (à usage unique). Ils ne seront plus affichés.
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-1.5 mt-2">
+                                            {backupCodes.map(c => (
+                                                <code key={c} className="text-xs font-mono bg-white border border-amber-200 rounded px-2 py-1 text-gray-800 text-center">{c}</code>
+                                            ))}
+                                        </div>
+                                        <button
+                                            onClick={() => { navigator.clipboard?.writeText(backupCodes.join('\n')); showToast('Codes copiés.', 'success'); }}
+                                            className="text-xs text-amber-800 underline mt-1"
+                                        >
+                                            Copier les codes
+                                        </button>
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={() => { closeMfaModal(); setBackupCodes([]); onUpdate(); }}
+                                    className="w-full bg-filao-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:opacity-90"
+                                >
+                                    J'ai noté mes codes — Terminer
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* MFA Disable Modal */}
+            {showMfaDisableModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMfaDisableModal(false)}></div>
+                    <div className="relative bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                        <button onClick={() => setShowMfaDisableModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                        <h3 className="text-lg font-bold text-gray-900 mb-4">Désactiver la double authentification</h3>
+                        {mfaError && <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm mb-4">{mfaError}</div>}
+                        <p className="text-sm text-gray-600 mb-4">
+                            Saisissez un code de votre application d'authentification pour confirmer. Votre compte ne sera plus protégé que par votre mot de passe.
+                        </p>
+                        <input
+                            type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+                            value={mfaDisableCode}
+                            onChange={(e) => setMfaDisableCode(e.target.value.replace(/\D/g, ''))}
+                            placeholder="123456"
+                            className={`${modalInputClass} tracking-[0.4em] text-center font-mono`}
+                        />
+                        <button
+                            onClick={disableMfa}
+                            disabled={mfaLoading}
+                            className="mt-5 w-full bg-red-500 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-600 disabled:opacity-50 flex justify-center items-center gap-2"
+                        >
+                            {mfaLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                            Confirmer la désactivation
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Password Modal */}
             {showPasswordModal && (
