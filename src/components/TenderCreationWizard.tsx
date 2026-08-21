@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { TenderFormData, UserProfile, SKILLS } from '../config';
 import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
@@ -199,8 +199,11 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     const isReady = canContinue();
 
     useEffect(() => {
-        setFormData(prev => ({ ...prev, jalons }));
-    }, [jalons]);
+        // Ne remonte les jalons au parent que s'ils ont réellement changé.
+        // Sans cette garde, chaque rendu de l'étape réécrivait `formData`,
+        // forçant un re-rendu complet du conteneur (très volumineux) sans raison.
+        setFormData(prev => (prev.jalons === jalons ? prev : { ...prev, jalons }));
+    }, [jalons, setFormData]);
 
     // Initial load: Fetch taxonomy and user skills
     useEffect(() => {
@@ -225,17 +228,18 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         loadTaxonomy();
     }, [userProfile?.entreprise_id]);
 
-    const addComp = (s: RefSpecialty) => {
-        if (!formData.required_specialty_ids.includes(s.id)) {
-            setFormData(prev => ({ 
-                ...prev, 
+    const addComp = useCallback((s: RefSpecialty) => {
+        setFormData(prev => {
+            if (prev.required_specialty_ids.includes(s.id)) return prev;
+            return {
+                ...prev,
                 required_specialty_ids: [...prev.required_specialty_ids, s.id],
-                required_skills: [...prev.required_skills, s.label] 
-            }));
-        }
+                required_skills: [...prev.required_skills, s.label]
+            };
+        });
         setQuery("");
         setDropOpen(false);
-    };
+    }, [setFormData]);
 
     const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
@@ -389,6 +393,32 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
     }, []);
+
+    // Liste des spécialités filtrée puis groupée par domaine. Mémoïsée : ce
+    // calcul (jusqu'à 201 spécialités parcourues, filtrées, regroupées) tournait
+    // à chaque rendu du composant, y compris ceux sans rapport avec la
+    // recherche. Il ne dépend que du référentiel, de la nature et de la requête.
+    const specialtesGroupees = useMemo(() => {
+        const filteredSpecs = refSpecialties
+            .filter(s => {
+                const domain = refDomains.find(d => d.id === s.domain_id);
+                if (selectedNature && (!domain || !domain.natures.includes(selectedNature))) return false;
+                if (!query) return true;
+                return s.label.toLowerCase().includes(query.toLowerCase()) ||
+                       (domain && domain.label.toLowerCase().includes(query.toLowerCase()));
+            })
+            .slice(0, query ? 20 : 50);
+
+        const grouped: Record<string, RefSpecialty[]> = {};
+        filteredSpecs.forEach((s: RefSpecialty) => {
+            const d = refDomains.find(rd => rd.id === s.domain_id);
+            const dName = d ? d.label : "Autre";
+            if (!grouped[dName]) grouped[dName] = [];
+            grouped[dName].push(s);
+        });
+
+        return { count: filteredSpecs.length, grouped };
+    }, [refSpecialties, refDomains, selectedNature, query]);
 
     const S0 = () => (
         <>
@@ -555,17 +585,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                 {dropOpen && (
                     <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#fff", border: "1.5px solid #e5e5e5", borderRadius: 12, boxShadow: "0 4px 16px rgba(0,0,0,0.08)", zIndex: 10, maxHeight: 320, overflowY: "auto" }}>
                         {(() => {
-                            const filteredSpecs = refSpecialties
-                                .filter(s => {
-                                    const domain = refDomains.find(d => d.id === s.domain_id);
-                                    if (selectedNature && (!domain || !domain.natures.includes(selectedNature))) return false;
-                                    if (!query) return true;
-                                    return s.label.toLowerCase().includes(query.toLowerCase()) || 
-                                           (domain && domain.label.toLowerCase().includes(query.toLowerCase()));
-                                })
-                                .slice(0, query ? 20 : 50);
-
-                            if (filteredSpecs.length === 0) {
+                            if (specialtesGroupees.count === 0) {
                                 return (
                                     <div style={{ padding: "20px 16px", textAlign: "center", color: "#999", fontSize: 12 }}>
                                         Aucun résultat {selectedNature ? `pour ${selectedNature}` : ""}
@@ -573,16 +593,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                                 );
                             }
 
-                            // Group by Domain
-                            const grouped: Record<string, typeof filteredSpecs> = {};
-                            filteredSpecs.forEach(s => {
-                                const d = refDomains.find(rd => rd.id === s.domain_id);
-                                const dName = d ? d.label : "Autre";
-                                if (!grouped[dName]) grouped[dName] = [];
-                                grouped[dName].push(s);
-                            });
-
-                            return Object.entries(grouped).map(([domainName, specs]) => (
+                            return Object.entries(specialtesGroupees.grouped).map(([domainName, specs]: [string, RefSpecialty[]]) => (
                                 <div key={domainName}>
                                     <div style={{ padding: "8px 16px 4px", background: "#f9f9f9", fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: 0.5 }}>
                                         {domainName}
