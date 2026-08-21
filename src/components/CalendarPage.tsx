@@ -4,11 +4,13 @@ import {
     ChevronRight,
     Calendar as CalendarIcon,
     Plus,
-    Clock
+    Clock,
+    Download
 } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 import { PLANS_CONFIG, PLANS_TYPES, PlanType, REQUIRED_DOCS_BY_ROLE, UserProfile } from '../config';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { downloadICalendar } from '@/helpers/icalHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { supabase } from '../lib/supabaseClient';
 
@@ -47,6 +49,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const [showLimitModal, setShowLimitModal] = useState(false);
     const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
     const [hasGoogleCalendar, setHasGoogleCalendar] = useState(false);
+    // Distingue « l'utilisateur a explicitement configuré la synchronisation »
+    // (intégration enregistrée en base, ou clic volontaire sur Connecter) d'un
+    // simple token OAuth présent parce que le login s'est fait via Google.
+    // Sans cette distinction, une erreur de l'Edge Function affichait un bandeau
+    // rouge permanent alors que la sync n'avait jamais été demandée.
+    const [googleSyncConfigured, setGoogleSyncConfigured] = useState(false);
     const [googleEvents, setGoogleEvents] = useState<any[]>([]);
     const [googleSyncError, setGoogleSyncError] = useState<string | null>(null);
     // Dépliage des listes au-delà de l'horizon de 30 jours.
@@ -104,6 +112,8 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             
             if (data && !error) {
                 setHasGoogleCalendar(true);
+                // Intégration persistée : la sync a bien été configurée un jour.
+                setGoogleSyncConfigured(true);
                 fetchGoogleEvents(session.access_token);
             }
         } catch (err) {
@@ -167,6 +177,9 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const handleConnectGoogle = async () => {
         try {
             setIsConnectingGoogle(true);
+            // Clic volontaire : à partir d'ici, afficher une éventuelle erreur de
+            // sync est légitime.
+            setGoogleSyncConfigured(true);
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
@@ -311,6 +324,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         const check = canCreateTender(userProfile, tenders);
         if (!check.allowed) { setShowLimitModal(true); return; }
         onAddTender();
+    };
+
+    // Export iCal : totalement indépendant du quota d'AO. Reprend dates limites
+    // et jalons du rétroplanning pour un abonnement Outlook / Google Agenda.
+    const handleExportICal = () => {
+        downloadICalendar(tenders);
     };
 
     const handleEventClick = (e: React.MouseEvent, tenderId: string, status: string) => {
@@ -695,12 +714,21 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             ))}
                         </div>
 
+                        {/* Export iCal — libre, sans quota AO */}
+                        <button
+                            onClick={handleExportICal}
+                            title="Exporter en iCal (Outlook, Google Agenda)"
+                            className="flex justify-center items-center gap-2 bg-white/60 hover:bg-white text-[#0B1F38] font-bold px-4 py-2.5 rounded-xl shadow-sm border border-white/50 transition-all text-sm shrink-0"
+                        >
+                            <Download size={18} strokeWidth={2.5} /> <span className="hidden sm:inline">Exporter iCal</span>
+                        </button>
+
                         {/* Action Button */}
                         <button
                             onClick={handleAddTenderClick}
                             className="flex justify-center items-center gap-2 bg-[#FF8575] hover:bg-[#ff715e] text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-[#FF8575]/20 transition-all transform hover:scale-[1.02] text-sm shrink-0"
                         >
-                            <Plus size={18} strokeWidth={3} /> <span className="hidden sm:inline">Ajouter</span>
+                            <Plus size={18} strokeWidth={3} /> <span className="hidden sm:inline">Nouvel AO</span>
                         </button>
                     </div>
                 </div>
@@ -851,7 +879,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             <h4 className="font-bold text-[#0B1F38] text-sm mb-2">Synchronisation</h4>
                             {hasGoogleCalendar && !googleSyncError ? (
                                 <p className="text-xs text-green-700 mb-3 font-medium">✓ Agenda Google connecté</p>
-                            ) : hasGoogleCalendar && googleSyncError ? (
+                            ) : googleSyncConfigured && googleSyncError ? (
                                 <>
                                     <p className="text-xs text-red-600 mb-1 font-bold">⚠️ Accès agenda manquant</p>
                                     <p className="text-[10px] text-[#0B1F38]/70 mb-3">Veuillez réinitialiser la connexion pour autoriser l'accès au calendrier.</p>
