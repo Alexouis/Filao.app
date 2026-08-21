@@ -167,7 +167,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
 
         // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        // On distingue une VRAIE connexion d'une simple restauration de session
+        // (rechargement, retour d'onglet) : Supabase émet `SIGNED_IN` dans les
+        // deux cas. Le premier événement au montage est ignoré pour ne pas
+        // journaliser une session déjà ouverte comme une nouvelle connexion.
+        let premierEvenement = true;
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             setSession(session);
             if (session) {
                 // If this is an OAuth sign-in, save the provider tokens to DB
@@ -186,10 +191,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     });
                 }
 
+                // Journal des connexions : seulement sur un SIGNED_IN qui n'est
+                // pas la restauration initiale. Best-effort — un échec de
+                // journalisation ne doit jamais bloquer l'entrée dans l'app.
+                if (event === 'SIGNED_IN' && !premierEvenement) {
+                    const methode = session.user?.app_metadata?.provider === 'google' ? 'google' : 'password';
+                    supabase.functions.invoke('log-connexion', { body: { methode } })
+                        .catch(err => console.warn('Journalisation de connexion échouée', err));
+                }
+
                 fetchUserProfile(session.user.id);
             } else {
                 setUserProfile(null);
             }
+            premierEvenement = false;
         });
 
         return () => subscription.unsubscribe();

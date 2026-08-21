@@ -31,6 +31,10 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     const [backupCodes, setBackupCodes] = useState<string[]>([]);
     // Export RGPD
     const [exportLoading, setExportLoading] = useState(false);
+    // Journal des connexions
+    const [connexions, setConnexions] = useState<any[]>([]);
+    const [connexionsLoading, setConnexionsLoading] = useState(true);
+    const [revokeLoading, setRevokeLoading] = useState(false);
 
     // Password modal
     const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -49,7 +53,45 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
 
     useEffect(() => {
         fetchMfaStatus();
+        fetchConnexions();
     }, [userProfile]);
+
+    const fetchConnexions = async () => {
+        try {
+            setConnexionsLoading(true);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            // RLS limite déjà au propriétaire ; l'eq est une ceinture de sécurité.
+            const { data, error } = await supabase
+                .from('connexions')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(20);
+            if (!error) setConnexions(data || []);
+        } catch (err) {
+            console.error('Chargement du journal de connexions échoué', err);
+        } finally {
+            setConnexionsLoading(false);
+        }
+    };
+
+    // Révoque toutes les AUTRES sessions (tout appareil sauf celui-ci).
+    // L'API Supabase ne permet pas de cibler une session précise par appareil ;
+    // on propose donc l'action fiable « déconnecter partout ailleurs ».
+    const revoquerAutresSessions = async () => {
+        setRevokeLoading(true);
+        try {
+            const { error } = await supabase.auth.signOut({ scope: 'others' });
+            if (error) throw error;
+            showToast('Toutes les autres sessions ont été déconnectées.', 'success');
+        } catch (err) {
+            showToast('Impossible de déconnecter les autres sessions.', 'error');
+            console.error('Révocation des sessions échouée', err);
+        } finally {
+            setRevokeLoading(false);
+        }
+    };
 
     const fetchMfaStatus = async () => {
         try {
@@ -431,6 +473,48 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                     >
                         Supprimer mon compte
                     </button>
+                </SettingsCard>
+            </div>
+
+            {/* Journal des connexions */}
+            <div className="mt-3">
+                <SettingsCard title="Connexions récentes" icon={Shield}>
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                        <p className="text-sm text-gray-500">
+                            Vérifiez les connexions récentes à votre compte. Si vous ne reconnaissez pas un accès, déconnectez les autres sessions et changez votre mot de passe.
+                        </p>
+                        <button
+                            onClick={revoquerAutresSessions}
+                            disabled={revokeLoading}
+                            className="px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 inline-flex items-center gap-2 shrink-0"
+                        >
+                            {revokeLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                            Déconnecter les autres sessions
+                        </button>
+                    </div>
+
+                    {connexionsLoading ? (
+                        <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-gray-400" /></div>
+                    ) : connexions.length === 0 ? (
+                        <p className="text-sm text-gray-400 py-4 text-center">Aucune connexion enregistrée pour le moment.</p>
+                    ) : (
+                        <div className="divide-y divide-gray-100">
+                            {connexions.map((c) => (
+                                <div key={c.id} className="flex items-center justify-between py-2.5 text-sm">
+                                    <div>
+                                        <p className="text-gray-800 font-medium">{c.appareil || 'Appareil inconnu'}</p>
+                                        <p className="text-xs text-gray-400">
+                                            {c.methode === 'google' ? 'via Google' : 'par mot de passe'}
+                                            {c.ip ? ` · ${c.ip}` : ''}
+                                        </p>
+                                    </div>
+                                    <span className="text-xs text-gray-500 shrink-0">
+                                        {new Date(c.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </SettingsCard>
             </div>
 
