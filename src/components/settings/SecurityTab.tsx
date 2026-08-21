@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useToast } from '../ui/Toast';
-import { Shield, Lock, AlertTriangle, Loader2, Check, X } from 'lucide-react';
+import { Shield, Lock, AlertTriangle, Loader2, Check, X, Download } from 'lucide-react';
 import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
@@ -29,10 +29,12 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     const [mfaDisableCode, setMfaDisableCode] = useState('');
     // Codes de secours affichés une seule fois après activation.
     const [backupCodes, setBackupCodes] = useState<string[]>([]);
+    // Export RGPD
+    const [exportLoading, setExportLoading] = useState(false);
 
     // Password modal
     const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' });
+    const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
     const [passwordLoading, setPasswordLoading] = useState(false);
     const [passwordError, setPasswordError] = useState<string | null>(null);
     const [passwordSuccess, setPasswordSuccess] = useState(false);
@@ -185,6 +187,33 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
         }
     };
 
+    // Export RGPD : récupère les données via l'edge function et déclenche le
+    // téléchargement d'un fichier JSON. Aucune donnée ne transite par un tiers.
+    const handleExportData = async () => {
+        setExportLoading(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('export-user-data', { body: {} });
+            if (error) throw error;
+            if (!data?.success) throw new Error('Export indisponible');
+
+            const blob = new Blob([JSON.stringify(data.export, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `filao-mes-donnees-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showToast('Export téléchargé.', 'success');
+        } catch (err: any) {
+            showToast('Export impossible pour le moment.', 'error');
+            console.error('Export RGPD:', err);
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
     const handlePasswordChange = async () => {
         if (passwordForm.newPassword !== passwordForm.confirmPassword) {
             setPasswordError('Les mots de passe ne correspondent pas');
@@ -197,9 +226,32 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             setPasswordError('Le mot de passe doit contenir au moins 12 caractères');
             return;
         }
+        if (!passwordForm.currentPassword) {
+            setPasswordError('Saisissez votre mot de passe actuel');
+            return;
+        }
         try {
             setPasswordLoading(true);
             setPasswordError(null);
+
+            // Vérification du mot de passe actuel avant toute modification : on
+            // le ré-authentifie. Sans cela, une session laissée ouverte
+            // permettrait à un tiers de changer le mot de passe sans connaître
+            // l'ancien. `signInWithPassword` ne casse pas la session courante en
+            // cas de succès ; en cas d'échec, on s'arrête là.
+            const { data: { user: current } } = await supabase.auth.getUser();
+            if (!current?.email) throw new Error('Session introuvable, reconnectez-vous.');
+
+            const { error: reauthError } = await supabase.auth.signInWithPassword({
+                email: current.email,
+                password: passwordForm.currentPassword,
+            });
+            if (reauthError) {
+                setPasswordError('Mot de passe actuel incorrect');
+                setPasswordLoading(false);
+                return;
+            }
+
             const { error } = await supabase.auth.updateUser({ password: passwordForm.newPassword });
             if (error) throw error;
 
@@ -232,7 +284,7 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             setTimeout(() => {
                 setShowPasswordModal(false);
                 setPasswordSuccess(false);
-                setPasswordForm({ newPassword: '', confirmPassword: '' });
+                setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
             }, 2000);
         } catch (err: any) {
             setPasswordError(err.message);
@@ -347,6 +399,21 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                         className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors"
                     >
                         Modifier le mot de passe
+                    </button>
+                </SettingsCard>
+
+                {/* Export RGPD */}
+                <SettingsCard title="Vos données" icon={Download}>
+                    <p className="text-sm text-gray-500 mb-4">
+                        Téléchargez une copie de vos données personnelles au format JSON réutilisable (portabilité RGPD).
+                    </p>
+                    <button
+                        onClick={handleExportData}
+                        disabled={exportLoading}
+                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                    >
+                        {exportLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                        Exporter mes données
                     </button>
                 </SettingsCard>
 
@@ -506,12 +573,16 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                         {passwordSuccess && <div className="p-3 bg-green-50 text-green-600 rounded-lg text-sm mb-4">Mot de passe mis à jour !</div>}
                         <div className="space-y-3">
                             <div>
+                                <label className="text-xs font-medium text-gray-600 block mb-1">Mot de passe actuel</label>
+                                <input type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))} className={modalInputClass} autoComplete="current-password" />
+                            </div>
+                            <div>
                                 <label className="text-xs font-medium text-gray-600 block mb-1">Nouveau mot de passe</label>
-                                <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))} className={modalInputClass} />
+                                <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))} className={modalInputClass} autoComplete="new-password" />
                             </div>
                             <div>
                                 <label className="text-xs font-medium text-gray-600 block mb-1">Confirmer</label>
-                                <input type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))} className={modalInputClass} />
+                                <input type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))} className={modalInputClass} autoComplete="new-password" />
                             </div>
                         </div>
                         <button
