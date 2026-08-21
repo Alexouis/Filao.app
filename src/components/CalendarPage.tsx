@@ -714,15 +714,6 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             ))}
                         </div>
 
-                        {/* Export iCal — libre, sans quota AO */}
-                        <button
-                            onClick={handleExportICal}
-                            title="Exporter en iCal (Outlook, Google Agenda)"
-                            className="flex justify-center items-center gap-2 bg-white/60 hover:bg-white text-[#0B1F38] font-bold px-4 py-2.5 rounded-xl shadow-sm border border-white/50 transition-all text-sm shrink-0"
-                        >
-                            <Download size={18} strokeWidth={2.5} /> <span className="hidden sm:inline">Exporter iCal</span>
-                        </button>
-
                         {/* Action Button */}
                         <button
                             onClick={handleAddTenderClick}
@@ -903,6 +894,18 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     </button>
                                 </>
                             )}
+
+                            {/* Export iCal — indépendant de la synchro Google,
+                                disponible en permanence (Outlook, Google Agenda…). */}
+                            <div className="mt-3 pt-3 border-t border-white/40">
+                                <button
+                                    onClick={handleExportICal}
+                                    title="Exporter vos échéances et jalons en iCal"
+                                    className="w-full flex justify-center items-center gap-2 py-2 bg-white/60 hover:bg-white text-[#0B1F38] text-xs font-bold rounded-lg shadow-sm border border-white/50 transition-all"
+                                >
+                                    <Download size={15} strokeWidth={2.5} /> Exporter en iCal
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
