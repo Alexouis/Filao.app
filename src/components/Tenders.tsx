@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
   Pencil, Trash2, X, Plus,
   MoreVertical, Eye, Archive, Lock, LayoutGrid, List, Trophy, Frown,
-  Clock, TrendingUp, Briefcase, FileText
+  Clock, TrendingUp, Briefcase, FileText, SlidersHorizontal
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Tender } from '../types';
@@ -104,6 +104,16 @@ export const Tenders: React.FC<TendersProps> = ({
     const winRate = (won + lost) > 0 ? Math.round((won / (won + lost)) * 100) : 0;
     return { won, lost, active, enCours, deposes, urgents, winRate };
   }, [tenders]);
+
+  // Nombre de filtres « avancés » actifs (ceux regroupés dans le popover
+  // Filtres : Catégorie, Secteur, Rôle). Sert au badge du bouton.
+  const activeAdvancedFilters = useMemo(() => {
+    let n = 0;
+    if (filterCategory !== 'Tous') n++;
+    if (filterDomain !== 'Tous') n++;
+    if (filterRole !== 'Tous') n++;
+    return n;
+  }, [filterCategory, filterDomain, filterRole]);
 
   // Si le filtre « Urgents » est actif mais qu'il n'y a plus d'AO urgent (le
   // chip disparaît alors), on revient à « Tous » pour ne pas laisser une liste
@@ -868,59 +878,80 @@ export const Tenders: React.FC<TendersProps> = ({
 
             <div className="h-6 w-px bg-[#0B1F38]/10 mx-1 hidden min-[1100px]:block" />
 
-            {/* Redesigned Selects */}
-            <div className="flex items-center gap-2">
-              <div className="relative group">
-                <select 
-                  value={filterCategory} 
-                  onChange={(e) => setFilterCategory(e.target.value)} 
-                  className="bg-white/70 border border-white/90 text-[#0B1F38]/80 text-[11px] font-bold rounded-xl pl-9 pr-6 py-2.5 outline-none appearance-none hover:bg-white/95 hover:border-[#00A3E0]/30 transition-all cursor-pointer shadow-sm focus:ring-2 focus:ring-[#00A3E0]/20"
-                >
-                  <option value="Tous">Toutes Catégories</option>
-                  {MARKET_TYPES.map(cat => (<option key={cat.value} value={cat.value}>{cat.label}</option>))}
-                </select>
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00A3E0] pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
-                  <LayoutGrid size={14} />
-                </div>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
-                  <ArrowUpDown size={10} className="rotate-90" />
-                </div>
-              </div>
+            {/* Filtres avancés regroupés (Catégorie / Secteur / Rôle) dans un
+                popover : la barre restait lisible avec Statut + Invitations en
+                accès direct, les selects secondaires débordaient sinon. */}
+            <div className="relative filter-container shrink-0">
+              <button
+                onClick={() => setIsFilterMenuOpen(!isFilterMenuOpen)}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all relative border ${
+                  isFilterMenuOpen || activeAdvancedFilters > 0
+                    ? "bg-[#00A3E0] text-white border-[#00A3E0] shadow-md"
+                    : "bg-white/60 text-[#0B1F38]/70 border-white/80 hover:bg-white/90"
+                }`}
+              >
+                <SlidersHorizontal size={14} />
+                <span>Filtres</span>
+                {activeAdvancedFilters > 0 && (
+                  <span className="flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-[#FF8575] text-[9px] font-bold text-white shadow-sm ring-2 ring-white">
+                    {activeAdvancedFilters}
+                  </span>
+                )}
+              </button>
 
-              <div className="relative group">
-                <select 
-                  value={filterDomain} 
-                  onChange={(e) => setFilterDomain(e.target.value)} 
-                  className="bg-white/70 border border-white/90 text-[#0B1F38]/80 text-[11px] font-bold rounded-xl pl-9 pr-6 py-2.5 outline-none appearance-none hover:bg-white/95 hover:border-[#00A3E0]/30 transition-all cursor-pointer shadow-sm focus:ring-2 focus:ring-[#00A3E0]/20"
-                >
-                  <option value="Tous">Tous Secteurs</option>
-                  {SECTORS.map(sec => (<option key={sec.value} value={sec.value}>{sec.label}</option>))}
-                </select>
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00A3E0] pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
-                  <Briefcase size={14} />
-                </div>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
-                  <ArrowUpDown size={10} className="rotate-90" />
-                </div>
-              </div>
+              {isFilterMenuOpen && (
+                <div className="absolute top-full right-0 mt-2 w-72 bg-white/95 backdrop-blur-xl border border-white/60 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95 origin-top-right space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#0B1F38] uppercase tracking-wide">Filtres</span>
+                    {activeAdvancedFilters > 0 && (
+                      <button
+                        onClick={() => { setFilterCategory('Tous'); setFilterDomain('Tous'); setFilterRole('Tous'); }}
+                        className="text-[11px] font-bold text-[#00A3E0] hover:underline"
+                      >
+                        Réinitialiser
+                      </button>
+                    )}
+                  </div>
 
-              <div className="relative group">
-                <select
-                  value={filterRole}
-                  onChange={(e) => setFilterRole(e.target.value as 'Tous' | 'Portés' | 'Rejoints')}
-                  className="bg-white/70 border border-white/90 text-[#0B1F38]/80 text-[11px] font-bold rounded-xl pl-9 pr-6 py-2.5 outline-none appearance-none hover:bg-white/95 hover:border-[#00A3E0]/30 transition-all cursor-pointer shadow-sm focus:ring-2 focus:ring-[#00A3E0]/20"
-                >
-                  <option value="Tous">Tous les rôles</option>
-                  <option value="Portés">Portés</option>
-                  <option value="Rejoints">Rejoints</option>
-                </select>
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00A3E0] pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
-                  <Users size={14} />
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#0B1F38]/60 mb-1.5"><LayoutGrid size={12} /> Catégorie</label>
+                    <select
+                      value={filterCategory}
+                      onChange={(e) => setFilterCategory(e.target.value)}
+                      className="w-full bg-white border border-gray-200 text-[#0B1F38]/80 text-xs font-medium rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-2 focus:ring-[#00A3E0]/20"
+                    >
+                      <option value="Tous">Toutes les catégories</option>
+                      {MARKET_TYPES.map(cat => (<option key={cat.value} value={cat.value}>{cat.label}</option>))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#0B1F38]/60 mb-1.5"><Briefcase size={12} /> Secteur</label>
+                    <select
+                      value={filterDomain}
+                      onChange={(e) => setFilterDomain(e.target.value)}
+                      className="w-full bg-white border border-gray-200 text-[#0B1F38]/80 text-xs font-medium rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-2 focus:ring-[#00A3E0]/20"
+                    >
+                      <option value="Tous">Tous les secteurs</option>
+                      {SECTORS.map(sec => (<option key={sec.value} value={sec.value}>{sec.label}</option>))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#0B1F38]/60 mb-1.5"><Users size={12} /> Rôle</label>
+                    <select
+                      value={filterRole}
+                      onChange={(e) => setFilterRole(e.target.value as 'Tous' | 'Portés' | 'Rejoints')}
+                      className="w-full bg-white border border-gray-200 text-[#0B1F38]/80 text-xs font-medium rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-2 focus:ring-[#00A3E0]/20"
+                    >
+                      <option value="Tous">Tous les rôles</option>
+                      <option value="Portés">Portés</option>
+                      <option value="Rejoints">Rejoints</option>
+                    </select>
+                    <p className="text-[10px] text-[#0B1F38]/40 mt-1.5">Les dossiers rejoints ne consomment pas votre quota.</p>
+                  </div>
                 </div>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
-                  <ArrowUpDown size={10} className="rotate-90" />
-                </div>
-              </div>
+              )}
             </div>
           </div>
           <div className="relative sort-container shrink-0" ref={sortMenuRef}>
