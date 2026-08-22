@@ -96,7 +96,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
         );
     };
 
-    const formatBytes = (bytes: number) => {
+    const formatBytes = (bytes: number | null | undefined) => {
+        // Stockage illimité (null en base) ou valeur absente : pas de « NaN
+        // undefined », on renvoie un libellé lisible.
+        if (bytes === null || bytes === undefined) return 'Illimité';
         if (bytes === 0) return '0 Mo';
         const k = 1024;
         const sizes = ['Octets', 'Ko', 'Mo', 'Go', 'To'];
