@@ -16,7 +16,11 @@ const DEFAULT_PREFS = {
     nouveau_document: { app: true, email: false },
     rappels: { app: true, email: true },
     messages_feed: { app: true, email: false },
-    communications: { app: true, email: false },
+    // Marketing (« Actualités Filao ») : opt-in strict. Consentement actif et
+    // préalable exigé — la case part décochée sur les deux canaux, l'utilisateur
+    // l'active volontairement. Les autres préférences ci-dessus sont
+    // transactionnelles (exécution du service) et ne sont pas concernées.
+    communications: { app: false, email: false },
 };
 
 type NotifEvent = keyof typeof DEFAULT_PREFS;
