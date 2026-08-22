@@ -66,6 +66,8 @@ export const Tenders: React.FC<TendersProps> = ({
   const [outcomeConfirm, setOutcomeConfirm] = useState<{ id: string; type: 'won' | 'lost' } | null>(null);
   const [filterCategory, setFilterCategory] = useState('Tous');
   const [filterDomain, setFilterDomain] = useState('Tous');
+  // Filtre de rôle : Tous | Portés (créés par l'entreprise) | Rejoints (invité).
+  const [filterRole, setFilterRole] = useState<'Tous' | 'Portés' | 'Rejoints'>('Tous');
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -522,6 +524,14 @@ export const Tenders: React.FC<TendersProps> = ({
       // Filter by domain
       if (filterDomain !== 'Tous' && t.secteur_activite !== filterDomain) return false;
 
+      // Filter by role: Porté = je suis le porteur (créateur) ; Rejoint = sinon.
+      // Aligné sur le badge de rôle affiché sur la carte (jeSuisPorteur).
+      if (filterRole !== 'Tous') {
+        const jeSuisPorteur = t.createur_id === userId;
+        if (filterRole === 'Portés' && !jeSuisPorteur) return false;
+        if (filterRole === 'Rejoints' && jeSuisPorteur) return false;
+      }
+
       // Handle pending/accepted visibility consistently
       const isRefused = myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused';
       const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
@@ -564,7 +574,7 @@ export const Tenders: React.FC<TendersProps> = ({
       return 0;
     });
     return result;
-  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id]);
+  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, filterRole, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id]);
 
 
   useEffect(() => {
@@ -893,6 +903,24 @@ export const Tenders: React.FC<TendersProps> = ({
                   <ArrowUpDown size={10} className="rotate-90" />
                 </div>
               </div>
+
+              <div className="relative group">
+                <select
+                  value={filterRole}
+                  onChange={(e) => setFilterRole(e.target.value as 'Tous' | 'Portés' | 'Rejoints')}
+                  className="bg-white/70 border border-white/90 text-[#0B1F38]/80 text-[11px] font-bold rounded-xl pl-9 pr-6 py-2.5 outline-none appearance-none hover:bg-white/95 hover:border-[#00A3E0]/30 transition-all cursor-pointer shadow-sm focus:ring-2 focus:ring-[#00A3E0]/20"
+                >
+                  <option value="Tous">Tous les rôles</option>
+                  <option value="Portés">Portés</option>
+                  <option value="Rejoints">Rejoints</option>
+                </select>
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#00A3E0] pointer-events-none opacity-60 group-hover:opacity-100 transition-opacity">
+                  <Users size={14} />
+                </div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">
+                  <ArrowUpDown size={10} className="rotate-90" />
+                </div>
+              </div>
             </div>
           </div>
           <div className="relative sort-container shrink-0" ref={sortMenuRef}>
@@ -937,7 +965,7 @@ export const Tenders: React.FC<TendersProps> = ({
                   <>
                     <Briefcase size={64} strokeWidth={1} className="opacity-20" />
                     <p className="text-sm font-bold uppercase tracking-widest">Aucun appel d'offres trouvé</p>
-                    <button onClick={() => { setSearchQuery(''); setFilterStatus('Tous'); setFilterCategory('Tous'); setFilterDomain('Tous'); }} className="text-xs font-bold text-[#00A3E0] hover:underline px-4 py-2 bg-[#00A3E0]/10 rounded-xl transition-colors">Réinitialiser les filtres</button>
+                    <button onClick={() => { setSearchQuery(''); setFilterStatus('Tous'); setFilterCategory('Tous'); setFilterDomain('Tous'); setFilterRole('Tous'); }} className="text-xs font-bold text-[#00A3E0] hover:underline px-4 py-2 bg-[#00A3E0]/10 rounded-xl transition-colors">Réinitialiser les filtres</button>
                   </>
                 )}
             </div>
