@@ -123,7 +123,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     const [step, setStep] = useState(0);
     // Historique navigateur : « Précédent » recule d'une étape au lieu de sortir
     // du wizard. `reculer` délègue à history.back() ; l'avancée empile une entrée.
-    const { reculer } = useHistoryStep(step, setStep, { key: 'ao_creation', onExit: onCancel });
+    const { reculer, allerA } = useHistoryStep(step, setStep, { key: 'wstep', onExit: onCancel });
     // Horodatage d'entrée dans l'étape courante, pour mesurer `duree_etape_s`
     // (performance perçue) à chaque transition — instrumentation analytics.
     const debutEtapeRef = useRef<number>(Date.now());
@@ -788,7 +788,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                 <div style={{ background: "#f5f5f5", borderRadius: 14, padding: "14px 16px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <p style={{ fontSize: 11, color: "#999", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>Compétences</p>
-                        <span onClick={() => setStep(2)} style={{ fontSize: 11, color: T, cursor: "pointer", fontWeight: 500 }}>Modifier</span>
+                        <span onClick={() => allerA(2)} style={{ fontSize: 11, color: T, cursor: "pointer", fontWeight: 500 }}>Modifier</span>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                         {formData.required_skills.length > 0 ? formData.required_skills.map(s => <span key={s} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 20, background: "#E6F4F8", color: T }}>{s}</span>) :
@@ -798,7 +798,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                 <div style={{ background: "#f5f5f5", borderRadius: 14, padding: "14px 16px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <p style={{ fontSize: 11, color: "#999", margin: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>Jalons</p>
-                        <span onClick={() => setStep(3)} style={{ fontSize: 11, color: T, cursor: "pointer", fontWeight: 500 }}>Modifier</span>
+                        <span onClick={() => allerA(3)} style={{ fontSize: 11, color: T, cursor: "pointer", fontWeight: 500 }}>Modifier</span>
                     </div>
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                         {jalons.filter((j: any) => j.label !== "Retrait du DCE").slice(0, 3).map((j: any) => (
@@ -871,7 +871,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                     <button 
                         onClick={() => { 
                             if (!isReady) return;
-                            if (step < TOTAL - 1) setStep(step + 1); 
+                            if (step < TOTAL - 1) allerA(step + 1); 
                             else {
                                 onComplete(grpType === 'solidaire' ? 'solidaire' : grpType === 'conjoint' ? 'conjoint' : undefined, role);
                             }
@@ -888,8 +888,8 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                     </button>
                     <button 
                         onClick={() => { 
-                            if (step === 0) setStep(1); // Passer cette étape (DCE)
-                            else if (showAdminStep && step === 2) setStep(3); // Passer (temporairement) Admin docs
+                            if (step === 0) allerA(1); // Passer cette étape (DCE)
+                            else if (showAdminStep && step === 2) allerA(3); // Passer (temporairement) Admin docs
                             else if (step > 0) reculer(); // Retour (via historique navigateur)
                             else onCancel(); 
                         }}
