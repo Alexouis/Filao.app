@@ -4,6 +4,7 @@ import { TenderFormData, UserProfile, SKILLS } from '../config';
 import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
 import { genererJalons } from '../helpers/jalonHelpers';
 import { track } from '../helpers/analytics';
+import { useHistoryStep } from '../helpers/useHistoryStep';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { supabase } from '../lib/supabaseClient';
 
@@ -120,6 +121,9 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     userProfile
 }) => {
     const [step, setStep] = useState(0);
+    // Historique navigateur : « Précédent » recule d'une étape au lieu de sortir
+    // du wizard. `reculer` délègue à history.back() ; l'avancée empile une entrée.
+    const { reculer } = useHistoryStep(step, setStep, { key: 'ao_creation', onExit: onCancel });
     // Horodatage d'entrée dans l'étape courante, pour mesurer `duree_etape_s`
     // (performance perçue) à chaque transition — instrumentation analytics.
     const debutEtapeRef = useRef<number>(Date.now());
@@ -834,7 +838,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
                 {/* === HEADER === */}
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "20px 28px 0" }}>
-                    <div onClick={() => step > 0 ? setStep(step - 1) : onCancel()} style={{ width: 32, height: 32, borderRadius: 8, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2 }}>
+                    <div onClick={() => step > 0 ? reculer() : onCancel()} style={{ width: 32, height: 32, borderRadius: 8, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2 }}>
                         <Icon type="back" size={16} color="#666" />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -886,7 +890,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                         onClick={() => { 
                             if (step === 0) setStep(1); // Passer cette étape (DCE)
                             else if (showAdminStep && step === 2) setStep(3); // Passer (temporairement) Admin docs
-                            else if (step > 0) setStep(step - 1); // Retour
+                            else if (step > 0) reculer(); // Retour (via historique navigateur)
                             else onCancel(); 
                         }}
                         style={{ width: "100%", padding: 10, borderRadius: 14, background: "transparent", color: "#666", fontSize: 14, border: "none", cursor: "pointer" }}
