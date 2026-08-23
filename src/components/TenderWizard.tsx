@@ -698,6 +698,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         return { uploaded, total, percent };
     }, [groupementMembers, uploadedFiles]);
 
+    // Analytics : `checklist_100` émis une seule fois au franchissement de 100 %.
+    // Le garde-fou `ref` évite les réémissions à chaque rendu, et se réarme si la
+    // complétude redescend (une pièce retirée), pour re-signaler un futur 100 %.
+    const checklist100EmisRef = React.useRef(false);
+    useEffect(() => {
+        if (docProgress.total > 0 && docProgress.percent === 100) {
+            if (!checklist100EmisRef.current) {
+                track('checklist_100', {});
+                checklist100EmisRef.current = true;
+            }
+        } else {
+            checklist100EmisRef.current = false;
+        }
+    }, [docProgress.percent, docProgress.total]);
+
     const validateTenderContext = () => {
         const mandatoryFields = [
             { key: 'titre', label: 'Titre' },
