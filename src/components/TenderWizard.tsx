@@ -21,6 +21,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
+import { track } from '../helpers/analytics';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
@@ -2023,7 +2024,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // --- NOTIFY new invitations (in-app + email via edge function) ---
             const inviterName = userProfile ? `${userProfile.prenom} ${userProfile.nom}` : "Un administrateur";
 
-            for (const invitee of newInvitationsNotify) {
+            for (const [rang, invitee] of newInvitationsNotify.entries()) {
                 // Dedicated invitation email with access link (Edge function handles both email and in-app notification)
                 if (invitee.email || invitee.entreprise_id) {
                     try {
@@ -2048,6 +2049,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     accessCode: invitee.access_code,
                                     message: '',
                                 }),
+                            });
+                            // Analytics : invitation envoyée. Aucun email ni nom émis.
+                            track('invitation_envoyee', {
+                                role_propose: invitee.role || 'nc',
+                                rang_invitation: rang + 1,
                             });
                         }
                     } catch (emailErr) {
@@ -2358,6 +2364,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const handleSearch = async (loadMore = false) => {
         try {
             setSearchLoading(true);
+            // Analytics : une seule émission par recherche initiée (pas sur le
+            // « charger plus »). Aucun terme de recherche n'est émis.
+            if (!loadMore) track('recherche_boamp', {});
             const baseUrl = BOAMP_BaseUrl;
             let whereParts = [];
             if (searchMarketType) {
@@ -2537,6 +2546,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (!user) return;
 
             const newId = tenderId || crypto.randomUUID();
+            // Création réelle si aucun tenderId préexistant (vs. mise à jour d'un
+            // brouillon). Détermine l'émission de `ao_cree`.
+            const estCreation = !tenderId;
             setTenderId(newId);
 
             // Update formData state for consistency (though we use 'type' var for payload)
@@ -2597,6 +2609,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (upsertError) {
                 console.error('RLS or DB Error on reponses_ao upsert:', upsertError);
                 throw upsertError;
+            }
+
+            // Analytics : émis une seule fois, à la création réelle du dossier.
+            // Propriétés non personnelles uniquement (aucun intitulé, acheteur…).
+            if (estCreation) {
+                track('ao_cree', {
+                    origine: formData.lien_telechargement ? 'boamp' : 'manuel',
+                    mode: (groupementMembers.filter(m => !m.deleted).length > 1) ? 'groupement' : 'seul',
+                    forme: type || 'seul',
+                    nb_competences: formData.required_skills?.length ?? 0,
+                });
             }
 
             // 1.5 Update specialties junction table
@@ -2697,7 +2720,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             if (error) throw error;
 
-            // Send Invitations for pending members
+            // Analytics : dossier finalisé. On mesure les manques au moment de la
+            // finalisation — `pieces_manquantes > 0` est le signal que le
+            // garde-fou de finalisation manque (suivi explicitement demandé).
+            {
+                const covered = Array.from(new Set(groupementMembers.flatMap(c => c.skills || [])));
+                const competencesNonCouvertes = (formData.required_skills || []).filter(s => !covered.includes(s)).length;
+                const piecesAttendues = getRequiredDocuments().length;
+                const piecesDeposees = formData.dce_documents?.length ?? 0;
+                track('dossier_finalise', {
+                    pieces_manquantes: Math.max(0, piecesAttendues - piecesDeposees),
+                    competences_non_couvertes: competencesNonCouvertes,
+                });
+            }
             const inviterName = userProfile ? `${userProfile.prenom} ${userProfile.nom}` : "Un administrateur";
             for (const member of groupementMembers) {
                 if (member.status === GROUPEMENT_STATUSES.invite && member.id && member.id !== userProfile?.id) { // Only send if pending, user ID is known, and not self
@@ -2747,6 +2782,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (onTenderUpdate) onTenderUpdate();
         } catch (error) {
             console.error("Error finalizing:", error);
+            track('erreur_applicative', { type: 'finalisation', contexte: 'handleFinalize' });
             showToast('Erreur lors de la finalisation.', 'error');
         } finally {
             setLoading(false);
@@ -6246,6 +6282,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             // 1. Update form data locally
             setFormData(prev => ({ ...prev, statut: newStatus }));
+
+            // Analytics : résultat saisi. Le montant est émis en FOURCHETTE, jamais
+            // la valeur exacte (donnée sensible).
+            const trancheMontant = (m: number): string => {
+                if (!m || m <= 0) return 'nc';
+                if (m < 50000) return '<50k';
+                if (m < 200000) return '50-200k';
+                if (m < 1000000) return '200k-1M';
+                return '>1M';
+            };
+            track('resultat_saisi', {
+                resultat: outcome === 'won' ? 'gagne' : 'perdu',
+                montant_tranche: trancheMontant(formData.montant_estime || 0),
+            });
+
             showToast(outcome === 'won' ? "Félicitations pour cette victoire !" : "Statut mis à jour.", 'success');
             setShowOutcomeModal(null);
             if (onTenderUpdate) onTenderUpdate();

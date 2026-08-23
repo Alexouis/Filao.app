@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { deposerFichier } from '../helpers/uploadHelpers';
+import { track } from '../helpers/analytics';
 import { nomPieceCollaborateur } from '../helpers/documentNaming';
 import { useToast } from './ui/Toast';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -302,6 +303,9 @@ export const CollaboratorSubmission: React.FC = () => {
          // 2. Update Local State
          setMyCollabData({ ...myCollabData, status: newStatus });
 
+         // Analytics : acceptation confirmée (branche approved uniquement).
+         if (newStatus === 'approved') track('invitation_acceptee', {});
+
          showToast(newStatus === 'approved' ? 'Invitation acceptée !' : 'Invitation refusée.', 'success');
 
       } catch (err) {
@@ -471,6 +475,10 @@ export const CollaboratorSubmission: React.FC = () => {
          } catch (e) {
             console.error('Suivi dépôt (depots_pieces) échoué:', e);
          }
+
+         // Analytics : pièce déposée par un partenaire (ce composant est l'espace
+         // cotraitant/invité). Aucun nom de fichier ni identité émis.
+         track('piece_deposee', { origine: 'upload', par: 'partenaire' });
 
       } catch (err) {
          console.error(err);

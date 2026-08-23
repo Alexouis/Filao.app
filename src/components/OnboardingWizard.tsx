@@ -5,7 +5,8 @@ import {
     LayoutDashboard, Sparkles, LogOut,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS, getFormeJuridiqueLabel } from '../config';
+import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS } from '../config';
+import { track } from '../helpers/analytics';
 
 // Types for the new taxonomy
 interface RefDomain {
@@ -382,6 +383,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             await supabase.from('utilisateurs').update({
                 onboarding_completed: true,
             }).eq('id', userProfile.id);
+            track('onboarding_termine', {});
             onComplete(goToWizard);
         } catch (err) {
             console.error('Error completing onboarding:', err);
@@ -535,7 +537,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Ville</div>
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Forme juridique</div>
                                                                     <div className="text-xs font-semibold text-emerald-900">{companyData.ville} ({companyData.code_postal})</div>
-                                                                    <div className="text-xs font-semibold text-emerald-900">{getFormeJuridiqueLabel(companyData.forme_juridique) || 'N/A'}</div>
+                                                                    <div className="text-xs font-semibold text-emerald-900">{companyData.forme_juridique || 'N/A'}</div>
                                                                 </div>
                                                             </div>
                                                         </div>

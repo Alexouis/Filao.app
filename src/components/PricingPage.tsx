@@ -3,6 +3,7 @@ import { forfait, tousLesForfaits } from '../helpers/planLimits';
 import { Check, Crown, ArrowRight, Mail, Loader2 } from 'lucide-react';
 import { PLANS, PLANS_CONFIG, STRIPE_PRICES, PlanType, UserProfile } from '../config';
 import { supabase } from '../lib/supabaseClient';
+import { track } from '../helpers/analytics';
 
 interface PricingPageProps {
     userProfile: UserProfile | null;
@@ -41,6 +42,9 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
             });
 
             if (response.data?.url) {
+                // Analytics : intention de souscription confirmée (session Checkout
+                // ouverte). La souscription effective est confirmée côté webhook.
+                track('offre_souscrite', {});
                 window.open(response.data.url, '_blank');
             } else {
                 console.error('Checkout error:', response.error || response.data?.error);
@@ -48,6 +52,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
             }
         } catch (err) {
             console.error('Checkout error:', err);
+            track('erreur_applicative', { type: 'checkout', contexte: 'handleSubscribe' });
             setErrorMessage("Erreur de connexion. Veuillez réessayer.");
         } finally {
             setLoadingPlan(null);

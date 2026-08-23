@@ -12,6 +12,7 @@ interface AuthProps {
 import { APP_CONFIG } from '../config';
 import { supabase } from '../lib/supabaseClient';
 import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acquisitionHelpers';
+import { track } from '../helpers/analytics';
 
 const GoogleIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -296,6 +297,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     }).catch((e) => console.warn('send-confirmation-email failed:', e));
 
                     setRegisteredEmail(email);
+                    track('inscription_terminee', {});
                     setConfirmationSent(true);
                     setNom('');
                     setPrenom('');

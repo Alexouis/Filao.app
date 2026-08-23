@@ -4,6 +4,7 @@ import { chargerForfaits } from '../helpers/planLimits';
 import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../config';
 import { getAcquisitionParams } from '../helpers/acquisitionHelpers';
+import { identifierUtilisateur, reinitialiserAnalytics } from '../helpers/analytics';
 
 // --- Types ---
 interface AuthContextType {
@@ -200,8 +201,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         .catch(err => console.warn('Journalisation de connexion échouée', err));
                 }
 
+                // Identité analytics pseudonymisée (hachage du user_id). Aucune
+                // donnée personnelle : ni email, ni UUID brut n'est émis.
+                identifierUtilisateur(session.user.id, session.user.email || undefined);
+
                 fetchUserProfile(session.user.id);
             } else {
+                reinitialiserAnalytics();
                 setUserProfile(null);
             }
             premierEvenement = false;

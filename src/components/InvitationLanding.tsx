@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { APP_CONFIG, SECTORS_LABELS, MARKET_TYPES_LABELS } from '../config';
+import { track } from '../helpers/analytics';
 
 interface Invitation {
     id: string;
@@ -184,6 +185,8 @@ export const InvitationLanding: React.FC = () => {
             }
 
             setInvitation(data);
+            // Analytics : invitation valide ouverte. Aucun token ni intitulé émis.
+            track('invitation_ouverte', {});
         } catch (err) {
             tracer('erreur', err);
             setError('Erreur lors du chargement de l\'invitation.');

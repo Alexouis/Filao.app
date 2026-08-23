@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Rocket, Lock } from 'lucide-react';
+import { track } from '../helpers/analytics';
 
 interface LimitReachedModalProps {
     isOpen: boolean;
@@ -18,6 +19,12 @@ export const LimitReachedModal: React.FC<LimitReachedModalProps> = ({
     planLabel = 'Gratuit',
     message
 }) => {
+    // Analytics : paywall affiché. `useEffect` avant le retour anticipé pour
+    // respecter les règles des hooks ; ne s'émet qu'à l'ouverture réelle.
+    useEffect(() => {
+        if (isOpen) track('paywall_affiche', {});
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const content = {

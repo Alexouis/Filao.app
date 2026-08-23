@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { TenderFormData, UserProfile, SKILLS } from '../config';
 import { suggererDomainesDepuisCpv } from '../helpers/tenderEnums';
 import { genererJalons } from '../helpers/jalonHelpers';
+import { track } from '../helpers/analytics';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { supabase } from '../lib/supabaseClient';
 
@@ -119,6 +120,9 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     userProfile
 }) => {
     const [step, setStep] = useState(0);
+    // Horodatage d'entrée dans l'étape courante, pour mesurer `duree_etape_s`
+    // (performance perçue) à chaque transition — instrumentation analytics.
+    const debutEtapeRef = useRef<number>(Date.now());
     const [mode, setMode] = useState<'seul' | 'groupement' | null>(null);
     const [grpType, setGrpType] = useState<'conjoint' | 'solidaire' | null>(null);
     const [role, setRole] = useState<'mandataire' | 'cotraitant' | 'soustraitant' | null>(null);
@@ -393,6 +397,19 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
     }, []);
+
+    // Démarrage du wizard de création (émis une fois au montage).
+    useEffect(() => {
+        track('ao_creation_demarree', {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Émet la durée passée sur l'étape à chaque transition (performance perçue).
+    useEffect(() => {
+        const dureeS = Math.round((Date.now() - debutEtapeRef.current) / 1000);
+        track('ao_wizard_etape', { etape: step, duree_etape_s: dureeS });
+        debutEtapeRef.current = Date.now();
+    }, [step]);
 
     // Liste des spécialités filtrée puis groupée par domaine. Mémoïsée : ce
     // calcul (jusqu'à 201 spécialités parcourues, filtrées, regroupées) tournait
