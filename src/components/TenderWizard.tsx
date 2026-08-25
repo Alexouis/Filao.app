@@ -22,6 +22,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { track } from '../helpers/analytics';
+import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
@@ -283,6 +284,26 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     // --- STATE MANAGEMENT ---
     // Views: 'start' (Search) -> 'results' -> 'wizard_steps' -> 'decision' (Go/NoGo) -> 'verification' (Screenshot 2) -> 'team' (Screenshot 1)
     const [currentView, setCurrentView] = useState<'start' | 'results' | 'wizard_steps' | 'decision' | 'verification' | 'team' | 'manual'>(initialTenderId ? 'decision' : 'start');
+
+    // Historique navigateur pour les sous-vues plein écran : « Précédent »
+    // revient à la sous-vue précédente au lieu de quitter l'écran.
+    // `wizard_steps` est volontairement EXCLU : ce wizard gère déjà son propre
+    // paramètre d'historique (`wstep`) et son rembobinage à la sortie ; empiler
+    // aussi son entrée ici ferait se télescoper les deux mécanismes.
+    const VUES_HISTORISEES = ['start', 'results', 'decision', 'verification', 'team', 'manual'] as const;
+    const { allerA: allerAVue } = useHistoryView(
+        currentView as typeof VUES_HISTORISEES[number],
+        (v) => setCurrentView(v),
+        { key: 'wview', vuesValides: VUES_HISTORISEES, vueInitiale: initialTenderId ? 'decision' : 'start' }
+    );
+
+    // Navigation vers une sous-vue historisée. Les transitions vers/depuis
+    // `wizard_steps` continuent d'utiliser setCurrentView directement.
+    const naviguerVue = React.useCallback((v: typeof VUES_HISTORISEES[number]) => {
+        allerAVue(v);
+        setCurrentView(v);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [allerAVue]);
 
     // --- EFFECTS ---
     useEffect(() => {
@@ -2457,7 +2478,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 // une page entièrement filtrée ne signifie pas la fin des
                 // résultats.
                 setHasMoreResults(data.results.length === 20);
-                setCurrentView('results');
+                naviguerVue('results');
             }
         } catch (error) {
             console.error('Error searching tenders:', error);
@@ -2836,7 +2857,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
 
         // Auto-navigate to team view
-        setCurrentView('team');
+        naviguerVue('team');
     };
 
     const addCollaborator = (manualData?: any, newMembers?: UIGroupementMember[]) => {
@@ -3446,7 +3467,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             {/* HEADER - fixed, won't scroll */}
             <div className="flex items-center gap-4 px-8 py-4 border-b border-white/30 bg-white/40 backdrop-blur-sm shrink-0">
-                <button onClick={() => setCurrentView('start')} className="p-2 bg-white/50 hover:bg-white rounded-xl transition-all text-[#0B1F38]/60 hover:text-[#00A3E0]">
+                <button onClick={() => naviguerVue('start')} className="p-2 bg-white/50 hover:bg-white rounded-xl transition-all text-[#0B1F38]/60 hover:text-[#00A3E0]">
                     <ArrowLeft size={24} />
                 </button>
                 <div>
@@ -3550,7 +3571,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             {/* FOOTER - fixed at bottom, never scrolls */}
             <div className="p-4 border-t border-white/30 flex justify-end items-center shrink-0 bg-white/40 backdrop-blur-sm gap-4">
-                <button onClick={() => setCurrentView('start')} className="px-6 py-2.5 font-bold text-[#0B1F38]/60 hover:text-[#0B1F38] bg-white border border-[#0B1F38]/10 hover:border-[#0B1F38]/20 transition-colors rounded-xl flex items-center gap-2">
+                <button onClick={() => naviguerVue('start')} className="px-6 py-2.5 font-bold text-[#0B1F38]/60 hover:text-[#0B1F38] bg-white border border-[#0B1F38]/10 hover:border-[#0B1F38]/20 transition-colors rounded-xl flex items-center gap-2">
                     <XCircle size={18} /> Annuler
                 </button>
                 <button onClick={handleManualSubmit} disabled={loading} className="px-8 py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold rounded-xl shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center gap-2">
@@ -4408,7 +4429,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                     {!tenderId ? (
                         <div className="flex gap-3">
-                            <button onClick={() => setCurrentView('results')} className="px-5 py-2.5 bg-white border-2 border-red-100 hover:border-red-200 text-red-500 font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2">
+                            <button onClick={() => naviguerVue('results')} className="px-5 py-2.5 bg-white border-2 border-red-100 hover:border-red-200 text-red-500 font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2">
                                 <XCircle size={18} /> NO GO
                             </button>
                             <button onClick={() => handleGoToVerification()} className="px-6 py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center gap-2">
@@ -6433,14 +6454,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         </div>
                         <div className="flex gap-3">
                             <span className="px-3 py-1.5 bg-[#00A3E0]/10 text-[#00A3E0] text-sm font-bold rounded-lg border border-[#00A3E0]/20">Rédaction</span>
-                            <button onClick={() => setCurrentView('start')} className="flex items-center gap-2 px-4 py-2 bg-white text-red-500 font-bold text-sm rounded-xl shadow-sm hover:bg-red-50 transition-all border border-red-100">
+                            <button onClick={() => naviguerVue('start')} className="flex items-center gap-2 px-4 py-2 bg-white text-red-500 font-bold text-sm rounded-xl shadow-sm hover:bg-red-50 transition-all border border-red-100">
                                 <Trash2 size={16} /> Abandonner
                             </button>
                         </div>
                     </div>) : currentView === 'team' ? (
                         <div className="p-6 flex justify-between items-center">
                             <div className="flex items-center gap-4">
-                                <button onClick={() => setCurrentView('verification')} className="p-2 bg-white hover:bg-[#00A3E0] hover:text-white rounded-xl transition-all text-[#0B1F38]/60 shadow-sm">
+                                <button onClick={() => naviguerVue('verification')} className="p-2 bg-white hover:bg-[#00A3E0] hover:text-white rounded-xl transition-all text-[#0B1F38]/60 shadow-sm">
                                     <ArrowLeft size={20} />
                                 </button>
                                 <div>
@@ -6544,7 +6565,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             </div>
                                         </div>
                                     </div>
-                                    <div onClick={() => setCurrentView('manual')} className="bg-white/30 border border-white/40 rounded-3xl p-6 flex items-center justify-between hover:bg-white/50 transition-all cursor-pointer group h-24">
+                                    <div onClick={() => naviguerVue('manual')} className="bg-white/30 border border-white/40 rounded-3xl p-6 flex items-center justify-between hover:bg-white/50 transition-all cursor-pointer group h-24">
                                         <div className="flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-xl bg-[#0B1F38]/5 flex items-center justify-center">
                                                 <PenTool size={20} className="text-[#0B1F38]/60" />
@@ -6564,7 +6585,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     {currentView === 'results' && (
                         <div className="p-8 flex flex-col gap-6 w-full max-w-[1600px] mx-auto">
                             <div className="flex items-center gap-4">
-                                <button onClick={() => setCurrentView('start')} className="p-2 bg-white/50 hover:bg-white rounded-xl transition-all text-[#0B1F38]/60 hover:text-[#00A3E0]">
+                                <button onClick={() => naviguerVue('start')} className="p-2 bg-white/50 hover:bg-white rounded-xl transition-all text-[#0B1F38]/60 hover:text-[#00A3E0]">
                                     <ArrowLeft size={24} />
                                 </button>
                                 <div>
