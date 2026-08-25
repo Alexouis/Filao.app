@@ -461,6 +461,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     };
 
     // --- NEXT / PREV ---
+    /**
+     * Champs obligatoires de l'étape 2 (spécification) : au moins une nature,
+     * un domaine et une zone d'intervention. Spécialités et tags d'expertise ne
+     * sont volontairement PAS bloquants — un domaine seul suffit à un matching
+     * large, et exiger le détail ferait abandonner l'étape.
+     */
+    const manquesEtape2 = (): string[] => {
+        const manques: string[] = [];
+        if (selectedNatures.length === 0) manques.push("une nature d'activité");
+        if (selectedDomains.length === 0) manques.push('un domaine');
+        if (selectedZones.length === 0) manques.push("une zone d'intervention");
+        return manques;
+    };
+
     const handleNext = async () => {
         if (step === 1) {
             await saveCompany();
@@ -885,20 +899,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                                     <button
                                                         key={n.id}
                                                         onClick={() => {
-                                                            setSelectedNatures(prev => {
-                                                                if (isSelected) {
-                                                                    // Cascade delete warning simulation: filter out domains that only belong to this nature
-                                                                    const remainingNatures = prev.filter(x => x !== n.id);
-                                                                    setSelectedDomains(currentDoms => 
-                                                                        currentDoms.filter(did => {
-                                                                            const d = refDomains.find(rd => rd.id === did);
-                                                                            return d?.natures.some(rn => remainingNatures.includes(rn));
-                                                                        })
+                                                            if (isSelected) {
+                                                                // Décocher une nature retire les domaines qui n'en
+                                                                // dépendent plus, et donc leurs spécialités. C'est une
+                                                                // perte de saisie : on la fait confirmer plutôt que de
+                                                                // l'appliquer silencieusement.
+                                                                const naturesRestantes = selectedNatures.filter(x => x !== n.id);
+                                                                const domainesPerdus = selectedDomains.filter(did => {
+                                                                    const d = refDomains.find(rd => rd.id === did);
+                                                                    return !d?.natures.some(rn => naturesRestantes.includes(rn));
+                                                                });
+
+                                                                if (domainesPerdus.length > 0) {
+                                                                    const ok = window.confirm(
+                                                                        `Vous avez ${domainesPerdus.length} domaine${domainesPerdus.length > 1 ? 's' : ''} sélectionné${domainesPerdus.length > 1 ? 's' : ''} dans cette catégorie. Voulez-vous les retirer ?`
                                                                     );
-                                                                    return remainingNatures;
+                                                                    if (!ok) return;
                                                                 }
-                                                                return [...prev, n.id];
-                                                            });
+
+                                                                setSelectedDomains(currentDoms =>
+                                                                    currentDoms.filter(did => {
+                                                                        const d = refDomains.find(rd => rd.id === did);
+                                                                        return d?.natures.some(rn => naturesRestantes.includes(rn));
+                                                                    })
+                                                                );
+                                                                // Les spécialités des domaines retirés partent avec eux.
+                                                                setSelectedSpecialties(currentSpecs =>
+                                                                    currentSpecs.filter(sp => {
+                                                                        const s = refSpecialties.find(rs => rs.id === sp.specialty_id);
+                                                                        return s && !domainesPerdus.includes(s.domain_id);
+                                                                    })
+                                                                );
+                                                                setSelectedNatures(naturesRestantes);
+                                                                return;
+                                                            }
+                                                            setSelectedNatures(prev => [...prev, n.id]);
                                                         }}
                                                         className={`relative flex flex-col items-center text-center p-5 rounded-2xl border-2 transition-all duration-300 group ${isSelected
                                                             ? 'border-filao-primary bg-filao-primary/5 shadow-md shadow-filao-primary/10'
@@ -980,6 +1015,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                             </div>
                                             
                                             <div className="space-y-6">
+                                                {/* Affiché une seule fois, au-dessus du premier
+                                                    bloc : les spécialités sont facultatives, mais
+                                                    ce sont elles qui rendent le matching précis. */}
+                                                {selectedDomains.length > 0 && (
+                                                    <p className="text-xs text-gray-500 bg-blue-50/60 border border-blue-100 rounded-xl px-4 py-3">
+                                                        Plus vos spécialités sont précises, plus les recommandations
+                                                        de partenaires seront pertinentes.
+                                                    </p>
+                                                )}
                                                 {selectedDomains.map(domId => {
                                                     const domain = refDomains.find(d => d.id === domId);
                                                     const toutesSpecs = refSpecialties.filter(s => s.domain_id === domId);
@@ -1251,13 +1295,24 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                 )}
                             </div>
                             <div className="flex items-center gap-3">
+                                {/* Message inline : indiquer CE QUI manque évite de laisser
+                                    l'utilisateur devant un bouton grisé sans explication. */}
+                                {step === 2 && manquesEtape2().length > 0 && (
+                                    <span className="text-xs text-amber-600 font-medium text-right max-w-xs">
+                                        Sélectionnez {manquesEtape2().join(', ')} pour continuer.
+                                    </span>
+                                )}
                                 <button onClick={handleSkip}
                                     className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
                                     Passer
                                 </button>
                                 <button
                                     onClick={handleNext}
-                                    disabled={saving || (step === 1 && !companyData.nom.trim() && !(companyData.prenom.trim() && companyData.nom_famille.trim()))}
+                                    disabled={
+                                        saving
+                                        || (step === 1 && !companyData.nom.trim() && !(companyData.prenom.trim() && companyData.nom_famille.trim()))
+                                        || (step === 2 && manquesEtape2().length > 0)
+                                    }
                                     className="flex items-center gap-2 px-6 py-2.5 bg-filao-primary text-white rounded-xl text-sm font-semibold hover:shadow-md hover:shadow-filao-primary/20 transition-all disabled:opacity-50"
                                 >
                                     {saving ? <Loader2 size={16} className="animate-spin" /> : 'Continuer'}
