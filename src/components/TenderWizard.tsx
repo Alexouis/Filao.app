@@ -1895,7 +1895,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 const mappedInvitations: UIGroupementMember[] = invitationsData.map((inv: any) => ({
                     id: inv.id,
                     groupement_id: undefined,
-                    name: inv.email.split('@')[0],
+                    // Nom saisi par le mandataire en priorité ; la partie locale de
+                    // l'adresse ne sert que de repli pour les invitations créées
+                    // avant l'ajout de la colonne (migration 073).
+                    name: inv.nom_invite || inv.email.split('@')[0],
                     email: inv.email,
                     role: inv.role || 'Co-traitant',
                     company: '',
@@ -2155,6 +2158,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                     senderName: inviterName,
                                     senderUserId: userProfile?.id,
                                     role: invitee.role,
+                                    // Nom saisi dans « Partenaire recherché » : conservé
+                                    // comme libellé d'attente jusqu'à ce que l'invité
+                                    // renseigne sa propre fiche.
+                                    nomInvite: invitee.name || undefined,
                                     // Idem : un code fabriqué ici ne serait pas
                                     // celui stocké sur l'invitation.
                                     accessCode: invitee.access_code,

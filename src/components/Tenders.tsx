@@ -607,6 +607,52 @@ export const Tenders: React.FC<TendersProps> = ({
     setActiveActionMenu(activeActionMenu === id ? null : id);
   };
 
+  /**
+   * Réponse à une invitation depuis la liste, sans ouvrir le dossier.
+   *
+   * Passe par la même fonction serveur que l'écran Équipe (`accept-invitation`,
+   * en service_role) : elle met à jour `invitations` et `groupements` et notifie
+   * le mandataire. Dupliquer la logique ici la ferait diverger au premier
+   * changement de règle.
+   */
+  const [repondInvitation, setRepondInvitation] = useState<string | null>(null);
+
+  const handleInvitationResponse = async (e: React.MouseEvent, tenderId: string, accept: boolean) => {
+    e.stopPropagation();
+    setActiveActionMenu(null);
+    setRepondInvitation(tenderId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!session || !supabaseUrl) throw new Error('Session expirée');
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/accept-invitation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ tenderId, accept }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Erreur lors de la réponse à l'invitation");
+
+      showToast(
+        accept ? "Vous avez rejoint l'équipe !" : "Vous avez refusé l'invitation.",
+        accept ? 'success' : 'info'
+      );
+      // Rechargement : le statut conditionne l'affichage de la carte et les
+      // compteurs d'invitations en attente.
+      await fetchTenders();
+    } catch (err: any) {
+      console.error('Réponse à invitation échouée', err);
+      showToast(err?.message || "Impossible de répondre à l'invitation.", 'error');
+    } finally {
+      setRepondInvitation(null);
+    }
+  };
+
   const handleEditTender = (e: React.MouseEvent, tender: Tender) => {
     e.stopPropagation();
     setSelectedTenderId(tender.id);
@@ -1110,9 +1156,42 @@ export const Tenders: React.FC<TendersProps> = ({
                       </div>
                       
                       <div className="relative">
+                        {/* Actions directes sur la carte : l'écran s'intitule
+                            « Répondez aux invitations », répondre ne doit pas
+                            supposer d'ouvrir le dossier ni de fouiller un menu. */}
+                        {isPending && !jeSuisPorteur && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <button
+                              onClick={(e) => handleInvitationResponse(e, tender.id, true)}
+                              disabled={repondInvitation === tender.id}
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                            >
+                              {repondInvitation === tender.id
+                                ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                : <CheckCircle2 size={13} />}
+                              Accepter
+                            </button>
+                            <button
+                              onClick={(e) => handleInvitationResponse(e, tender.id, false)}
+                              disabled={repondInvitation === tender.id}
+                              className="px-3 py-1.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-bold rounded-xl transition-colors disabled:opacity-50"
+                            >
+                              Refuser
+                            </button>
+                          </div>
+                        )}
                         <button onClick={(e) => handleActionMenuClick(e, tender.id)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors text-[#0B1F38]/40 hover:text-[#0B1F38]"><MoreVertical size={20} /></button>
                         {activeActionMenu === tender.id && (
                           <div className="absolute right-0 bottom-full mb-3 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 py-2 z-[100] animate-in slide-in-from-bottom-2 duration-200 origin-bottom-right">
+                            {/* Invitation en attente : répondre est l'action
+                                principale de l'écran, elle vient donc en tête. */}
+                            {isPending && !jeSuisPorteur && (
+                              <>
+                                <button onClick={(e) => handleInvitationResponse(e, tender.id, true)} disabled={repondInvitation === tender.id} className="w-full text-left px-5 py-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 flex items-center gap-3 transition-colors disabled:opacity-50"><CheckCircle2 size={16} className="text-emerald-500" /> Accepter</button>
+                                <button onClick={(e) => handleInvitationResponse(e, tender.id, false)} disabled={repondInvitation === tender.id} className="w-full text-left px-5 py-3 text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors disabled:opacity-50"><X size={16} /> Refuser</button>
+                                <div className="h-px bg-gray-100 my-1"></div>
+                              </>
+                            )}
                             <button onClick={(e) => { e.stopPropagation(); handleOpenTender(tender.statut, tender.id); setActiveActionMenu(null); }} className="w-full text-left px-5 py-3 text-xs font-bold text-[#0B1F38] hover:bg-[#00A3E0]/10 flex items-center gap-3 transition-colors"><Eye size={16} className="text-[#00A3E0]" /> Voir le dossier</button>
                             {tender.createur_id === userId && (
                               <>

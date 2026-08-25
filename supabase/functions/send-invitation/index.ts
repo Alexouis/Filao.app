@@ -50,6 +50,8 @@ interface InvitationRequest {
   message?: string;
   senderName: string;
   accessCode?: string;
+  /** Nom du partenaire saisi par le mandataire, conservé comme libellé d'attente. */
+  nomInvite?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -67,7 +69,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: InvitationRequest = await req.json();
-    const { tenderId, tenderTitle, role, message, senderName, accessCode, senderUserId } = body;
+    const { tenderId, tenderTitle, role, message, senderName, accessCode, senderUserId, nomInvite } = body;
     let { email, entrepriseId } = body;
 
     if (!tenderId || !role) {
@@ -202,6 +204,10 @@ Deno.serve(async (req: Request) => {
         // concurrentes pour la même personne, chacune avec son propre code.
         email: email!.toLowerCase().trim(),
         role: role,
+        // Nom saisi par le mandataire dans « Partenaire recherché ». Sert de
+        // libellé d'attente à l'écran Équipe : sans lui, l'affichage retombait
+        // sur la partie locale de l'adresse (« po.bidard »).
+        ...(nomInvite ? { nom_invite: nomInvite } : {}),
         // La base ne conserve que l'empreinte (migration 042). La valeur en
         // clair ne sort d'ici que dans le lien du courriel.
         token_hash: tokenHash,
