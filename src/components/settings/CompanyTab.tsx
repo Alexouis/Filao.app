@@ -85,6 +85,79 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
+
+    // Demandes de rattachement à traiter (migration 080). Visibles des seuls
+    // administrateurs : la policy de lecture les filtre déjà côté base, mais on
+    // évite d'afficher un panneau vide aux autres membres.
+    const [demandes, setDemandes] = useState<any[]>([]);
+    const [estAdmin, setEstAdmin] = useState(false);
+    const [placesRestantes, setPlacesRestantes] = useState<number | null | undefined>(undefined);
+    const [demandeEnCours, setDemandeEnCours] = useState<string | null>(null);
+
+    const chargerDemandes = async () => {
+        const entrepriseId = userProfile?.entreprise_id;
+        if (!entrepriseId) return;
+        try {
+            const [{ data: admin }, { data: places }, { data: lignes }] = await Promise.all([
+                supabase.rpc('est_admin_entreprise'),
+                supabase.rpc('places_restantes_entreprise', { p_entreprise: entrepriseId }),
+                supabase
+                    .from('demandes_rattachement')
+                    .select('id, created_at, utilisateur_id')
+                    .eq('entreprise_id', entrepriseId)
+                    .eq('statut', 'en_attente')
+                    .order('created_at', { ascending: true }),
+            ]);
+            setEstAdmin(!!admin);
+            setPlacesRestantes(places === null ? null : Number(places));
+
+            // Profils chargés séparément : `utilisateurs_publics` est une VUE, et
+            // PostgREST ne peut pas l'imbriquer faute de clé étrangère détectable.
+            // On fusionne côté client.
+            const demandesBrutes = lignes || [];
+            if (demandesBrutes.length > 0) {
+                const { data: profils } = await supabase
+                    .from('utilisateurs_publics')
+                    .select('id, prenom, nom, email')
+                    .in('id', demandesBrutes.map((d: any) => d.utilisateur_id));
+
+                const parId = new Map((profils || []).map((p: any) => [p.id, p]));
+                setDemandes(demandesBrutes.map((d: any) => ({ ...d, profil: parId.get(d.utilisateur_id) })));
+            } else {
+                setDemandes([]);
+            }
+        } catch (err) {
+            console.warn('Chargement des demandes de rattachement échoué', err);
+        }
+    };
+
+    useEffect(() => { chargerDemandes(); }, [userProfile?.entreprise_id]);
+
+    const traiterDemande = async (demandeId: string, accepter: boolean) => {
+        setDemandeEnCours(demandeId);
+        try {
+            const { data, error } = await supabase.rpc('traiter_demande_rattachement', {
+                p_demande: demandeId,
+                p_accepter: accepter,
+            });
+            if (error) throw error;
+
+            // La fonction renvoie le motif plutôt que de lever une erreur : un
+            // quota atteint est un refus légitime, pas une panne.
+            if (data === 'quota_atteint') {
+                setError("Le nombre d'utilisateurs de votre forfait est atteint. Passez à une offre supérieure pour rattacher ce collaborateur.");
+            } else if (data === 'non_autorise') {
+                setError("Vous n'êtes pas autorisé à traiter cette demande.");
+            }
+            await chargerDemandes();
+            onUpdate();
+        } catch (err) {
+            console.error('Traitement de la demande échoué', err);
+            setError("Impossible de traiter cette demande pour le moment.");
+        } finally {
+            setDemandeEnCours(null);
+        }
+    };
     const [error, setError] = useState<string | null>(null);
     const [uploadingField, setUploadingField] = useState<string | null>(null);
 
@@ -1080,6 +1153,70 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                             </div>
                             {searchError && <p className="text-xs text-red-500 bg-red-50 px-3 py-1.5 rounded-lg">{searchError}</p>}
                         </>
+                    )}
+
+                    {/* Demandes de rattachement — administrateurs uniquement */}
+                    {estAdmin && demandes.length > 0 && (
+                        <div className="mb-3 bg-white border border-amber-200 rounded-2xl p-5">
+                            <div className="flex items-start justify-between gap-4 mb-4">
+                                <div>
+                                    <h3 className="text-sm font-bold text-[#0B1F38]">
+                                        {demandes.length} demande{demandes.length > 1 ? 's' : ''} de rattachement
+                                    </h3>
+                                    <p className="text-xs text-[#0B1F38]/50 mt-0.5">
+                                        Ces personnes souhaitent rejoindre votre entreprise sur Filao.
+                                    </p>
+                                </div>
+                                {/* `null` = forfait sans limite d'utilisateurs. */}
+                                {placesRestantes !== undefined && (
+                                    <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0 ${
+                                        placesRestantes === null ? 'text-[#0B1F38]/50 bg-gray-100'
+                                            : placesRestantes > 0 ? 'text-emerald-700 bg-emerald-50'
+                                                : 'text-red-600 bg-red-50'
+                                    }`}>
+                                        {placesRestantes === null
+                                            ? 'Utilisateurs illimités'
+                                            : `${placesRestantes} place${placesRestantes > 1 ? 's' : ''} restante${placesRestantes > 1 ? 's' : ''}`}
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="divide-y divide-gray-100">
+                                {demandes.map((d: any) => {
+                                    const p = d.profil;
+                                    const nom = [p?.prenom, p?.nom].filter(Boolean).join(' ') || p?.email || 'Utilisateur';
+                                    return (
+                                        <div key={d.id} className="flex items-center justify-between gap-4 py-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium text-[#0B1F38] truncate">{nom}</p>
+                                                <p className="text-xs text-[#0B1F38]/45 truncate">
+                                                    {p?.email}
+                                                    {' · '}
+                                                    {new Date(d.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => traiterDemande(d.id, true)}
+                                                    disabled={demandeEnCours === d.id || placesRestantes === 0}
+                                                    title={placesRestantes === 0 ? "Quota d'utilisateurs atteint" : undefined}
+                                                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    {demandeEnCours === d.id ? '…' : 'Accepter'}
+                                                </button>
+                                                <button
+                                                    onClick={() => traiterDemande(d.id, false)}
+                                                    disabled={demandeEnCours === d.id}
+                                                    className="px-3 py-1.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-bold rounded-xl transition-colors disabled:opacity-40"
+                                                >
+                                                    Refuser
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     )}
 
                     {/* ========= READ-ONLY VIEW: 2×2 Grid of Cards ========= */}
