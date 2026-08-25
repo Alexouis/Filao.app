@@ -1106,7 +1106,7 @@ export const Tenders: React.FC<TendersProps> = ({
                 }
 
                 return (
-                  <div key={tender.id} onClick={() => handleOpenTender(tender.statut, tender.id)} className="group p-5 bg-white/40 hover:bg-white/95 border border-white/60 rounded-3xl transition-all cursor-pointer shadow-sm hover:shadow-lg relative flex flex-col gap-4">
+                  <div key={tender.id} onClick={() => handleOpenTender(tender.statut, tender.id)} className={`group p-5 bg-white/40 hover:bg-white/95 border border-white/60 rounded-3xl transition-all cursor-pointer shadow-sm hover:shadow-lg relative flex flex-col gap-4 ${activeActionMenu === tender.id ? 'z-50' : ''}`}>
                     {/* Background decoration - Contained */}
                     <div className="absolute inset-0 overflow-hidden rounded-3xl pointer-events-none">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-[#00A3E0]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -1155,16 +1155,16 @@ export const Tenders: React.FC<TendersProps> = ({
                         </div>
                       </div>
                       
-                      <div className="relative">
-                        {/* Actions directes sur la carte : l'écran s'intitule
-                            « Répondez aux invitations », répondre ne doit pas
-                            supposer d'ouvrir le dossier ni de fouiller un menu. */}
+                      {/* Actions et menu sur UNE SEULE ligne : le conteneur des
+                          boutons était au-dessus du « ⋮ », qui se retrouvait
+                          rejeté à la ligne suivante. */}
+                      <div className="flex items-center gap-2 shrink-0">
                         {isPending && !jeSuisPorteur && (
-                          <div className="flex items-center gap-2 mb-2">
+                          <>
                             <button
                               onClick={(e) => handleInvitationResponse(e, tender.id, true)}
                               disabled={repondInvitation === tender.id}
-                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-xl shadow-sm transition-colors disabled:opacity-50 inline-flex items-center gap-1.5 shrink-0"
                             >
                               {repondInvitation === tender.id
                                 ? <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -1174,24 +1174,20 @@ export const Tenders: React.FC<TendersProps> = ({
                             <button
                               onClick={(e) => handleInvitationResponse(e, tender.id, false)}
                               disabled={repondInvitation === tender.id}
-                              className="px-3 py-1.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-bold rounded-xl transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-bold rounded-xl transition-colors disabled:opacity-50 shrink-0"
                             >
                               Refuser
                             </button>
-                          </div>
+                          </>
                         )}
+
+                        <div className="relative">
                         <button onClick={(e) => handleActionMenuClick(e, tender.id)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors text-[#0B1F38]/40 hover:text-[#0B1F38]"><MoreVertical size={20} /></button>
                         {activeActionMenu === tender.id && (
                           <div className="absolute right-0 bottom-full mb-3 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-100 py-2 z-[100] animate-in slide-in-from-bottom-2 duration-200 origin-bottom-right">
-                            {/* Invitation en attente : répondre est l'action
-                                principale de l'écran, elle vient donc en tête. */}
-                            {isPending && !jeSuisPorteur && (
-                              <>
-                                <button onClick={(e) => handleInvitationResponse(e, tender.id, true)} disabled={repondInvitation === tender.id} className="w-full text-left px-5 py-3 text-xs font-bold text-emerald-700 hover:bg-emerald-50 flex items-center gap-3 transition-colors disabled:opacity-50"><CheckCircle2 size={16} className="text-emerald-500" /> Accepter</button>
-                                <button onClick={(e) => handleInvitationResponse(e, tender.id, false)} disabled={repondInvitation === tender.id} className="w-full text-left px-5 py-3 text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors disabled:opacity-50"><X size={16} /> Refuser</button>
-                                <div className="h-px bg-gray-100 my-1"></div>
-                              </>
-                            )}
+                            {/* Accepter / Refuser ne sont pas repris ici : ils
+                                sont déjà visibles sur la carte, les dupliquer
+                                allongeait le menu sans rien apporter. */}
                             <button onClick={(e) => { e.stopPropagation(); handleOpenTender(tender.statut, tender.id); setActiveActionMenu(null); }} className="w-full text-left px-5 py-3 text-xs font-bold text-[#0B1F38] hover:bg-[#00A3E0]/10 flex items-center gap-3 transition-colors"><Eye size={16} className="text-[#00A3E0]" /> Voir le dossier</button>
                             {tender.createur_id === userId && (
                               <>
@@ -1202,6 +1198,7 @@ export const Tenders: React.FC<TendersProps> = ({
                             )}
                           </div>
                         )}
+                        </div>
                       </div>
                     </div>
                   </div>
