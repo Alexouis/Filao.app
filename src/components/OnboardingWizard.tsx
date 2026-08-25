@@ -5,7 +5,7 @@ import {
     LayoutDashboard, Sparkles, LogOut,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS } from '../config';
+import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS, getFormeJuridiqueLabel } from '../config';
 import { track } from '../helpers/analytics';
 
 // Types for the new taxonomy
@@ -84,6 +84,32 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     // demande de rattachement plutôt que d'échouer sur la contrainte UNIQUE.
     const [entrepriseExistante, setEntrepriseExistante] = useState<{ id: string; nom: string } | null>(null);
     const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
+
+    // Une demande de rattachement est peut-être déjà en cours : l'utilisateur
+    // n'a pas d'entreprise (il est donc renvoyé ici par le gardien de première
+    // connexion), mais il n'a rien à ressaisir — il attend une validation. Sans
+    // ce contrôle, un rechargement le ramenait au formulaire SIRET.
+    useEffect(() => {
+        if (!userProfile?.id || userProfile?.entreprise_id) return;
+        let annule = false;
+        (async () => {
+            const { data } = await supabase
+                .from('demandes_rattachement')
+                .select('entreprise_id, entreprises(nom)')
+                .eq('utilisateur_id', userProfile.id)
+                .eq('statut', 'en_attente')
+                .maybeSingle();
+
+            if (annule || !data) return;
+            setEntrepriseExistante({
+                id: data.entreprise_id,
+                nom: (data as any).entreprises?.nom || 'cette entreprise',
+            });
+            setDemandeEnvoyee(true);
+        })();
+        return () => { annule = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userProfile?.id, userProfile?.entreprise_id]);
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [fieldsLocked, setFieldsLocked] = useState(false);
@@ -643,7 +669,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Ville</div>
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Forme juridique</div>
                                                                     <div className="text-xs font-semibold text-emerald-900">{companyData.ville} ({companyData.code_postal})</div>
-                                                                    <div className="text-xs font-semibold text-emerald-900">{companyData.forme_juridique || 'N/A'}</div>
+                                                                    <div className="text-xs font-semibold text-emerald-900">{getFormeJuridiqueLabel(companyData.forme_juridique) || 'N/A'}</div>
                                                                 </div>
                                                             </div>
                                                         </div>

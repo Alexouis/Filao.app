@@ -521,8 +521,20 @@ const AppContent = () => {
     );
   }
 
-  // Onboarding wizard for first-time users
-  if (userProfile && !userProfile.onboarding_completed) {
+  // Parcours de première connexion.
+  //
+  // Le déclenchement reposait sur le seul drapeau `onboarding_completed`, que
+  // l'assistant pose sans vérifier qu'une entreprise a bien été renseignée. Un
+  // compte pouvait donc arriver sur un tableau de bord vide sans entreprise
+  // rattachée — état qui empêche d'accepter une invitation et de figurer dans
+  // l'annuaire.
+  //
+  // On ajoute la condition réelle : tant que `entreprise_id` est absent, le
+  // parcours s'impose. Les deux conditions se cumulent, car un utilisateur
+  // rattaché à une entreprise existante (demande validée par un administrateur)
+  // n'a pas à repasser par l'assistant.
+  const sansEntreprise = userProfile && !userProfile.entreprise_id;
+  if (userProfile && (!userProfile.onboarding_completed || sansEntreprise)) {
     return (
       <OnboardingWizard
         userProfile={userProfile}

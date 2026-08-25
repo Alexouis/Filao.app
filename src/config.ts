@@ -763,115 +763,109 @@ export const FRENCH_REGIONS = [
   'Polynésie française',
   'Nouvelle-Calédonie'
 ];
-// Catégories juridiques INSEE (niveau III) → libellé lisible.
-// Source : nomenclature INSEE des catégories juridiques. Liste des formes
-// les plus courantes rencontrées via l'API recherche-entreprises ; le helper
-// getFormeJuridiqueLabel retombe sur le code brut si absent.
+/**
+ * Catégories juridiques INSEE (niveau III), pour traduire le code renvoyé par
+ * l'API Sirene en libellé lisible.
+ *
+ * L'API renvoie `nature_juridique` sous forme de code — « 5499 » — qui
+ * s'affichait tel quel dans la fiche entreprise. Un utilisateur n'a pas à
+ * connaître la nomenclature INSEE pour relire ses propres informations.
+ *
+ * Liste volontairement limitée aux catégories effectivement rencontrées chez
+ * les candidats aux marchés publics ; `getFormeJuridiqueLabel` renvoie le code
+ * inchangé pour tout ce qui n'y figure pas, plutôt que d'afficher un libellé
+ * approximatif.
+ */
 export const CATEGORIES_JURIDIQUES_INSEE: Record<string, string> = {
   '1000': 'Entrepreneur individuel',
-  '5191': 'Société de caution mutuelle',
   '5202': 'Société en nom collectif',
   '5306': 'Société en commandite simple',
   '5308': 'Société en commandite par actions',
   '5385': 'Société d\'exercice libéral en commandite par actions',
   '5410': 'SARL nationale',
   '5415': 'SARL d\'économie mixte',
-  '5426': 'SARL immobilière',
-  '5430': 'SARL de presse',
-  '5431': 'SARL de coopérative agricole',
-  '5432': 'SARL coopérative artisanale',
-  '5442': 'SARL coopérative de transport',
-  '5443': 'SARL coopérative de production (SCOP)',
+  '5422': 'SARL immobilière pour le commerce et l\'industrie',
+  '5426': 'SARL immobilière de gestion',
+  '5430': 'SARL d\'aménagement foncier et d\'équipement rural',
+  '5431': 'SARL mixte d\'intérêt agricole',
+  '5442': 'SARL d\'attribution',
+  '5443': 'SARL coopérative de construction',
   '5451': 'SARL coopérative de consommation',
-  '5453': 'SARL de crédit maritime mutuel',
-  '5454': 'SARL d\'intérêt collectif agricole (SICA)',
-  '5455': 'SARL d\'attribution',
-  '5458': 'SARL coopérative d\'intérêt maritime',
-  '5459': 'SARL union de sociétés coopératives',
+  '5453': 'SARL coopérative artisanale',
+  '5454': 'SARL coopérative de transport',
+  '5455': 'SARL coopérative ouvrière de production (SCOP)',
+  '5458': 'SARL union de sociétés coopératives',
   '5460': 'Autre SARL coopérative',
-  '5485': 'Société d\'exercice libéral à responsabilité limitée (SELARL)',
-  '5498': 'SARL unipersonnelle (EURL)',
-  '5499': 'SARL / EURL',
+  '5485': 'Société d\'exercice libéral à responsabilité limitée',
+  '5498': 'SARL unipersonnelle',
+  '5499': 'Société à responsabilité limitée (SARL)',
   '5505': 'SA à participation ouvrière à conseil d\'administration',
   '5510': 'SA nationale à conseil d\'administration',
   '5515': 'SA d\'économie mixte à conseil d\'administration',
-  '5520': 'Fonds à forme sociétale à conseil d\'administration',
+  '5520': 'Société d\'investissement à capital variable (SICAV)',
   '5522': 'SA immobilière pour le commerce et l\'industrie',
-  '5525': 'SA immobilière d\'investissement à conseil d\'administration',
-  '5530': 'SA de presse à conseil d\'administration',
-  '5531': 'SA coopérative agricole à conseil d\'administration',
-  '5532': 'SA coopérative artisanale à conseil d\'administration',
-  '5542': 'SA coopérative de transport à conseil d\'administration',
-  '5543': 'SA coopérative de production (SCOP) à conseil d\'administration',
-  '5547': 'SA union de sociétés coopératives à conseil d\'administration',
+  '5525': 'SA immobilière d\'investissement',
+  '5530': 'SA d\'aménagement foncier et d\'équipement rural',
+  '5531': 'Société anonyme mixte d\'intérêt agricole',
+  '5542': 'SA d\'attribution à conseil d\'administration',
+  '5543': 'SA coopérative de construction à conseil d\'administration',
+  '5546': 'SA de HLM à conseil d\'administration',
+  '5547': 'SA coopérative de production de HLM',
+  '5548': 'SA de crédit immobilier à conseil d\'administration',
   '5551': 'SA coopérative de consommation à conseil d\'administration',
-  '5552': 'SA de crédit maritime mutuel à conseil d\'administration',
-  '5554': 'SA d\'intérêt collectif agricole (SICA) à conseil d\'administration',
-  '5555': 'SA d\'attribution à conseil d\'administration',
-  '5558': 'SA coopérative d\'intérêt maritime à conseil d\'administration',
-  '5559': 'SA de crédit immobilier à conseil d\'administration',
-  '5560': 'Autre SA coopérative à conseil d\'administration',
-  '5585': 'Société d\'exercice libéral à forme anonyme à conseil d\'administration',
-  '5599': 'SA à conseil d\'administration',
+  '5552': 'SA coopérative de commerçants détaillants',
+  '5553': 'SA coopérative artisanale',
+  '5554': 'SA coopérative (transports)',
+  '5555': 'SA coopérative ouvrière de production (SCOP)',
+  '5558': 'SA union de sociétés coopératives',
+  '5585': 'Société d\'exercice libéral à forme anonyme',
+  '5599': 'Société anonyme (SA) à conseil d\'administration',
   '5605': 'SA à participation ouvrière à directoire',
   '5610': 'SA nationale à directoire',
   '5615': 'SA d\'économie mixte à directoire',
-  '5620': 'Fonds à forme sociétale à directoire',
-  '5622': 'SA immobilière pour le commerce et l\'industrie à directoire',
-  '5625': 'SA immobilière d\'investissement à directoire',
-  '5630': 'SA de presse à directoire',
-  '5642': 'SA coopérative de transport à directoire',
-  '5643': 'SA coopérative de production (SCOP) à directoire',
-  '5651': 'SA coopérative de consommation à directoire',
-  '5670': 'SA de crédit immobilier à directoire',
-  '5685': 'Société d\'exercice libéral à forme anonyme à directoire',
-  '5699': 'SA à directoire',
+  '5699': 'Société anonyme (SA) à directoire',
   '5710': 'Société par actions simplifiée (SAS)',
   '5720': 'Société par actions simplifiée unipersonnelle (SASU)',
-  '5785': 'Société d\'exercice libéral par actions simplifiée (SELAS)',
+  '5785': 'Société d\'exercice libéral par actions simplifiée',
   '5800': 'Société européenne',
   '6100': 'Caisse d\'épargne et de prévoyance',
-  '6210': 'Groupement européen d\'intérêt économique (GEIE)',
   '6220': 'Groupement d\'intérêt économique (GIE)',
-  '6316': 'Coopérative d\'utilisation de matériel agricole (CUMA)',
   '6317': 'Société coopérative agricole',
   '6318': 'Union de sociétés coopératives agricoles',
-  '6411': 'Société d\'assurance à forme mutuelle',
-  '6511': 'Société civile de placement collectif immobilier (SCPI)',
-  '6521': 'Société civile de placement immobilier',
-  '6532': 'Société civile immobilière de construction-vente',
-  '6533': 'Société civile immobilière (SCI)',
-  '6534': 'Société civile immobilière d\'accession progressive à la propriété',
-  '6540': 'Société civile immobilière',
-  '6541': 'Société civile immobilière de location',
-  '6551': 'Société civile coopérative de consommation',
-  '6561': 'Société civile coopérative agricole',
+  '6411': 'Société d\'assurance mutuelle',
+  '6521': 'Société civile de placement collectif immobilier',
+  '6540': 'Société civile immobilière (SCI)',
+  '6541': 'Société civile immobilière de construction-vente',
+  '6560': 'Autre société civile professionnelle',
+  '6585': 'Société d\'exercice libéral en nom collectif',
   '6599': 'Société civile',
-  '6901': 'Autre personne de droit privé inscrite au registre du commerce',
+  '7112': 'Autorité administrative indépendante',
+  '7150': 'Région',
+  '7220': 'Département',
+  '7229': 'Autre collectivité territoriale',
+  '7343': 'Communauté urbaine',
+  '7346': 'Communauté d\'agglomération',
+  '7348': 'Communauté de communes',
+  '7350': 'Syndicat mixte',
+  '7361': 'Centre communal d\'action sociale',
+  '7381': 'Organisme consulaire',
+  '7383': 'Établissement public local social et médico-social',
+  '7389': 'Établissement public administratif local',
+  '8410': 'Syndicat de salariés',
+  '9210': 'Association non déclarée',
   '9220': 'Association déclarée',
   '9260': 'Association de droit local',
   '9300': 'Fondation',
+  '9900': 'Autre personne morale de droit privé',
 };
 
-// Résout un code catégorie juridique INSEE en libellé lisible.
-// Si `raw` est déjà un libellé (texte non purement numérique et suffisamment
-// long), il est renvoyé tel quel. Sinon on tente le catalogue, puis on retombe
-// sur le code brut.
-export const getFormeJuridiqueLabel = (raw?: string | null): string => {
-  if (!raw) return 'Non défini';
-  const value = String(raw).trim();
-  if (value.length > 5 && !/^\d+$/.test(value)) return value;
-  return CATEGORIES_JURIDIQUES_INSEE[value] || value;
-};
-
-// Résout un code géographique BOAMP/INSEE en libellé.
-// Gère les codes département (2-3 chiffres, 2A/2B) via DEPARTEMENTS_OBJ.
-// Pour tout autre code (commune 5 chiffres, identifiant interne…) on renvoie
-// le code brut seul, sans jamais dupliquer « code (code) ».
-export const getLieuLabel = (raw?: string | null): string => {
-  if (raw === null || raw === undefined || raw === '') return 'Non précisé';
-  const value = String(raw).trim();
-  const deptKey = /^\d+$/.test(value) ? value.padStart(2, '0') : value;
-  const label = (DEPARTEMENTS_OBJ as Record<string, string>)[deptKey];
-  return label || value;
+/**
+ * Libellé lisible d'une forme juridique. Renvoie la valeur d'origine si le code
+ * est inconnu — un code brut reste préférable à un libellé inventé — et une
+ * chaîne vide si rien n'est renseigné.
+ */
+export const getFormeJuridiqueLabel = (valeur?: string | null): string => {
+  if (!valeur) return '';
+  const cle = String(valeur).trim();
+  return CATEGORIES_JURIDIQUES_INSEE[cle] || cle;
 };
