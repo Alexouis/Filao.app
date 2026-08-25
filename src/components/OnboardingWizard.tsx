@@ -80,6 +80,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
     // --- Step 1: Company ---
     const [siretInput, setSiretInput] = useState('');
+    // Entreprise déjà inscrite détectée au même SIRET : bascule l'écran sur la
+    // demande de rattachement plutôt que d'échouer sur la contrainte UNIQUE.
+    const [entrepriseExistante, setEntrepriseExistante] = useState<{ id: string; nom: string } | null>(null);
+    const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [fieldsLocked, setFieldsLocked] = useState(false);
@@ -316,6 +320,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                 const { error } = await supabase.from('entreprises').update(payload).eq('id', currentEntId);
                 if (error) throw error;
             } else {
+                // Une entreprise déjà inscrite avec ce SIRET ? La colonne porte une
+                // contrainte UNIQUE : sans ce contrôle, l'insertion échouait sur une
+                // erreur de base de données brute, sans issue proposée au second
+                // collaborateur d'une même société. On lui propose de demander son
+                // rattachement plutôt que de le laisser bloqué.
+                if (payload.siret) {
+                    const { data: existante } = await supabase
+                        .from('entreprises')
+                        .select('id, nom')
+                        .eq('siret', payload.siret)
+                        .maybeSingle();
+
+                    if (existante) {
+                        setEntrepriseExistante({ id: existante.id, nom: existante.nom });
+                        setSaving(false);
+                        return; // la suite se joue dans l'écran de rattachement
+                    }
+                }
+
                 // Create new
                 const { data: newEnt, error } = await supabase
                     .from('entreprises')
@@ -432,6 +455,72 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         await supabase.auth.signOut();
         window.location.reload();
     };
+
+    // Écran de rattachement : une entreprise porte déjà ce SIRET. On propose de
+    // la rejoindre, ou de repartir sur une autre entreprise pour ne pas laisser
+    // l'utilisateur bloqué s'il s'est trompé de numéro.
+    if (entrepriseExistante) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
+                <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 text-center">
+                    {demandeEnvoyee ? (
+                        <>
+                            <h2 className="text-xl font-bold text-[#0B1F38] mb-3">Demande envoyée</h2>
+                            <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-8">
+                                Un administrateur de <strong>{entrepriseExistante.nom}</strong> doit
+                                valider votre rattachement. Vous serez notifié dès que ce sera fait.
+                            </p>
+                            <button
+                                onClick={() => { setEntrepriseExistante(null); setDemandeEnvoyee(false); }}
+                                className="text-xs text-[#00A3E0] hover:underline"
+                            >
+                                Renseigner une autre entreprise
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <h2 className="text-xl font-bold text-[#0B1F38] mb-3">
+                                Cette entreprise est déjà sur Filao
+                            </h2>
+                            <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-8">
+                                <strong>{entrepriseExistante.nom}</strong> possède déjà un compte.
+                                Demandez à la rejoindre : un administrateur validera votre accès.
+                            </p>
+
+                            <button
+                                onClick={async () => {
+                                    setSaving(true);
+                                    try {
+                                        const { data, error } = await supabase.rpc('demander_rattachement', {
+                                            p_entreprise: entrepriseExistante.id,
+                                        });
+                                        if (error) throw error;
+                                        if (data === 'deja_rattache') { onComplete(false); return; }
+                                        setDemandeEnvoyee(true);
+                                    } catch (err) {
+                                        console.error('Demande de rattachement échouée', err);
+                                    } finally {
+                                        setSaving(false);
+                                    }
+                                }}
+                                disabled={saving}
+                                className="w-full py-3 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-50 mb-3"
+                            >
+                                {saving ? 'Envoi…' : 'Demander à la rejoindre'}
+                            </button>
+
+                            <button
+                                onClick={() => setEntrepriseExistante(null)}
+                                className="text-xs text-[#0B1F38]/50 hover:text-[#0B1F38] hover:underline"
+                            >
+                                Ce n'est pas mon entreprise — en renseigner une autre
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex flex-col">
