@@ -161,7 +161,7 @@ const isValidUUID = (id: any): id is string => {
 import { TenderCreationWizard } from './TenderCreationWizard';
 
 // --- SUB-COMPONENTS ---
-const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: () => void, onAdd: (data: any) => void, requiredSkills: string[] }) => {
+const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills, emailsDejaInvites = [] }: { onClose: () => void, onAdd: (data: any) => void, requiredSkills: string[], emailsDejaInvites?: string[] }) => {
     const [newCollaborator, setNewCollaborator] = useState({
         name: '',
         role: 'Co-traitant' as 'Mandataire' | 'Co-traitant' | 'Sous-traitant',
@@ -174,6 +174,14 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
     // signaler sur un champ encore vide est du bruit.
     const emailSaisiInvalide = newCollaborator.email.trim().length > 0
         && !emailValide(newCollaborator.email);
+
+    // Doublon : ce partenaire est déjà présent sur le dossier. Sans ce contrôle,
+    // un second envoi créait une invitation supplémentaire et le partenaire
+    // recevait deux e-mails.
+    const emailDejaInvite = emailsDejaInvites
+        .map(e => e.toLowerCase().trim())
+        .includes(newCollaborator.email.toLowerCase().trim())
+        && newCollaborator.email.trim().length > 0;
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -230,6 +238,11 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
                         {emailSaisiInvalide && (
                             <p className="text-[11px] text-red-600 mt-1">Adresse e-mail invalide.</p>
                         )}
+                        {emailDejaInvite && (
+                            <p className="text-[11px] text-amber-600 mt-1">
+                                Ce partenaire est déjà présent sur ce dossier.
+                            </p>
+                        )}
                     </div>
 
                     {/* Skills */}
@@ -249,7 +262,7 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills }: { onClose: ()
                 <div className="p-4 bg-[#f4f6f9] flex justify-end gap-3 rounded-b-2xl">
                     <button onClick={onClose} className="px-4 py-2 text-sm font-bold text-[#0B1F38]/60 hover:text-[#0B1F38]">Annuler</button>
                     <button
-                        disabled={!newCollaborator.name.trim() || !emailValide(newCollaborator.email)}
+                        disabled={!newCollaborator.name.trim() || !emailValide(newCollaborator.email) || emailDejaInvite}
                         onClick={() => onAdd({
                             ...newCollaborator,
                             // Balises et caractères de contrôle retirés dès la saisie :
@@ -2131,9 +2144,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             // Manage-team insertedInvitations block removed because send-invitation now handles it
 
-            // 4. Refetch to sync state
+            // 4. Première synchro : reflète les groupements et suppressions déjà
+            // écrits par `manage-team`. Les invitations, elles, ne sont créées
+            // qu'à l'étape suivante par `send-invitation` — un second refetch a
+            // donc lieu après la boucle, sans quoi le partenaire invité
+            // n'apparaîtrait pas dans l'équipe.
             await fetchTenderFromDB(tenderId);
-            if (onTenderUpdate) onTenderUpdate();
 
             // --- NOTIFY new invitations (in-app + email via edge function) ---
             const inviterName = userProfile ? `${userProfile.prenom} ${userProfile.nom}` : "Un administrateur";
@@ -2180,7 +2196,27 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
             }
 
-            showToast('Partenaires mis à jour !', 'success');
+            // Les invitations viennent d'être créées par `send-invitation` :
+            // on resynchronise pour que les nouveaux partenaires apparaissent
+            // immédiatement dans l'équipe.
+            if (newInvitationsNotify.length > 0) {
+                await fetchTenderFromDB(tenderId);
+            }
+            if (onTenderUpdate) onTenderUpdate();
+
+            // Confirmation explicite : nommer le destinataire évite que
+            // l'utilisateur doute de l'envoi et relance une seconde invitation.
+            const destinataires = newInvitationsNotify
+                .map(i => i.email)
+                .filter(Boolean) as string[];
+
+            if (destinataires.length === 1) {
+                showToast(`Invitation envoyée à ${destinataires[0]}`, 'success');
+            } else if (destinataires.length > 1) {
+                showToast(`${destinataires.length} invitations envoyées`, 'success');
+            } else {
+                showToast('Partenaires mis à jour !', 'success');
+            }
 
         } catch (error) {
             console.error(error);
@@ -6154,6 +6190,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 onClose={() => setShowAddManualModal(false)}
                 onAdd={addCollaborator}
                 requiredSkills={REQUIRED_SKILLS}
+                // E-mails déjà sur le dossier (membres et invitations en cours),
+                // pour refuser une seconde invitation vers le même destinataire.
+                emailsDejaInvites={groupementMembers
+                    .filter(m => !m.deleted && m.email)
+                    .map(m => m.email as string)}
             />
         );
     };
