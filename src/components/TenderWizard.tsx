@@ -4211,10 +4211,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         const isMemberOwner = !!c.is_owner;
                                         const isCurrentUser = c.id === userProfile?.id;
                                         const hasAccount = c.hasAccount || !!c.id;
-                                        const memberType: 'creator' | 'connected' | 'invited' = isMemberOwner ? 'creator' : hasAccount ? 'connected' : 'invited';
                                         const effectiveStatus = isMemberOwner ? GROUPEMENT_STATUSES.accepte : (c.status || GROUPEMENT_STATUSES.invite);
-                                        const displayName = c.name && c.name.trim() ? c.name : c.email;
+
+                                        // L'état affiché doit refléter l'ENGAGEMENT du partenaire,
+                                        // pas la simple existence d'un compte Filao. Le badge se
+                                        // fondait sur `hasAccount` : un partenaire déjà inscrit
+                                        // apparaissait « Connecté » sans avoir ouvert le dossier,
+                                        // laissant croire au mandataire qu'il était actif.
+                                        //
+                                        //   invited  — invitation envoyée, sans réponse
+                                        //   accepted — a accepté, mais n'a encore rien déposé
+                                        //   active   — a accepté et commencé à déposer ses pièces
                                         const memberProgress = getMemberProgress(c, i);
+                                        const memberType: 'creator' | 'active' | 'accepted' | 'invited' | 'refused' =
+                                            isMemberOwner ? 'creator'
+                                                : effectiveStatus === GROUPEMENT_STATUSES.refuse ? 'refused'
+                                                    : effectiveStatus === GROUPEMENT_STATUSES.accepte
+                                                        ? (memberProgress.received > 0 ? 'active' : 'accepted')
+                                                        : 'invited';
+                                        const displayName = c.name && c.name.trim() ? c.name : c.email;
 
                                         return (
                                             <div key={c.id || i} onClick={(amIInvitee || effectiveStatus === GROUPEMENT_STATUSES.refuse) ? undefined : () => setSelectedMemberIndex(i)} className={`group relative p-2 rounded-xl border transition-all duration-200 ${amIInvitee ? '' : 'cursor-pointer hover:border-[#00A3E0]/30 hover:shadow-md'} ${isMemberOwner
@@ -4269,9 +4284,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                         <div className="flex items-center gap-2 mt-0.5">
                                                             <span className="text-[11px] text-[#0B1F38]/50 truncate">{displayName !== c.company ? displayName : ''}</span>
                                                             <p className="text-[10px] text-[#0B1F38]/40 truncate">({c.email})</p>
-                                                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 ${memberType === 'creator' ? 'text-[#00A3E0] bg-[#00A3E0]/10' : memberType === 'connected' ? 'text-green-600 bg-green-50' : 'text-orange-500 bg-orange-50'}`}>
+                                                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 ${
+                                                                memberType === 'creator' ? 'text-[#00A3E0] bg-[#00A3E0]/10'
+                                                                    : memberType === 'active' ? 'text-green-600 bg-green-50'
+                                                                        : memberType === 'accepted' ? 'text-sky-600 bg-sky-50'
+                                                                            : memberType === 'refused' ? 'text-red-500 bg-red-50'
+                                                                                : 'text-orange-500 bg-orange-50'
+                                                            }`}>
                                                                 {memberType === 'creator' && <><Crown size={9} /> Admin</>}
-                                                                {memberType === 'connected' && <><UserCheck size={9} /> Connecté</>}
+                                                                {memberType === 'active' && <><UserCheck size={9} /> Actif</>}
+                                                                {memberType === 'accepted' && <><CheckCircle size={9} /> Accepté</>}
+                                                                {memberType === 'refused' && <><XCircle size={9} /> Refusé</>}
                                                                 {memberType === 'invited' && <><Mail size={9} /> Invité</>}
                                                             </span>
                                                         </div>
