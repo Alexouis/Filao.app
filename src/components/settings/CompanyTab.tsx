@@ -701,6 +701,22 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             // La saisie vient d'être persistée : elle devient la nouvelle
             // référence, le formulaire n'est plus considéré comme modifié.
             marquerEnregistre(formData);
+
+            // Retour à l'invitation interrompue : un partenaire arrivé ici parce
+            // qu'il lui manquait une fiche entreprise doit retrouver son dossier
+            // sans avoir à le rechercher.
+            try {
+                const invitationEnAttente = sessionStorage.getItem('invitationEnAttente');
+                if (invitationEnAttente) {
+                    sessionStorage.removeItem('invitationEnAttente');
+                    // `setSaveSuccess(true)` ci-dessus affiche déjà la
+                    // confirmation ; on laisse le temps de la lire avant de
+                    // revenir au dossier.
+                    setTimeout(() => {
+                        window.location.href = `/?tab=wizard&id=${invitationEnAttente}`;
+                    }, 1500);
+                }
+            } catch { /* stockage indisponible : on reste sur la fiche */ }
             setTimeout(() => setSaveSuccess(false), 3000);
             if (isVerified) setIsEditing(false);
             onUpdate();

@@ -2439,9 +2439,35 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (accept && tenderId) await fetchTenderFromDB(tenderId);
             if (onTenderUpdate) onTenderUpdate();
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Invitation response error:", error);
-            showToast("Erreur lors de la réponse à l'invitation.", 'error');
+
+            // Le message du serveur était systématiquement écrasé par un libellé
+            // générique : l'utilisateur restait devant un bouton inerte sans
+            // savoir ce qui manquait.
+            const messageServeur = error?.message || '';
+
+            // Cas nominal du parcours partenaire : un compte fraîchement créé
+            // sur invitation n'a pas encore de fiche entreprise, et
+            // `accept-invitation` la requiert pour créer la ligne de groupement.
+            // On explique et on emmène l'utilisateur là où il peut agir.
+            const entrepriseManquante = !userProfile?.entreprise_id
+                || messageServeur.includes('entreprise');
+
+            if (entrepriseManquante) {
+                showToast(
+                    "Renseignez d'abord votre entreprise pour rejoindre ce groupement.",
+                    'warning'
+                );
+                // Retour ensuite sur l'invitation : le dossier est mémorisé pour
+                // que l'utilisateur reprenne où il s'est arrêté.
+                try {
+                    sessionStorage.setItem('invitationEnAttente', tenderId || '');
+                } catch { /* stockage indisponible : on redirige quand même */ }
+                setTimeout(() => onNavigate?.('company'), 1200);
+            } else {
+                showToast(messageServeur || "Erreur lors de la réponse à l'invitation.", 'error');
+            }
         } finally {
             setLoading(false);
         }
