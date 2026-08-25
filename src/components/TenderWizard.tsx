@@ -442,6 +442,36 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
 
     const [resentInvitations, setResentInvitations] = useState<Record<string, number>>({});
+
+    // Dernières relances, lues depuis le journal d'e-mails plutôt que du seul
+    // état local : sans cela, la date se perdait au rechargement de la page,
+    // l'anti-spam d'une heure redevenait franchissable et l'interface ne pouvait
+    // pas indiquer quand le partenaire avait été relancé pour la dernière fois.
+    useEffect(() => {
+        if (!tenderId) return;
+        let annule = false;
+        (async () => {
+            const { data } = await supabase
+                .from('emails_envoyes')
+                .select('destinataire, horodatage')
+                .eq('objet_id', tenderId)
+                .eq('type_email', 'relance_documents')
+                .order('horodatage', { ascending: false });
+
+            if (annule || !data) return;
+            const dernieres: Record<string, number> = {};
+            for (const ligne of data) {
+                const cle = (ligne.destinataire || '').toLowerCase();
+                // Trié par date décroissante : la première occurrence est la
+                // plus récente, on ignore les suivantes.
+                if (cle && !(cle in dernieres)) {
+                    dernieres[cle] = new Date(ligne.horodatage).getTime();
+                }
+            }
+            setResentInvitations(prev => ({ ...dernieres, ...prev }));
+        })();
+        return () => { annule = true; };
+    }, [tenderId]);
     const [showDeleteTenderModal, setShowDeleteTenderModal] = useState(false);
     const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
 
@@ -3358,14 +3388,31 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         })}
                                         {reqDocs.length === 0 && <p className="text-xs text-center text-gray-400 py-4 italic">Aucune pièce requise pour ce membre.</p>}
 
-                                        {!isAllDone && (
-                                            <button
-                                                onClick={() => handleRelancer(member)}
-                                                className="w-full mt-2 py-2 text-[10px] font-black text-[#0B1F38]/40 hover:text-[#0B1F38] border-2 border-dashed border-[#0B1F38]/10 rounded-xl hover:bg-white hover:border-[#0B1F38]/20 transition-all flex items-center justify-center gap-2"
-                                            >
-                                                <Mail size={12} /> ENVOYER UN RAPPEL
-                                            </button>
-                                        )}
+                                        {!isAllDone && (() => {
+                                            const cleRelance = (member.email || '').trim().toLowerCase();
+                                            const dernierRappel = resentInvitations[cleRelance];
+                                            // Verrou d'une heure : même règle que `handleRelancer`,
+                                            // reflétée ici pour que le bouton dise ce qu'il fera.
+                                            const verrouille = !!dernierRappel && (Date.now() - dernierRappel < 3600000);
+                                            return (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleRelancer(member)}
+                                                        disabled={verrouille || loading}
+                                                        className="w-full mt-2 py-2 text-[10px] font-black text-[#0B1F38]/40 hover:text-[#0B1F38] border-2 border-dashed border-[#0B1F38]/10 rounded-xl hover:bg-white hover:border-[#0B1F38]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                                    >
+                                                        <Mail size={12} /> {verrouille ? 'RAPPEL DÉJÀ ENVOYÉ' : 'ENVOYER UN RAPPEL'}
+                                                    </button>
+                                                    {dernierRappel && (
+                                                        <p className="text-[10px] text-center text-[#0B1F38]/35 mt-1.5">
+                                                            Dernier rappel : {new Date(dernierRappel).toLocaleDateString('fr-FR', {
+                                                                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                                                            })}
+                                                        </p>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                 </details>
                             );

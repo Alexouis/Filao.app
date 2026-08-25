@@ -226,6 +226,24 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // 7. Journaliser l'envoi.
+    // Sans cette trace, la date du dernier rappel n'existait que dans l'état
+    // React de l'onglet : elle disparaissait au rechargement, et l'interface ne
+    // pouvait ni l'afficher ni faire tenir l'anti-spam au-delà de la session.
+    // Best-effort : un échec de journalisation ne doit pas faire échouer un
+    // e-mail déjà parti.
+    try {
+      await adminClient.from("emails_envoyes").insert({
+        type_email: "relance_documents",
+        destinataire: email.trim().toLowerCase(),
+        destinataire_id: recipient?.id ?? null,
+        objet: `Rappel : documents manquants — ${tenderTitle}`,
+        objet_id: tenderId,
+      });
+    } catch (journalErr) {
+      console.error("Journalisation de la relance échouée:", journalErr);
+    }
+
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
