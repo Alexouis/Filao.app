@@ -3751,6 +3751,52 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             })()}
                         </div>
 
+                        {/* Lieu d'exécution.
+                            Ce champ est exigé par `validateAndGoToTeam` mais ne figurait
+                            pas dans ce formulaire : l'utilisateur était bloqué à la
+                            validation sur un champ qu'il n'avait aucun moyen de
+                            renseigner. Même composant que la fiche détaillée : sélection
+                            multiple par région, avec retrait au clic. */}
+                        <div className="md:col-span-2">
+                            <label className={labelStyle}>Lieu d'exécution <span className="text-red-500">*</span></label>
+                            <div className="relative">
+                                <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none z-10" />
+                                <select
+                                    value=""
+                                    onChange={(e) => {
+                                        if (e.target.value && !formData.lieu_execution.includes(e.target.value)) {
+                                            setFormData(prev => ({ ...prev, lieu_execution: [...prev.lieu_execution, e.target.value] }));
+                                        }
+                                    }}
+                                    className={`${inputGlassPlain} w-full appearance-none cursor-pointer pl-9`}
+                                >
+                                    <option value="">Ajouter une région...</option>
+                                    {DEPARTEMENTS.map(d => (
+                                        <option key={d} value={d} disabled={formData.lieu_execution.includes(d)}>{d}</option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
+                            </div>
+                            {formData.lieu_execution.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-3">
+                                    {formData.lieu_execution.map(lieu => (
+                                        <span key={lieu} className="bg-[#E8F4FD] text-[#0078B8] text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 border border-[#00A3E0]/10">
+                                            {lieu}
+                                            <button
+                                                onClick={() => setFormData(prev => ({
+                                                    ...prev,
+                                                    lieu_execution: prev.lieu_execution.filter(l => l !== lieu),
+                                                }))}
+                                                className="hover:text-red-500 transition-colors"
+                                            >
+                                                <X size={11} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Montant — optional */}
                         <div className="md:col-span-2">
                             <label className={labelStyle}>Montant estimé (€ HT) <span className="text-[#0B1F38]/30 font-normal normal-case">— optionnel</span></label>
