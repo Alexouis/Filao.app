@@ -14,6 +14,7 @@ import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers'
 import { GLASS_STYLE } from '../lib/styles';
 import { Plus, Clock, TrendingUp, TrendingDown, Minus, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
+import { ErrorState } from './ui/StateViews';
 
 interface DashboardProps {
   onNavigate: (tab: any, id?: string | null) => void;
@@ -37,6 +38,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [tenders, setTenders] = useState<Tender[]>(cachedTenders || []);
   const [activeTendersCount, setActiveTendersCount] = useState(0);
   const [loading, setLoading] = useState(!cachedTenders);
+  // Échec du chargement : évite un tableau de bord vide trompeur.
+  const [loadError, setLoadError] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
 
   const [stats, setStats] = useState<{ winRate: number; winRateTrend: number | null }>({
@@ -192,6 +195,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const fetchTenders = async () => {
     try {
       setLoading(true);
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user || !user.email) {
@@ -266,6 +270,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
     } catch (error) {
       console.error('Error fetching tenders:', error);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -426,6 +431,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-filao-primary"></div>
           <p className="mt-4 text-filao-dark/70">Chargement des données...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="animate-fade-in p-2 md:p-4 flex items-center justify-center min-h-[400px]">
+        <ErrorState
+          title="Impossible de charger votre tableau de bord"
+          description="Les données n'ont pas pu être récupérées. Vérifiez votre connexion puis réessayez."
+          onRetry={fetchTenders}
+        />
       </div>
     );
   }

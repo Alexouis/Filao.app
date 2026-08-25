@@ -28,9 +28,10 @@ import {
     Loader2 as LoaderIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { STATUSES, getFormeJuridiqueLabel } from '@/config';
+import { STATUSES } from '@/config';
 import { Entreprise } from '@/types';
 import { useToast } from './ui/Toast';
+import { LoadingState, ErrorState } from './ui/StateViews';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { notifyNetworkInviteAccepted } from '../helpers/notificationHelpers';
@@ -74,6 +75,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [filaoNetwork, setFilaoNetwork] = useState<NetworkCompany[]>([]);
     const [pendingInvites, setPendingInvites] = useState<PendingNetworkInvite[]>([]);
     const [loading, setLoading] = useState(true);
+    // Échec du chargement du réseau : distingue « réseau vide » de « erreur ».
+    const [loadError, setLoadError] = useState(false);
     const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
@@ -83,7 +86,6 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [showFilters, setShowFilters] = useState(true);
 
     // Specific Filters
-    const [filterVille, setFilterVille] = useState('');
     const [filterRegion, setFilterRegion] = useState('');
     const [filterSpecialty, setFilterSpecialty] = useState('');
     const [filterExpertiseTag, setFilterExpertiseTag] = useState('');
@@ -124,7 +126,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                 supabase.from('ref_domains').select('*').order('label'),
                 supabase.from('ref_specialties').select('*').not('label', 'ilike', 'Autre%').order('label'),
                 supabase.from('ref_geo_zones').select('*').order('label'),
-                supabase.from('ref_expertise_tags').select('*').not('label', 'ilike', 'Autre%').order('label')
+                supabase.from('ref_expertise_tags').select('*').order('label')
             ]);
             setRefDomains(doms.data || []);
             setRefSpecialties(specs.data || []);
@@ -141,6 +143,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const fetchNetwork = async () => {
         try {
             setLoading(true);
+            setLoadError(false);
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
@@ -242,6 +245,9 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         } catch (error) {
             console.error('Error fetching network:', error);
             showToast("Erreur lors du chargement du réseau", 'error');
+            // Le toast disparaît ; sans état persistant, l'écran retombait sur
+            // « aucune entreprise », message trompeur après un échec.
+            setLoadError(true);
             setLoading(false);
         }
     };
@@ -528,13 +534,10 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             // Taxonomic matching
             const cTax = companiesSpecialties[c.id];
             
-            // Ville matching: sur la ville du siège de l'entreprise.
-            const matchesVille = filterVille === '' ||
-                (c.ville && c.ville.toLowerCase() === filterVille.toLowerCase());
-
-            // Région matching: sur les zones géographiques d'intervention (geo_zones).
-            const matchesRegion = filterRegion === '' ||
-                (cTax && cTax.geo_zones.some(gzid => refGeoZones.find(z => z.id === gzid)?.label.toLowerCase() === filterRegion.toLowerCase()));
+            // Region matching: check company ville OR geo_zones labels
+            const matchesRegion = filterRegion === '' || 
+                (c.ville && c.ville.toLowerCase().includes(filterRegion.toLowerCase())) || 
+                (cTax && cTax.geo_zones.some(gzid => refGeoZones.find(z => z.id === gzid)?.label.toLowerCase().includes(filterRegion.toLowerCase())));
             
             const matchesForme = filterForme === '' || c.forme_juridique === filterForme;
             const matchesRating = filterRating === '' || (c.average_rating !== undefined && c.average_rating >= Number(filterRating));
@@ -544,21 +547,15 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             const matchesSpecialty = filterSpecialty === '' || (cTax && cTax.specialties.includes(filterSpecialty));
             const matchesExpertiseTag = filterExpertiseTag === '' || (cTax && cTax.expertise_tags.includes(filterExpertiseTag));
 
-            return matchesSearch && matchesVille && matchesRegion && matchesSpecialty && matchesForme && matchesRating && matchesNature && matchesDomain && matchesExpertiseTag;
+            return matchesSearch && matchesRegion && matchesSpecialty && matchesForme && matchesRating && matchesNature && matchesDomain && matchesExpertiseTag;
         });
-    }, [activeTab, myNetwork, filaoNetwork, searchQuery, filterVille, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain, companiesSpecialties, refGeoZones]);
+    }, [activeTab, myNetwork, filaoNetwork, searchQuery, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain, companiesSpecialties, refGeoZones]);
 
-    // Villes des sièges d'entreprise (filtre « Ville »).
-    const uniqueVilles = useMemo(
-        () => [...new Set([...myNetwork, ...filaoNetwork].map(c => c.ville).filter(Boolean))].sort(),
-        [myNetwork, filaoNetwork]
-    );
-
-    // Zones géographiques d'intervention (filtre « Région »).
-    const uniqueRegions = useMemo(
-        () => [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.geo_zones).map(zid => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean))].sort(),
-        [companiesSpecialties, refGeoZones]
-    );
+    const uniqueRegions = useMemo(() => {
+        const allVilles = [...new Set([...myNetwork, ...filaoNetwork].map(c => c.ville).filter(Boolean))];
+        const allZones = [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.geo_zones).map(zid => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean))];
+        return [...new Set([...allVilles, ...allZones])].sort();
+    }, [myNetwork, filaoNetwork, companiesSpecialties, refGeoZones]);
 
     const uniqueSpecialties = useMemo(() => {
         return [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.specialties).map(sid => refSpecialties.find(s => s.id === sid)?.label).filter(Boolean))].sort();
@@ -568,7 +565,6 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
 
     const activeFilterCount = useMemo(() => {
         let count = 0;
-        if (filterVille) count++;
         if (filterRegion) count++;
         if (filterSpecialty) count++;
         if (filterExpertiseTag) count++;
@@ -577,10 +573,9 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         if (filterNature) count++;
         if (filterDomain) count++;
         return count;
-    }, [filterVille, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain]);
+    }, [filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain]);
 
     const clearAllFilters = () => {
-        setFilterVille('');
         setFilterRegion('');
         setFilterSpecialty('');
         setFilterExpertiseTag('');
@@ -903,7 +898,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                         <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Forme juridique</label>
                                         <select value={filterForme} onChange={(e) => setFilterForme(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
                                             <option value="">Toutes</option>
-                                            {uniqueFormes.map(f => <option key={f} value={f}>{getFormeJuridiqueLabel(f)}</option>)}
+                                            {uniqueFormes.map(f => <option key={f} value={f}>{f}</option>)}
                                         </select>
                                     </div>
 
@@ -926,15 +921,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                     </div>
 
                                     <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Ville</label>
-                                        <select value={filterVille} onChange={(e) => setFilterVille(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
-                                            <option value="">Toutes</option>
-                                            {uniqueVilles.map(v => <option key={v} value={v}>{v}</option>)}
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Région d'intervention</label>
+                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Ville / Région</label>
                                         <select value={filterRegion} onChange={(e) => setFilterRegion(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
                                             <option value="">Toutes</option>
                                             {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
@@ -944,7 +931,13 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
 
                                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
                                     {loading ? (
-                                        <div className="flex justify-center py-20"><LoaderIcon className="animate-spin text-[#00A3E0]" size={32} /></div>
+                                        <LoadingState />
+                                    ) : loadError ? (
+                                        <ErrorState
+                                            title="Impossible de charger votre réseau"
+                                            description="Les entreprises n'ont pas pu être récupérées. Vérifiez votre connexion puis réessayez."
+                                            onRetry={fetchNetwork}
+                                        />
                                     ) : (
                                         <>
                                             {activeTab === 'network' && pendingInvites.length > 0 && (
