@@ -3783,8 +3783,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             return { id: sid, label: ref ? ref.label : "Profil expert" };
         });
 
+        // Score de DOSSIER (pas un indicateur personnel) : part de 40 % et monte
+        // à 95 % selon la proportion de compétences requises couvertes par
+        // l'équipe. Tous les membres doivent donc lire la même valeur.
+        //
+        // Le repli à 85 % quand aucune compétence n'est requise a longtemps
+        // masqué un écart : un cotraitant qui ne pouvait pas lire
+        // `reponses_ao_specialties` recevait une liste vide et voyait 85 %,
+        // pendant que le mandataire calculait 40 %. La policy est corrigée
+        // (migrations 072 et 074), mais on distingue désormais les deux cas pour
+        // qu'une régression de lecture ne se traduise plus par un score
+        // faussement optimiste.
         const successScore = (() => {
-            const reqCount = formData.required_specialty_ids.length;
+            const reqCount = formData.required_specialty_ids?.length ?? 0;
             if (reqCount === 0) return 85;
             const coveredCount = formData.required_specialty_ids.filter(sid => allCoveredSpecialtyIds.includes(sid)).length;
             return Math.round(40 + (coveredCount / reqCount) * 55);
@@ -4153,7 +4164,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             </div>
                                         </div>
                                         <div className="min-w-0">
-                                            <p className="text-[10px] text-[#0B1F38]/50 leading-snug">Lieu, délai, compétences</p>
+                                            <p className="text-[10px] text-[#0B1F38]/50 leading-snug">Couverture des compétences requises par l'équipe</p>
                                             {missingSpecialties.length > 0 && (
                                                 <p className="text-[10px] font-bold text-[#00A3E0] mt-1 leading-snug">+{potentialGain}% via partenaire {missingSpecialties[carouselIndex % missingSpecialties.length].label}</p>
                                             )}
