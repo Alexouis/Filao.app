@@ -46,6 +46,9 @@ export function useHistoryStep(
   onExitRef.current = onExit;
   const stepRef = useRef(step);
   stepRef.current = step;
+  // Vrai pendant une sortie volontaire : le cleanup de démontage laisse alors
+  // `sortir` gérer seul le rembobinage de l'historique.
+  const sortieEnCours = useRef(false);
 
   // Étape lue depuis l'URL (source de vérité). Absente => étape 0.
   const urlStepRaw = searchParams.get(key);
@@ -59,8 +62,10 @@ export function useHistoryStep(
       p.set(key, String(stepRef.current));
       setSearchParams(p, { replace: true });
     }
-    // Nettoyage au démontage : retirer le paramètre d'étape.
+    // Nettoyage au démontage : retirer le paramètre d'étape — SAUF si une sortie
+    // volontaire (sortir) a déjà pris en charge le rembobinage de l'historique.
     return () => {
+      if (sortieEnCours.current) return;
       const p = new URLSearchParams(window.location.search);
       if (p.has(key)) {
         p.delete(key);
@@ -97,5 +102,26 @@ export function useHistoryStep(
     window.history.back();
   }, []);
 
-  return { reculer, allerA };
+  /**
+   * Sortie « propre » du wizard (validation ou annulation volontaire).
+   *
+   * Chaque avance a poussé une entrée `wstep=k`. Si on quittait en changeant
+   * simplement de vue React, ces entrées resteraient dans la pile : « Précédent »
+   * ferait alors défiler `wstep=3,2,1…` dans l'URL sans effet visible. On
+   * consomme donc ces entrées avec un seul `history.go(-step)` (retour à l'entrée
+   * d'ancrage antérieure au wizard) avant d'exécuter l'action de sortie.
+   *
+   * `history.go` est asynchrone ; l'action de vue (setCurrentView côté parent)
+   * est indépendante de l'URL et peut s'exécuter immédiatement.
+   */
+  const sortir = useCallback((action: () => void) => {
+    const n = stepRef.current;
+    sortieEnCours.current = true;
+    if (n > 0) {
+      try { window.history.go(-n); } catch { /* pile indisponible */ }
+    }
+    action();
+  }, []);
+
+  return { reculer, allerA, sortir };
 }

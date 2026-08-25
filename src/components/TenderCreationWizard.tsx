@@ -123,7 +123,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     const [step, setStep] = useState(0);
     // Historique navigateur : « Précédent » recule d'une étape au lieu de sortir
     // du wizard. `reculer` délègue à history.back() ; l'avancée empile une entrée.
-    const { reculer, allerA } = useHistoryStep(step, setStep, { key: 'wstep', onExit: onCancel });
+    const { reculer, allerA, sortir } = useHistoryStep(step, setStep, { key: 'wstep', onExit: onCancel });
     // Horodatage d'entrée dans l'étape courante, pour mesurer `duree_etape_s`
     // (performance perçue) à chaque transition — instrumentation analytics.
     const debutEtapeRef = useRef<number>(Date.now());
@@ -848,7 +848,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                             <p style={{ fontSize: 12, margin: 0 }}><span style={{ color: "#999" }}>Limite : </span><span style={{ color: R, fontWeight: 500 }}>{formData.date_limite ? new Date(formData.date_limite).toLocaleDateString() : "—"}</span></p>
                         </div>
                     </div>
-                    <div onClick={onCancel} style={{ width: 32, height: 32, borderRadius: 8, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2 }}>
+                    <div onClick={() => sortir(onCancel)} style={{ width: 32, height: 32, borderRadius: 8, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginTop: 2 }}>
                         <Icon type="x" size={16} color="#666" />
                     </div>
                 </div>
@@ -873,7 +873,9 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                             if (!isReady) return;
                             if (step < TOTAL - 1) allerA(step + 1); 
                             else {
-                                onComplete(grpType === 'solidaire' ? 'solidaire' : grpType === 'conjoint' ? 'conjoint' : undefined, role);
+                                // Sortie par validation : on rembobine les entrées
+                                // wstep avant de laisser le parent changer de vue.
+                                sortir(() => onComplete(grpType === 'solidaire' ? 'solidaire' : grpType === 'conjoint' ? 'conjoint' : undefined, role));
                             }
                         }}
                         style={{ 
