@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Variables d'environnement (jamais commitées)
+.env
+.env.*
+!.env.example
+tests/cloisonnement.env
