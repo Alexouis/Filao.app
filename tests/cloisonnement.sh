@@ -145,33 +145,64 @@ fi
 
 echo
 echo "── C7..C8 — Jetons d'invitation ───────────────────────────"
+# L'accès d'un invité sans compte ne passe pas par une Edge Function mais par la
+# fonction RPC `get_invitation_by_token`, qui valide le jeton et ne renvoie que
+# les informations non confidentielles du dossier. C'est donc elle qu'on teste.
+#
+# Une RPC PostgREST renvoie HTTP 200 même quand elle ne trouve rien : on juge sur
+# le CONTENU (aucune donnée exploitable), pas sur le code de statut.
+
+rpc_invitation() { # $1 = jeton
+  curl -s -X POST "$REST/rpc/get_invitation_by_token" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"p_token\":\"$1\"}"
+}
 
 # C7 — Jeton appartenant à un tiers : ne doit rien renvoyer d'exploitable.
 if [[ -n "${TOKEN_TIERS:-}" ]]; then
-  rep="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/invitation-view" \
-    -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
-    -d "{\"token\":\"$TOKEN_TIERS\"}")"
-  if [[ "$rep" == "200" ]]; then
-    resultat "C7 Jeton d'un tiers — accès refusé" ko "HTTP 200 alors qu'un refus est attendu"
+  corps="$(rpc_invitation "$TOKEN_TIERS")"
+  if [[ "$corps" == "[]" || "$corps" == "null" || -z "$corps" ]]; then
+    resultat "C7 Jeton d'un tiers — aucune donnée renvoyée" ok ""
   else
-    resultat "C7 Jeton d'un tiers — accès refusé (HTTP $rep)" ok ""
+    resultat "C7 Jeton d'un tiers — aucune donnée renvoyée" ko "réponse : ${corps:0:200}"
   fi
 else
   echo "  (ignoré) C7 — TOKEN_TIERS non renseigné"
 fi
 
-# C8 — Jeton expiré : refus explicite, sans divulguer le contenu du dossier.
+# C8 — Jeton expiré : refus, sans divulguer le contenu du dossier.
 if [[ -n "${TOKEN_EXPIRE:-}" ]]; then
-  rep="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/invitation-view" \
-    -H "apikey: $SUPABASE_ANON_KEY" -H "Content-Type: application/json" \
-    -d "{\"token\":\"$TOKEN_EXPIRE\"}")"
-  if [[ "$rep" == "200" ]]; then
-    resultat "C8 Jeton expiré — accès refusé" ko "HTTP 200 alors qu'un refus est attendu"
+  corps="$(rpc_invitation "$TOKEN_EXPIRE")"
+  if [[ "$corps" == "[]" || "$corps" == "null" || -z "$corps" ]]; then
+    resultat "C8 Jeton expiré — aucune donnée renvoyée" ok ""
+  elif echo "$corps" | grep -qi "expir"; then
+    # Certaines implémentations renvoient un statut explicite plutôt qu'un vide :
+    # acceptable tant qu'aucune donnée du dossier n'accompagne le message.
+    if echo "$corps" | grep -qiE "montant|acheteur|titre"; then
+      resultat "C8 Jeton expiré — aucune donnée renvoyée" ko "le refus expose des données : ${corps:0:200}"
+    else
+      resultat "C8 Jeton expiré — refus explicite sans données" ok ""
+    fi
   else
-    resultat "C8 Jeton expiré — accès refusé (HTTP $rep)" ok ""
+    resultat "C8 Jeton expiré — aucune donnée renvoyée" ko "réponse : ${corps:0:200}"
   fi
 else
   echo "  (ignoré) C8 — TOKEN_EXPIRE non renseigné"
+fi
+
+# C9 — Le jeton ne doit JAMAIS exposer de montant, même valide. C'est la limite
+# de ce que voit un invité : intitulé, acheteur, date limite, mandataire, rôle
+# proposé, pièces demandées — rien de plus.
+if [[ -n "${TOKEN_VALIDE:-}" ]]; then
+  corps="$(rpc_invitation "$TOKEN_VALIDE")"
+  if echo "$corps" | grep -qiE '"montant|budget|prix'; then
+    resultat "C9 Jeton valide — aucun montant exposé" ko "un montant figure dans la réponse"
+  else
+    resultat "C9 Jeton valide — aucun montant exposé" ok ""
+  fi
+else
+  echo "  (ignoré) C9 — TOKEN_VALIDE non renseigné"
 fi
 
 echo

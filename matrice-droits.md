@@ -105,6 +105,21 @@ Légende : ✅ autorisé · ⛔ refusé · 🔒 soi-même uniquement
 > Téléphone, date de naissance, TVA et préférences ne sortent jamais de la table
 > personnelle.
 
+> ⚠️ **Règle sur les vues.** Une vue s'exécute avec les droits de son
+> propriétaire et **contourne donc le RLS de la table sous-jacente**. Par
+> ailleurs, Supabase accorde par défaut INSERT/UPDATE/DELETE à `anon` et
+> `authenticated` sur tout nouvel objet du schéma `public`. Une vue
+> auto-modifiable ainsi exposée permet d'écrire dans la table protégée en
+> contournant ses policies.
+>
+> **Toute vue doit donc être explicitement ramenée en lecture seule :**
+> ```sql
+> REVOKE ALL ON public.<vue> FROM anon, authenticated, public;
+> GRANT SELECT ON public.<vue> TO authenticated;
+> ALTER VIEW public.<vue> SET (security_barrier = true);
+> ```
+> Corrigé pour l'ensemble des vues par la migration 071.
+
 ### Référentiels et facturation
 
 | Table | Accès | Justification |
@@ -152,6 +167,19 @@ les migrations 041 et 043.
    porte deux policies pour un même verbe, et qu'aucune condition n'ignore à la
    fois `auth.uid()` et `app.entreprise_courante()` — hormis les référentiels
    listés ci-dessus.
+
+4. Contrôler qu'**aucune vue n'est modifiable** par un utilisateur (le RLS ne
+   s'applique pas aux vues, voir la règle ci-dessus) :
+   ```sql
+   select table_name, grantee, privilege_type
+     from information_schema.role_table_grants
+    where table_schema = 'public'
+      and grantee in ('anon','authenticated')
+      and privilege_type <> 'SELECT'
+      and table_name in (select table_name from information_schema.views
+                          where table_schema = 'public');
+   ```
+   Attendu : aucune ligne. À rejouer **après chaque création de vue**.
 
 ---
 
