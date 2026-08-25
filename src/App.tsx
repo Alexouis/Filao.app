@@ -29,6 +29,7 @@ import { ChatProvider } from './context/ChatContext';
 import { ChatCenter } from './components/chat/ChatCenter';
 import { captureAcquisitionParams } from './helpers/acquisitionHelpers';
 import { initWebVitals } from './helpers/webVitals';
+import { peutQuitter } from './helpers/useUnsavedChanges';
 // Success Modal Component
 const SuccessModal = ({ onClose }: { onClose: () => void }) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -63,6 +64,10 @@ const AppContent = () => {
   const editingTenderId = searchParams.get('id');
 
   const navigateTo = (tab: NavItem | 'wizard', id: string | null = null) => {
+    // Garde « saisie non enregistrée » : un écran portant un formulaire modifié
+    // peut demander confirmation avant qu'on le quitte. Si l'utilisateur choisit
+    // de rester, on abandonne la navigation.
+    if (!peutQuitter()) return;
     setSearchParams(prev => {
       const p = new URLSearchParams(prev);
       p.set('tab', tab);

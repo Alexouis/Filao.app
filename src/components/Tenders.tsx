@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from './ui/Toast';
+import { ErrorState } from './ui/StateViews';
 import {
   CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
   Pencil, Trash2, X, Plus,
@@ -54,6 +55,8 @@ export const Tenders: React.FC<TendersProps> = ({
   const [existingCollaborators, setExistingCollaborators] = useState<any[]>([]);
 
   const [loading, setLoading] = useState(!cachedTenders);
+  // Échec du chargement : distingue « aucun dossier » de « impossible de charger ».
+  const [loadError, setLoadError] = useState(false);
 
   // Action Menu State
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -243,6 +246,7 @@ export const Tenders: React.FC<TendersProps> = ({
   const fetchTenders = async () => {
     try {
       setLoading(true);
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user || !user.email) {
@@ -303,6 +307,10 @@ export const Tenders: React.FC<TendersProps> = ({
       }
     } catch (error) {
       console.error('Error fetching tenders:', error);
+      // Sans état d'erreur explicite, un échec de chargement affichait l'état
+      // vide (« Aucun appel d'offres trouvé »), message trompeur : l'utilisateur
+      // croyait n'avoir aucun dossier alors que la requête avait échoué.
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -980,7 +988,13 @@ export const Tenders: React.FC<TendersProps> = ({
             onChange={fetchTenders}
           />
 
-          {processedTenders.length === 0 ? (
+          {loadError ? (
+            <ErrorState
+              title="Impossible de charger vos appels d'offres"
+              description="La liste n'a pas pu être récupérée. Vérifiez votre connexion puis réessayez."
+              onRetry={fetchTenders}
+            />
+          ) : processedTenders.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-[#0B1F38]/40 gap-4">
                 {showInvitationsOnly ? (
                   <>

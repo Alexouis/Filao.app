@@ -5,6 +5,7 @@ import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
 import { useAuth } from '../../context/AuthContext';
+import { useUnsavedChanges, useDirtyState } from '../../helpers/useUnsavedChanges';
 
 interface ProfileTabProps {
     userProfile: UserProfile | null;
@@ -45,6 +46,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
 
     const [notifPrefs, setNotifPrefs] = useState(DEFAULT_PREFS);
 
+    // Protection de la saisie non enregistrée (sauvegarde manuelle par bouton).
+    const { estModifie, marquerEnregistre } = useDirtyState(formData);
+    useUnsavedChanges(estModifie);
+
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -53,17 +58,21 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
 
     useEffect(() => {
         if (userProfile) {
-            setFormData({
+            const charge = {
                 prenom: userProfile.prenom || '',
                 nom: userProfile.nom || '',
                 date_naissance: userProfile.date_naissance || '',
                 telephone: userProfile.telephone || '',
                 photo_url: userProfile.photo_url || '',
-            });
+            };
+            setFormData(charge);
+            // Les données chargées deviennent la référence « enregistré ».
+            marquerEnregistre(charge);
             if (userProfile.notification_preferences) {
                 setNotifPrefs({ ...DEFAULT_PREFS, ...userProfile.notification_preferences });
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userProfile]);
 
     const handleInputChange = (field: string, value: string) => {
@@ -140,6 +149,8 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
                 .eq('id', userProfile.id);
             if (updateError) throw updateError;
             setSuccess(true);
+            // Saisie persistée : nouvelle référence, formulaire non modifié.
+            marquerEnregistre(formData);
             onUpdate();
             setTimeout(() => setSuccess(false), 3000);
         } catch (err: any) {
