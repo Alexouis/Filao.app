@@ -45,7 +45,18 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                 // Analytics : intention de souscription confirmée (session Checkout
                 // ouverte). La souscription effective est confirmée côté webhook.
                 track('offre_souscrite', {});
-                window.open(response.data.url, '_blank');
+
+                // Redirection dans l'ONGLET COURANT.
+                //
+                // `window.open(url, '_blank')` était bloqué silencieusement par les
+                // navigateurs : l'ouverture d'onglet n'est autorisée que dans la
+                // foulée immédiate d'un clic, or elle survient ici APRÈS l'appel
+                // réseau qui crée la session. Le lien vers Stripe existait bien,
+                // mais rien ne se passait à l'écran — ni redirection, ni erreur.
+                //
+                // Le paiement se fait donc dans le même onglet ; Stripe ramène
+                // ensuite l'utilisateur via ses URLs de retour.
+                window.location.href = response.data.url;
             } else {
                 console.error('Checkout error:', response.error || response.data?.error);
                 setErrorMessage("Impossible d'initialiser le paiement. Veuillez contacter le support. (Erreur configuration)");

@@ -54,7 +54,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
             });
 
             if (response.data?.url) {
-                window.open(response.data.url, '_blank');
+                // Même correctif que la souscription : l'ouverture d'un nouvel
+                // onglet après un appel réseau est bloquée par les navigateurs,
+                // et le bouton paraissait sans effet. On redirige dans l'onglet
+                // courant ; Stripe ramène l'utilisateur via son URL de retour.
+                window.location.href = response.data.url;
             } else {
                 console.error('Portal error:', response.error || response.data?.error);
             }
