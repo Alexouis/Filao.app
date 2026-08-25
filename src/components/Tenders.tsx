@@ -647,7 +647,22 @@ export const Tenders: React.FC<TendersProps> = ({
       await fetchTenders();
     } catch (err: any) {
       console.error('Réponse à invitation échouée', err);
-      showToast(err?.message || "Impossible de répondre à l'invitation.", 'error');
+
+      // Même traitement que dans le détail d'un AO : sans fiche entreprise,
+      // `accept-invitation` ne peut pas créer la ligne de groupement (c'est
+      // `entreprise_id` qui porte tout le cloisonnement). On explique et on
+      // emmène l'utilisateur là où il peut agir, plutôt que d'afficher un
+      // message d'erreur technique devant lequel il ne peut rien faire.
+      const messageServeur = err?.message || '';
+      if (!userProfile?.entreprise_id || messageServeur.includes('entreprise')) {
+        showToast("Renseignez d'abord votre entreprise pour rejoindre ce groupement.", 'warning');
+        try {
+          sessionStorage.setItem('invitationEnAttente', tenderId);
+        } catch { /* stockage indisponible : on redirige quand même */ }
+        setTimeout(() => onNavigate?.('company'), 1200);
+      } else {
+        showToast(messageServeur || "Impossible de répondre à l'invitation.", 'error');
+      }
     } finally {
       setRepondInvitation(null);
     }
