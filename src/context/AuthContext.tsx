@@ -158,9 +158,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     useEffect(() => {
+        // Identité du compte actuellement actif, pour détecter un changement de
+        // compte dans le navigateur (BUG-27, voir plus bas).
+        let identiteActive: string | null = null;
+
         // Check initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
+            // Amorce l'identité de référence pour la détection de changement de
+            // compte (voir BUG-27 plus bas).
+            if (session?.user?.id) identiteActive = session.user.id;
             if (session) {
                 fetchUserProfile(session.user.id);
             }
@@ -173,7 +180,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // deux cas. Le premier événement au montage est ignoré pour ne pas
         // journaliser une session déjà ouverte comme une nouvelle connexion.
         let premierEvenement = true;
+        // BUG-27 — écrasement silencieux de session.
+        // Supabase conserve la session dans le localStorage, partagé par tous les
+        // onglets du navigateur. Se connecter avec un second compte écrase donc
+        // le premier : l'onglet resté ouvert continue d'afficher les données de
+        // l'ancien compte, potentiellement celles d'une autre entreprise. Dans
+        // une application où des concurrents cohabitent, ce n'est pas acceptable.
+        // On mémorise l'identité active et on recharge l'application dès qu'elle
+        // change, après en avoir informé l'utilisateur.
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            const nouvelleIdentite = session?.user?.id ?? null;
+            if (
+                identiteActive !== null &&
+                nouvelleIdentite !== null &&
+                nouvelleIdentite !== identiteActive
+            ) {
+                // Changement de compte détecté (souvent depuis un autre onglet).
+                // Un rechargement complet garantit qu'aucune donnée du compte
+                // précédent ne subsiste dans l'état de l'application.
+                window.alert(
+                    "Vous vous êtes connecté avec un autre compte dans ce navigateur. " +
+                    "La page va être rechargée pour afficher les données du compte actif."
+                );
+                window.location.reload();
+                return;
+            }
+            identiteActive = nouvelleIdentite;
+
             setSession(session);
             if (session) {
                 // If this is an OAuth sign-in, save the provider tokens to DB
