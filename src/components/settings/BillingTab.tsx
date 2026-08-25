@@ -112,7 +112,35 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     const offre = forfait(userProfile?.plan);
     const currentPlanKey = offre.code;
     const currentPlanInfo = PLANS.find(p => p.id === currentPlanKey);
-    const usedStorage = (userProfile as any)?.storage_used || 0;
+
+    // Consommation réelle, lue depuis le stockage plutôt que du compteur
+    // `storage_used` : celui-ci n'existe qu'en mémoire côté front et retombait à
+    // zéro à chaque rechargement, affichant « 0 Mo » même après un dépôt de
+    // 25 Mo. On part de la valeur en mémoire le temps de la requête, pour ne pas
+    // faire clignoter l'affichage.
+    const [usedStorage, setUsedStorage] = useState<number>((userProfile as any)?.storage_used || 0);
+
+    useEffect(() => {
+        const entrepriseId = userProfile?.entreprise_id;
+        if (!entrepriseId) return;
+        let annule = false;
+        (async () => {
+            try {
+                const { data, error } = await supabase.rpc('stockage_consomme_entreprise', {
+                    p_entreprise: entrepriseId,
+                });
+                if (!annule && !error && data !== null && data !== undefined) {
+                    setUsedStorage(Number(data) || 0);
+                }
+            } catch (err) {
+                // Échec de lecture : on conserve la valeur affichée plutôt que
+                // de montrer zéro, qui serait trompeur.
+                console.warn('Lecture du stockage consommé échouée', err);
+            }
+        })();
+        return () => { annule = true; };
+    }, [userProfile?.entreprise_id]);
+
     const totalStorage = offre.maxStockageOctets;
     // Stockage illimité : aucun pourcentage n'a de sens, la barre reste vide.
     const storagePercentage = totalStorage
