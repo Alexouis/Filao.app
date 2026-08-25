@@ -4640,10 +4640,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     {!tenderId ? (
                         <div className="flex gap-3">
                             <button onClick={() => naviguerVue('results')} className="px-5 py-2.5 bg-white border-2 border-red-100 hover:border-red-200 text-red-500 font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2">
-                                <XCircle size={18} /> NO GO
+                                <XCircle size={18} /> Abandonner le dossier
                             </button>
                             <button onClick={() => handleGoToVerification()} className="px-6 py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center gap-2">
-                                {loading ? <Loader2 className="animate-spin" /> : <><CheckCircle size={18} /> GO - CRÉER LE DOSSIER</>}
+                                {loading ? <Loader2 className="animate-spin" /> : <><CheckCircle size={18} /> Confirmer la réponse</>}
                             </button>
                         </div>
                     ) : isOwner ? (
