@@ -692,21 +692,30 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
 
             let entId = entrepriseData?.id;
 
+            // PostgreSQL autorise plusieurs NULL sous une contrainte d'unicité,
+            // mais deux chaînes vides entrent en collision : envoyer `siret: ''`
+            // faisait échouer toute création d'entreprise sans SIRET dès qu'une
+            // autre ligne portait déjà la chaîne vide. On normalise donc tous
+            // les champs texte optionnels — le problème vaut pour chacun d'eux,
+            // pas seulement le SIRET.
+            const vide = (v: unknown) =>
+                typeof v === 'string' && v.trim() === '' ? null : v;
+
             const companyPayload = {
                 nom: formData.nom,
-                siret: formData.siret,
-                adresse: formData.adresse,
-                ville: formData.ville,
-                code_postal: formData.code_postal,
-                taille: formData.taille,
-                forme_juridique: formData.forme_juridique,
-                code_naf: formData.code_naf,
-                libelle_naf: formData.libelle_naf,
-                date_creation: formData.date_creation,
-                prenom: formData.prenom || null,
-                nom_famille: formData.nom_famille || null,
+                siret: vide(formData.siret),
+                adresse: vide(formData.adresse),
+                ville: vide(formData.ville),
+                code_postal: vide(formData.code_postal),
+                taille: vide(formData.taille),
+                forme_juridique: vide(formData.forme_juridique),
+                code_naf: vide(formData.code_naf),
+                libelle_naf: vide(formData.libelle_naf),
+                date_creation: vide(formData.date_creation),
+                prenom: vide(formData.prenom),
+                nom_famille: vide(formData.nom_famille),
                 effectif: formData.effectif || 1,
-                site_web: formData.site_web || null,
+                site_web: vide(formData.site_web),
                 siret_verified: isVerified,
             };
 
@@ -794,7 +803,22 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             if (isVerified) setIsEditing(false);
             onUpdate();
         } catch (err: any) {
-            setError(err.message);
+            // Une violation de contrainte d'unicité (23505) remontait telle
+            // quelle : l'utilisateur lisait « duplicate key value violates
+            // unique constraint », message que rien ne lui permet d'exploiter.
+            // On le traduit en énoncé métier, et aucun message SQL ne parvient
+            // plus à l'écran.
+            if (err?.code === '23505') {
+                setError(
+                    typeof err?.message === 'string' && err.message.includes('siret')
+                        ? "Une entreprise avec ce SIRET est déjà enregistrée sur Filao."
+                        : "Ces informations correspondent à une entreprise déjà enregistrée sur Filao."
+                );
+            } else if (typeof err?.message === 'string' && /constraint|duplicate key|violates/i.test(err.message)) {
+                setError("Enregistrement impossible : ces informations entrent en conflit avec une entreprise existante.");
+            } else {
+                setError(err?.message || "Erreur lors de l'enregistrement de l'entreprise.");
+            }
         } finally {
             setSaving(false);
         }

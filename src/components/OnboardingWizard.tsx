@@ -334,8 +334,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         setSaving(true);
         try {
             // Prepared payload with correct types and fallback values
+            // Chaînes vides normalisées en NULL, comme dans la fiche entreprise :
+            // `siret = ''` entre en collision avec la contrainte d'unicité dès
+            // qu'une autre entreprise porte la même valeur, alors que plusieurs
+            // NULL cohabitent sans problème.
+            const vide = (v: unknown) =>
+                typeof v === 'string' && v.trim() === '' ? null : v;
+
             const payload = {
                 ...companyData,
+                siret: vide(companyData.siret) as string | null,
+                adresse: vide(companyData.adresse),
+                ville: vide(companyData.ville),
+                code_postal: vide(companyData.code_postal),
+                forme_juridique: vide(companyData.forme_juridique),
+                code_naf: vide(companyData.code_naf),
                 nom: isStandard ? companyData.nom : `${companyData.prenom} ${companyData.nom_famille}`,
                 effectif: companyData.effectif ? parseInt(companyData.effectif, 10) : 1,
                 siret_verified: isVerified,
