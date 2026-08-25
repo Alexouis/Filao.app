@@ -1596,7 +1596,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // 2. Fetch Referent Users for these companies
             const referentIds = Array.from(new Set(companies.map(c => c.created_by).filter(Boolean)));
             const { data: referentsData } = await supabase
-                .from('utilisateurs')
+                // Vue de profils réduite : la table `utilisateurs` n'est plus
+                // lisible que pour son propre compte (migration 070). L'e-mail
+                // n'y figure qu'entre partenaires d'un même dossier, ce qui est
+                // le cas ici puisqu'il s'agit des référents du groupement.
+                .from('utilisateurs_publics')
                 .select('id, email, nom, prenom, photo_url, entreprise_id')
                 .in('id', referentIds);
 

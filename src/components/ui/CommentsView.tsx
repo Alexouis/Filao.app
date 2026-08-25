@@ -104,7 +104,19 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       let invUserIds: string[] = [];
       if (invEmails.length > 0) {
         const { data: userData } = await supabase
-          .from('utilisateurs')
+          // Vue de profils réduite (migration 070) : la table `utilisateurs`
+          // n'est plus lisible que pour son propre compte.
+          //
+          // Cette liste sert UNIQUEMENT à choisir les destinataires des
+          // notifications de nouveau commentaire (voir plus bas) — elle n'a
+          // aucun effet sur l'affichage de l'équipe ni des invitations en
+          // attente, qui vivent dans TenderWizard.
+          //
+          // Conséquence : un invité qui n'a pas encore accepté n'est plus
+          // notifié. C'est cohérent — la policy `comments_select_membre` exige
+          // le statut « accepte », il recevait donc l'alerte d'un commentaire
+          // qu'il n'avait pas le droit de lire.
+          .from('utilisateurs_publics')
           .select('id')
           .in('email', invEmails);
         invUserIds = userData?.map(u => u.id) || [];
