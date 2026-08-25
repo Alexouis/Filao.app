@@ -39,7 +39,9 @@ import {
     formatCpv,
     avisEncoreOuvert,
     dedoublonnerAvis,
-    type CriteresAttribution
+    type CriteresAttribution,
+    libelleLieuBoamp,
+    reparerEncodage,
 } from '../helpers/boampHelpers';
 import {
     coerceModePassation,
@@ -6908,8 +6910,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             </div>
                                             <h3 className="text-lg font-bold text-[#0B1F38] mb-1 group-hover:text-[#00A3E0] transition-colors">{result.objet}</h3>
                                             <div className="flex flex-wrap gap-4 text-sm text-[#0B1F38]/70">
-                                                <div className="flex items-center gap-1.5"><Building size={14} className="text-[#0B1F38]/40" /><span className="font-medium">{result.nomacheteur}</span></div>
-                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{DEPARTEMENTS_OBJ[String(result.code_departement).padStart(2, '0')] || result.code_departement} ({result.code_departement})</span></div>
+                                                <div className="flex items-center gap-1.5"><Building size={14} className="text-[#0B1F38]/40" /><span className="font-medium">{reparerEncodage(result.nomacheteur)}</span></div>
+                                                <div className="flex items-center gap-1.5"><MapPin size={14} className="text-[#0B1F38]/40" /><span>{libelleLieuBoamp(result, DEPARTEMENTS_OBJ)}</span></div>
                                             </div>
                                         </div>
                                         <div className="flex flex-row md:flex-col items-center md:items-end gap-4 min-w-[180px]">

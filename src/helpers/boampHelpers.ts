@@ -493,3 +493,74 @@ export const dedoublonnerAvis = (avis: any[]): any[] => {
     const retenus = new Set([...parMarche.values(), ...sansReference]);
     return [...parIdweb.values()].filter(a => retenus.has(a));
 };
+// ---------------------------------------------------------------
+// Lisibilité des libellés d'avis
+// ---------------------------------------------------------------
+
+/**
+ * Répare les libellés mal encodés à l'ingestion.
+ *
+ * Les avis BOAMP arrivent parfois en « mojibake » : du texte UTF-8 relu comme
+ * du Latin-1, ce qui transforme « é » en « Ã© » et produit des noms d'acheteur
+ * illisibles. On refait le trajet inverse.
+ *
+ * La conversion n'est appliquée que si elle AMÉLIORE la chaîne : sur un libellé
+ * déjà correct, la même opération le corromprait.
+ */
+export const reparerEncodage = (valeur?: string | null): string => {
+    if (!valeur) return '';
+    // Signature du mojibake : les séquences « Ã… », « Â… » n'existent pas dans
+    // un libellé français correct.
+    if (!/[ÃÂ][\x80-\xBF]/.test(valeur)) return valeur;
+    try {
+        const octets = Uint8Array.from(valeur, c => c.charCodeAt(0) & 0xff);
+        const repare = new TextDecoder('utf-8', { fatal: false }).decode(octets);
+        // Le caractère de remplacement signale un échec : on garde l'original.
+        return repare.includes('\uFFFD') ? valeur : repare;
+    } catch {
+        return valeur;
+    }
+};
+
+/**
+ * Libellé lisible du lieu d'exécution d'un avis.
+ *
+ * L'affichage précédent concaténait `libellé || code` puis « (code) », ce qui
+ * donnait « 38169 (38169) » dès que le code n'était pas reconnu — le cas de
+ * tout code COMMUNE INSEE (5 chiffres), la table de correspondance ne couvrant
+ * que les départements (2 chiffres).
+ *
+ * On privilégie donc les libellés fournis par l'avis lui-même, on ne traduit
+ * que ce qui est traduisible, et on n'affiche jamais deux fois la même valeur.
+ */
+export const libelleLieuBoamp = (
+    avis: any,
+    departements: Record<string, string> = {}
+): string => {
+    // 1. Libellé explicite fourni par l'avis, quand il existe.
+    const explicite = reparerEncodage(
+        avis?.lieu_execution_libelle || avis?.nomdepartement || avis?.ville || ''
+    ).trim();
+    if (explicite && !/^\d+$/.test(explicite)) return explicite;
+
+    const code = String(avis?.code_departement ?? '').trim();
+    if (!code) return 'Lieu non précisé';
+
+    // 2. Code département (2 chiffres, ou 2A/2B) : traduisible.
+    if (/^\d{1,2}$|^2[AB]$/i.test(code)) {
+        const cle = code.padStart(2, '0');
+        const libelle = departements[cle];
+        return libelle ? `${libelle} (${cle})` : `Département ${cle}`;
+    }
+
+    // 3. Code commune INSEE (5 chiffres) : les deux premiers donnent le
+    //    département, seule information exploitable sans référentiel communal.
+    if (/^\d{5}$/.test(code)) {
+        const dep = code.slice(0, 2);
+        const libelle = departements[dep];
+        return libelle ? `${libelle} (${dep})` : `Département ${dep}`;
+    }
+
+    // 4. Code non reconnu : on l'affiche UNE fois, sans le dupliquer.
+    return code;
+};
