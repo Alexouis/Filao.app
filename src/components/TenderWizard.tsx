@@ -494,6 +494,38 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
     const renderFinalizeConfirmModal = () => {
         if (!showFinalizeConfirm) return null;
+
+        // Récapitulatif de complétude (BUG-10). La finalisation restait
+        // silencieuse sur un dossier vide : on listait bien les champs
+        // obligatoires, jamais les pièces manquantes ni les compétences non
+        // couvertes. L'utilisateur pouvait donc verrouiller un dossier à 0/9.
+        //
+        // On n'interdit PAS la finalisation — il existe des cas légitimes
+        // (pièces déposées hors FILAO, marché sans exigence documentaire) — mais
+        // elle devient un choix éclairé plutôt qu'un clic à l'aveugle.
+        const piecesManquantes: string[] = [];
+        groupementMembers.filter(m => !m.deleted).forEach((membre, idx) => {
+            const role = membre.role || 'Co-traitant';
+            const requis = REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || [];
+            // Même clé que le calcul de progression du composant
+            // (`${docDef.value}-${collabId}`) : toute divergence fausserait le
+            // décompte affiché ici par rapport à celui des cartes membres.
+            const collabId = membre.id || idx.toString();
+            requis.forEach((doc: any) => {
+                if (!uploadedFiles[`${doc.value}-${collabId}`]) {
+                    piecesManquantes.push(`${membre.name || 'Membre'} — ${doc.label ?? doc.value}`);
+                }
+            });
+        });
+
+        const competencesCouvertes = Array.from(
+            new Set(groupementMembers.filter(m => !m.deleted).flatMap(m => m.skills || []))
+        );
+        const competencesNonCouvertes = (formData.required_skills || [])
+            .filter((s: string) => !competencesCouvertes.includes(s));
+
+        const dossierIncomplet = piecesManquantes.length > 0 || competencesNonCouvertes.length > 0;
+
         return (
             <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={() => setShowFinalizeConfirm(false)}></div>
@@ -502,6 +534,40 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         <ShieldAlert size={32} />
                     </div>
                     <h3 className="text-xl font-bold text-[#0B1F38] mb-4">Finaliser le dossier ?</h3>
+
+                    {dossierIncomplet && (
+                        <div className="mb-6 text-left bg-amber-50 border border-amber-200 rounded-xl p-4 max-h-56 overflow-y-auto">
+                            <p className="text-sm font-bold text-amber-900 mb-2">
+                                Ce dossier est incomplet
+                            </p>
+
+                            {piecesManquantes.length > 0 && (
+                                <div className="mb-3">
+                                    <p className="text-xs font-bold text-amber-800 mb-1">
+                                        {piecesManquantes.length} pièce{piecesManquantes.length > 1 ? 's' : ''} manquante{piecesManquantes.length > 1 ? 's' : ''}
+                                    </p>
+                                    <ul className="text-xs text-amber-800/90 space-y-0.5 list-disc pl-4">
+                                        {piecesManquantes.slice(0, 8).map((p, i) => <li key={i}>{p}</li>)}
+                                        {piecesManquantes.length > 8 && (
+                                            <li className="italic">et {piecesManquantes.length - 8} autre{piecesManquantes.length - 8 > 1 ? 's' : ''}…</li>
+                                        )}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {competencesNonCouvertes.length > 0 && (
+                                <div>
+                                    <p className="text-xs font-bold text-amber-800 mb-1">
+                                        {competencesNonCouvertes.length} compétence{competencesNonCouvertes.length > 1 ? 's' : ''} non couverte{competencesNonCouvertes.length > 1 ? 's' : ''}
+                                    </p>
+                                    <ul className="text-xs text-amber-800/90 space-y-0.5 list-disc pl-4">
+                                        {competencesNonCouvertes.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <p className="text-[#0B1F38]/60 mb-8 text-sm leading-relaxed">
                         Attention : une fois finalisé, le dossier sera <strong>verrouillé</strong>.
                         Il ne sera plus possible d'ajouter de membres ou de modifier les documents déposés.
@@ -518,9 +584,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 setShowFinalizeConfirm(false);
                                 await handleFinalize();
                             }}
-                            className="flex-1 py-3 bg-[#0B1F38] hover:bg-[#0B1F38]/90 text-white font-bold text-sm rounded-xl transition-all shadow-lg"
+                            className={`flex-1 py-3 text-white font-bold text-sm rounded-xl transition-all shadow-lg ${
+                                dossierIncomplet
+                                    ? 'bg-amber-500 hover:bg-amber-600'
+                                    : 'bg-[#0B1F38] hover:bg-[#0B1F38]/90'
+                            }`}
                         >
-                            Confirmer
+                            {dossierIncomplet ? 'Finaliser malgré tout' : 'Confirmer'}
                         </button>
                     </div>
                 </div>
