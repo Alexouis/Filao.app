@@ -457,6 +457,16 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                         {exportLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                         Exporter mes données
                     </button>
+
+                    {/* Accès permanent aux textes légaux depuis l'application. */}
+                    <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                        <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-[#00A3E0] hover:underline">
+                            Politique de confidentialité
+                        </a>
+                        <a href="/cgu" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-[#00A3E0] hover:underline">
+                            Conditions d'utilisation
+                        </a>
+                    </div>
                 </SettingsCard>
 
                 {/* Danger Zone */}

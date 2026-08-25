@@ -69,6 +69,25 @@ const Encadre: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     </div>
 );
 
+/**
+ * Pied de page légal réutilisable.
+ *
+ * Le RGPD impose que l'information soit accessible au moment de la collecte :
+ * ces liens doivent donc figurer sur les écrans de connexion et d'inscription,
+ * pas uniquement dans l'application authentifiée.
+ */
+export const LegalFooter: React.FC<{ className?: string }> = ({ className = '' }) => (
+    <div className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-400 ${className}`}>
+        <a href="/cgu" target="_blank" rel="noopener noreferrer" className="hover:text-[#00A3E0] hover:underline">
+            Conditions d'utilisation
+        </a>
+        <span aria-hidden="true">·</span>
+        <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="hover:text-[#00A3E0] hover:underline">
+            Politique de confidentialité
+        </a>
+    </div>
+);
+
 // --- Politique de confidentialité ---------------------------------------
 
 export const Confidentialite: React.FC = () => (

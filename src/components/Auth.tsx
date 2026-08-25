@@ -12,6 +12,7 @@ interface AuthProps {
 import { APP_CONFIG } from '../config';
 import { supabase } from '../lib/supabaseClient';
 import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acquisitionHelpers';
+import { LegalFooter } from './LegalPages';
 import { track } from '../helpers/analytics';
 
 const GoogleIcon = () => (
@@ -516,6 +517,8 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 <p className="text-center text-sm text-gray-600">
                     Vous n'avez pas de compte ? <button onClick={() => setMode('register')} className="underline text-filao-dark font-medium hover:text-filao-primary">S'inscrire</button>
                 </p>
+
+                <LegalFooter className="pt-2" />
             </div>
         </div>
     );
@@ -693,9 +696,11 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 </button>
             </form>
 
-            <p className="text-center text-sm text-gray-600 pb-8">
+            <p className="text-center text-sm text-gray-600">
                 Vous avez déjà un compte ? <button onClick={() => setMode('login')} className="underline text-gray-800 font-medium hover:text-blue-600">Se connecter</button>
             </p>
+
+            <LegalFooter className="pb-8" />
         </div>
     );
 
