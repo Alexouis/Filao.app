@@ -1083,6 +1083,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     {step === 3 && (
                         <div className="space-y-6 animate-in fade-in duration-300">
                             <div className="text-center mb-2">
+                                <img src={APP_CONFIG.altLogo} alt="Filao" className="h-9 mx-auto mb-5" />
                                 <div className="text-5xl mb-3">🎉</div>
                                 <h1 className="text-2xl font-bold text-gray-900">Tout est prêt !</h1>
                                 <p className="text-gray-500 mt-1">Votre espace Filao est configuré. Il est temps de répondre à votre premier appel d'offres !</p>
@@ -1130,22 +1131,45 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                             {/* CTAs */}
                             <div className="flex flex-col items-center gap-3">
-                                <button
-                                    onClick={() => handleComplete(true)}
-                                    disabled={saving}
-                                    className="w-full max-w-sm flex items-center justify-center gap-2 px-6 py-3.5 bg-filao-primary text-white rounded-2xl text-sm font-bold hover:shadow-lg hover:shadow-filao-primary/30 transition-all disabled:opacity-50"
-                                >
-                                    {saving ? <Loader2 size={18} className="animate-spin" /> : <Rocket size={18} />}
-                                    Créer mon premier appel d'offres
-                                </button>
-                                <button
-                                    onClick={() => handleComplete(false)}
-                                    disabled={saving}
-                                    className="flex items-center gap-2 text-sm text-gray-500 hover:text-filao-primary transition-colors"
-                                >
-                                    <LayoutDashboard size={16} />
-                                    Explorer le tableau de bord
-                                </button>
+                                {/* Sans entreprise rattachée, terminer l'assistant ramène
+                                    sur un tableau de bord inutilisable : ni création de
+                                    dossier, ni acceptation d'invitation. Le récapitulatif
+                                    ci-dessus le signale déjà ; on empêche ici de passer
+                                    outre, et on renvoie à l'étape qui manque. */}
+                                {!completionData.company ? (
+                                    <>
+                                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-center max-w-sm">
+                                            Renseignez votre entreprise pour pouvoir créer un dossier
+                                            et répondre aux invitations.
+                                        </p>
+                                        <button
+                                            onClick={() => setStep(1)}
+                                            className="w-full max-w-sm flex items-center justify-center gap-2 px-6 py-3.5 bg-filao-primary text-white rounded-2xl text-sm font-bold hover:shadow-lg hover:shadow-filao-primary/30 transition-all"
+                                        >
+                                            <Building2 size={18} />
+                                            Renseigner mon entreprise
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={() => handleComplete(true)}
+                                            disabled={saving}
+                                            className="w-full max-w-sm flex items-center justify-center gap-2 px-6 py-3.5 bg-filao-primary text-white rounded-2xl text-sm font-bold hover:shadow-lg hover:shadow-filao-primary/30 transition-all disabled:opacity-50"
+                                        >
+                                            {saving ? <Loader2 size={18} className="animate-spin" /> : <Rocket size={18} />}
+                                            Créer mon premier appel d'offres
+                                        </button>
+                                        <button
+                                            onClick={() => handleComplete(false)}
+                                            disabled={saving}
+                                            className="flex items-center gap-2 text-sm text-gray-500 hover:text-filao-primary transition-colors"
+                                        >
+                                            <LayoutDashboard size={16} />
+                                            Explorer le tableau de bord
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
