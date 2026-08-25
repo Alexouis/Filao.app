@@ -673,7 +673,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                         onChange={(e) => setAcceptTerms(e.target.checked)}
                     />
                     <p className="text-xs text-gray-800 leading-relaxed">
-                        En cochant cette case, j'accepte et je reconnais avoir pris connaissance des Conditions Générales de Vente ainsi que de la Politique de Confidentialité.
+                        En cochant cette case, j'accepte et je reconnais avoir pris connaissance des{' '}
+                        <a href="/cgu" target="_blank" rel="noopener noreferrer" className="text-[#00A3E0] underline hover:no-underline">
+                            Conditions Générales
+                        </a>{' '}
+                        ainsi que de la{' '}
+                        <a href="/confidentialite" target="_blank" rel="noopener noreferrer" className="text-[#00A3E0] underline hover:no-underline">
+                            Politique de Confidentialité
+                        </a>.
                     </p>
                 </div>
 

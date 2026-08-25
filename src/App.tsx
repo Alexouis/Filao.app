@@ -13,6 +13,7 @@ import { Tenders } from './components/Tenders';
 import { CalendarPage } from './components/CalendarPage';
 import { Auth } from './components/Auth';
 import { MfaGate } from './components/MfaGate';
+import { Confidentialite, ConditionsUtilisation } from './components/LegalPages';
 import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
@@ -439,6 +440,18 @@ const AppContent = () => {
     return <ResetPassword />;
   }
 
+  // Pages légales : publiques par nécessité. La console Google Cloud exige des
+  // URL accessibles sans compte pour l'écran de consentement OAuth, et l'article
+  // 13 du RGPD impose de délivrer l'information avant la collecte, donc avant
+  // l'inscription. Placées ici, elles précèdent le contrôle de session.
+  if (location.pathname === '/confidentialite') {
+    return <Confidentialite />;
+  }
+
+  if (location.pathname === '/cgu') {
+    return <ConditionsUtilisation />;
+  }
+
   // Public invitation landing page (no auth required).
   // `/invitation` sans jeton est une route valide : la page l'efface de l'URL
   // après lecture pour qu'il ne reste ni dans l'historique ni dans les outils de
@@ -466,7 +479,7 @@ const AppContent = () => {
    * La navigation interne passe par des paramètres de requête (`/?tab=…`), donc
    * la racine est le seul chemin de l'application authentifiée.
    */
-  const CHEMINS_CONNUS = ['/', '/login', '/register', '/reset-password', '/collaborator-access'];
+  const CHEMINS_CONNUS = ['/', '/login', '/register', '/reset-password', '/collaborator-access', '/confidentialite', '/cgu'];
   if (!CHEMINS_CONNUS.includes(location.pathname)) {
     return <NotFound />;
   }
