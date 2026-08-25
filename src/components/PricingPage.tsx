@@ -101,7 +101,15 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                             name: offre.nomCommercial,
                             price: offre.prixMensuelHt ? Math.round(offre.prixMensuelHt / 100) : 0,
                             popular: offre.populaire,
-                            cta: offre.libelleAction,
+                            // Un libellé d'action doit décrire une ACTION, jamais un
+                            // état. Certaines lignes de `plan_limits` contenaient
+                            // « Votre plan actuel », qui s'affichait alors sur une
+                            // carte n'étant pas le forfait souscrit. La donnée est
+                            // corrigée (migration 079) ; ce repli évite qu'une
+                            // saisie future reproduise le symptôme.
+                            cta: /plan actuel|votre plan/i.test(offre.libelleAction || '')
+                                ? `Choisir ${offre.nomCommercial}`
+                                : offre.libelleAction,
                             features: offre.descriptif,
                         };
                         const isCurrentPlan = plan.id === currentPlan;
