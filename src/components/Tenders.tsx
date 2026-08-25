@@ -166,17 +166,13 @@ export const Tenders: React.FC<TendersProps> = ({
     }
   }, [cachedTenders, cachedCollaborators, userProfile?.id]);
 
-  // Session storage check for deep linking
+  // Nettoyage d'une éventuelle clé résiduelle : l'ouverture d'un AO depuis le
+  // tableau de bord passe désormais par l'URL (`?tab=wizard&id=...`), plus par
+  // sessionStorage. Une session ouverte avant la mise à jour pourrait encore en
+  // porter une ; on la purge pour éviter toute ouverture inattendue.
   useEffect(() => {
-    const tenderIdToOpen = sessionStorage.getItem('openTenderId');
-    if (tenderIdToOpen && tenders.length > 0) {
-      const tenderExists = tenders.find(t => t.id === tenderIdToOpen);
-      if (tenderExists) {
-        if (onEditDraft) onEditDraft(tenderIdToOpen);
-      }
-      sessionStorage.removeItem('openTenderId');
-    }
-  }, [tenders, onEditDraft]);
+    sessionStorage.removeItem('openTenderId');
+  }, []);
 
   // --- LOGIC: FETCHING ---
   const fetchCurrentUserAndCollaborators = async (tendersData: Tender[]) => {

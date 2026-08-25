@@ -404,7 +404,7 @@ const AppContent = () => {
       default:
         return (
           <Dashboard
-            onNavigate={(tab) => navigateTo(tab as NavItem | 'wizard', null)}
+            onNavigate={(tab, id) => navigateTo(tab as NavItem | 'wizard', id ?? null)}
             cachedTenders={getCachedTenders()}
             onTendersLoad={handleTendersLoad}
             cachedCollaborators={getCachedCollaborators()}

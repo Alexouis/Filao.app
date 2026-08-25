@@ -320,11 +320,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const handleTenderClick = (tenderId: string, status: string) => {
+    // Ouverture par l'URL dans tous les cas (`?tab=wizard&id=...`), y compris
+    // pour les brouillons. L'ancien détour par sessionStorage naviguait vers
+    // « Mes AO » puis ouvrait l'AO hors de l'URL : l'ouverture n'était donc pas
+    // empilée dans l'historique et le retour sautait des niveaux.
     if (status === STATUSES.draft && onEditDraft) {
       onEditDraft(tenderId);
     } else {
-      sessionStorage.setItem('openTenderId', tenderId);
-      onNavigate('tenders');
+      onNavigate('wizard', tenderId);
     }
   };
 
