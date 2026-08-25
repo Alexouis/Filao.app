@@ -86,6 +86,47 @@ Deno.serve(async (req: Request) => {
     const senderName = [senderData.prenom, senderData.nom].filter(Boolean).join(" ") || senderData.email;
     const senderCompanyName = (senderData as any).entreprises?.nom || "une entreprise";
     const senderCompanyId = senderData.entreprise_id;
+    const origin = req.headers.get("origin") || "https://filao-app.vercel.app";
+
+    // Jeton de rattachement au réseau.
+    //
+    // Le lien pointait vers `/register` sans paramètre : l'identité de
+    // l'invitant se perdait dès l'envoi, et rien ne permettait de rattacher le
+    // nouvel inscrit à son réseau. Le jeton porte cette intention jusqu'à ce que
+    // l'entreprise de l'invité existe (elle n'est créée qu'à l'onboarding).
+    //
+    // 32 octets aléatoires en base64url, dont seule l'empreinte SHA-256 est
+    // stockée — même règle que les invitations à un dossier.
+    let jetonReseau: string | null = null;
+    try {
+      const octets = new Uint8Array(32);
+      crypto.getRandomValues(octets);
+      jetonReseau = btoa(String.fromCharCode(...octets))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+      const empreinte = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(jetonReseau)
+      );
+      const tokenHash = Array.from(new Uint8Array(empreinte))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      await adminClient.from("invitations_reseau").insert({
+        token_hash: tokenHash,
+        entreprise_origine_id: senderCompanyId,
+        email: (email || "").trim().toLowerCase(),
+      });
+    } catch (jetonErr) {
+      // Sans jeton l'invitation reste utile : l'invité crée son compte, seul le
+      // rattachement automatique au réseau est perdu. On n'échoue donc pas.
+      console.error("Génération du jeton réseau échouée:", jetonErr);
+      jetonReseau = null;
+    }
+
+    const lienInscription = jetonReseau
+      ? `${origin}/register?invite=${encodeURIComponent(jetonReseau)}`
+      : `${origin}/register`;
 
     // Check if recipient is an existing Filao user
     const { data: recipientUser } = await adminClient
@@ -170,7 +211,6 @@ Deno.serve(async (req: Request) => {
       throw new Error("BREVO_API_KEY non configurée");
     }
 
-    const origin = req.headers.get("origin") || "https://filao-app.vercel.app";
     const loginUrl = `${origin}/login`;
 
     const emailSubject = recipientFound
@@ -210,7 +250,7 @@ Deno.serve(async (req: Request) => {
     Créez votre compte pour rejoindre son réseau et collaborer ensemble sur vos prochains marchés publics.
   </p>
   <div style="text-align: center; margin-top: 32px;">
-    <a href="${origin}/register" style="background-color: #00A3E0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Créer mon compte Filao</a>
+    <a href="${lienInscription}" style="background-color: #00A3E0; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Créer mon compte Filao</a>
   </div>
   <p style="text-align: center; color: #A0AEC0; font-size: 12px; margin-top: 40px;">
     Filao — Gestion collaborative d'appels d'offres

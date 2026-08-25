@@ -331,6 +331,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
             // Always link/update user link if enterprise exists
             if (currentEntId) {
+                // Rattachement au réseau de l'invitant. Le jeton a été capté à
+                // l'arrivée sur `/register?invite=…` ; il ne peut être consommé
+                // qu'ici, l'entreprise n'existant pas avant. Best-effort : un
+                // échec ne doit pas interrompre l'onboarding.
+                try {
+                    const jetonReseau = sessionStorage.getItem('inviteReseau');
+                    if (jetonReseau) {
+                        await supabase.rpc('consommer_invitation_reseau', {
+                            p_token: jetonReseau,
+                            p_entreprise: currentEntId,
+                        });
+                        sessionStorage.removeItem('inviteReseau');
+                    }
+                } catch (reseauErr) {
+                    console.warn('Rattachement au réseau échoué', reseauErr);
+                }
+
                 await supabase.from('utilisateurs').update({
                     entreprise_id: currentEntId,
                     poste: userData.poste || null,

@@ -100,6 +100,13 @@ const AppContent = () => {
   // et persisté en session jusqu'à la création de compte (voir Auth.tsx).
   useEffect(() => {
     captureAcquisitionParams();
+    // Jeton d'invitation au réseau (`/register?invite=<token>`) : capturé ici
+    // car l'entreprise de l'invité n'existe pas encore à l'inscription. Il est
+    // consommé plus tard, dès que la fiche entreprise est créée.
+    try {
+      const invite = new URLSearchParams(window.location.search).get('invite');
+      if (invite) sessionStorage.setItem('inviteReseau', invite);
+    } catch { /* stockage indisponible : rattachement simplement ignoré */ }
     initWebVitals();
   }, []);
 
