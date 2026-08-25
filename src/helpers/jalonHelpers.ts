@@ -62,6 +62,23 @@ const ajouterJours = (d: Date, n: number): Date => new Date(d.getTime() + n * JO
 
 const parseDate = (valeur: string | Date | undefined | null): Date | null => {
     if (!valeur) return null;
+
+    // Une échéance est un JOUR CALENDAIRE, pas un instant. Passer par
+    // `new Date(chaîne)` interprète un horodatage en UTC puis `aMinuit()` le
+    // relit en heure locale : un dépôt enregistré à « 2026-09-15T22:00:00Z »
+    // devenait le 16/09 en France, alors que la fiche Contexte, qui tronque la
+    // chaîne, affichait le 15/09 — d'où l'écart d'un jour entre les deux écrans.
+    //
+    // On lit donc directement les composantes de la date telle qu'elle est
+    // écrite, sans conversion de fuseau.
+    if (typeof valeur === 'string') {
+        const correspondance = valeur.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (correspondance) {
+            const [, a, m, j] = correspondance;
+            return new Date(Number(a), Number(m) - 1, Number(j));
+        }
+    }
+
     const d = valeur instanceof Date ? valeur : new Date(valeur);
     return Number.isNaN(d.getTime()) ? null : aMinuit(d);
 };
