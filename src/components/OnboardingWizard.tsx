@@ -136,6 +136,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [selectedNatures, setSelectedNatures] = useState<string[]>([]);
     const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<SelectedSpecialty[]>([]);
+    // Domaines dont la liste complète de spécialités est dépliée.
+    const [domainesDeplies, setDomainesDeplies] = useState<string[]>([]);
     const [selectedZones, setSelectedZones] = useState<string[]>([]);
     const [otherLabels, setOtherLabels] = useState<Record<string, string>>({}); // specialtyId -> text
 
@@ -820,6 +822,43 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                 <p className="text-gray-500 mt-1">Ces informations nous permettent de vous proposer les meilleurs partenaires et opportunités.</p>
                             </div>
 
+                            {/* Complétude du profil, en direct.
+                                Un profil sans spécialité ni zone ne remonte dans aucune
+                                recherche de partenaire : l'indiquer pendant la saisie est
+                                plus utile qu'un constat en fin de parcours. */}
+                            {!loadingRef && (() => {
+                                const criteres = [
+                                    selectedNatures.length > 0,
+                                    selectedDomains.length > 0,
+                                    selectedSpecialties.length > 0,
+                                    selectedZones.length > 0,
+                                ];
+                                const remplis = criteres.filter(Boolean).length;
+                                const pourcent = Math.round((remplis / criteres.length) * 100);
+                                return (
+                                    <div className="max-w-xl mx-auto mb-8">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <span className="text-xs font-bold text-gray-600">Complétude de votre profil</span>
+                                            <span className={`text-xs font-bold ${pourcent === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {pourcent}%
+                                            </span>
+                                        </div>
+                                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full transition-all duration-500 ${pourcent === 100 ? 'bg-emerald-500' : 'bg-amber-400'}`}
+                                                style={{ width: `${pourcent}%` }}
+                                            />
+                                        </div>
+                                        {pourcent < 100 && (
+                                            <p className="text-[11px] text-gray-400 mt-1.5">
+                                                Un profil incomplet apparaît moins souvent dans les recherches de
+                                                partenaires et les suggestions de groupement.
+                                            </p>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
                             {loadingRef ? (
                                 <div className="flex flex-col items-center justify-center py-20 gap-4">
                                     <Loader2 size={40} className="animate-spin text-filao-primary" />
@@ -943,8 +982,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                             <div className="space-y-6">
                                                 {selectedDomains.map(domId => {
                                                     const domain = refDomains.find(d => d.id === domId);
-                                                    const specs = refSpecialties.filter(s => s.domain_id === domId);
+                                                    const toutesSpecs = refSpecialties.filter(s => s.domain_id === domId);
                                                     if (!domain) return null;
+
+                                                    // Le référentiel compte 201 spécialités : certains domaines en
+                                                    // alignent des dizaines, ce qui noie l'étape et la rend
+                                                    // impraticable « en deux clics ». On en montre une vingtaine,
+                                                    // le reste sur demande — en gardant TOUJOURS visibles celles
+                                                    // déjà sélectionnées, qui pourraient sinon disparaître sous le
+                                                    // repli.
+                                                    const deplie = domainesDeplies.includes(domId);
+                                                    const specs = deplie
+                                                        ? toutesSpecs
+                                                        : toutesSpecs.filter((s, i) =>
+                                                            i < 20 || selectedSpecialties.some(x => x.specialty_id === s.id));
+                                                    const masquees = toutesSpecs.length - specs.length;
+
                                                     return (
                                                         <div key={domId} className="bg-slate-50/50 rounded-2xl p-5 border border-slate-100">
                                                             <p className="text-[10px] uppercase tracking-widest font-bold text-slate-400 mb-3">{domain.label}</p>
@@ -989,6 +1042,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                                                     );
                                                                 })}
                                                             </div>
+
+                                                            {(masquees > 0 || deplie) && (
+                                                                <button
+                                                                    onClick={() => setDomainesDeplies(prev =>
+                                                                        deplie ? prev.filter(x => x !== domId) : [...prev, domId])}
+                                                                    className="mt-3 text-[11px] font-bold text-filao-primary hover:underline"
+                                                                >
+                                                                    {deplie
+                                                                        ? 'Afficher moins'
+                                                                        : `Afficher ${masquees} spécialité${masquees > 1 ? 's' : ''} de plus`}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
