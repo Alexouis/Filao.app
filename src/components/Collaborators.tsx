@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
     Search,
     Filter,
@@ -31,7 +32,7 @@ import { supabase } from '../lib/supabaseClient';
 import { STATUSES } from '@/config';
 import { Entreprise } from '@/types';
 import { useToast } from './ui/Toast';
-import { LoadingState, ErrorState } from './ui/StateViews';
+import { LoadingState, ErrorState, EmptyState } from './ui/StateViews';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { notifyNetworkInviteAccepted } from '../helpers/notificationHelpers';
@@ -77,7 +78,19 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [loading, setLoading] = useState(true);
     // Échec du chargement du réseau : distingue « réseau vide » de « erreur ».
     const [loadError, setLoadError] = useState(false);
-    const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+    // Fiche entreprise : pilotée par l'URL (`?company=<id>`) plutôt que par un
+    // état local. Deux bénéfices : le bouton Précédent referme la fiche au lieu
+    // de quitter l'écran Réseau, et une fiche devient partageable par son lien.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const selectedCompanyId = searchParams.get('company');
+
+    // Ouvre une fiche (empile une entrée d'historique) ou revient à la liste.
+    const selectionnerEntreprise = (id: string | null) => {
+        const p = new URLSearchParams(searchParams);
+        if (id) p.set('company', id); else p.delete('company');
+        setSearchParams(p);
+    };
+
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
     // --- STATE: UI & FILTERS ---
@@ -589,7 +602,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         <div className="flex flex-col h-full animate-in slide-in-from-right-8 duration-300">
             <div className="p-6 border-b border-white/30 flex justify-between items-center bg-white/20">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => setSelectedCompanyId(null)} className="p-2 rounded-xl bg-white/40 hover:bg-white text-[#0B1F38]/60 hover:text-[#0B1F38] transition-all">
+                    <button onClick={() => selectionnerEntreprise(null)} className="p-2 rounded-xl bg-white/40 hover:bg-white text-[#0B1F38]/60 hover:text-[#0B1F38] transition-all">
                         <ArrowLeft size={20} />
                     </button>
                     <div className="flex items-center gap-4">
@@ -796,7 +809,22 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                 <div className={`flex-1 ${GLASS_STYLE} relative overflow-hidden transition-all duration-500 rounded-3xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500 mx-2 my-2 md:m-0`}>
 
                     {selectedCompanyId ? (
-                        <CompanyDetail company={[...myNetwork, ...filaoNetwork].find(c => c.id === selectedCompanyId)!} />
+                        (() => {
+                            // L'identifiant vient désormais de l'URL : il peut désigner
+                            // une entreprise absente du réseau (lien obsolète) ou pas
+                            // encore chargée. On ne force donc plus le résultat du
+                            // `find` — un `!` produirait ici une page blanche.
+                            const entreprise = [...myNetwork, ...filaoNetwork].find(c => c.id === selectedCompanyId);
+                            if (entreprise) return <CompanyDetail company={entreprise} />;
+                            if (loading) return <LoadingState label="Chargement de la fiche…" />;
+                            return (
+                                <EmptyState
+                                    title="Entreprise introuvable"
+                                    description="Cette fiche n'existe plus ou ne fait pas partie de votre réseau."
+                                    action={{ label: 'Revenir au réseau', onClick: () => selectionnerEntreprise(null) }}
+                                />
+                            );
+                        })()
                     ) : (
                         <>
                             <div className="p-6 border-b border-white/30 flex flex-col gap-6 z-10">
@@ -982,7 +1010,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                                         };
 
                                                         return (
-                                                            <div key={company.id} onClick={() => setSelectedCompanyId(company.id)} className="bg-white rounded-xl p-3 hover:shadow-md border border-gray-100 transition-all cursor-pointer group">
+                                                            <div key={company.id} onClick={() => selectionnerEntreprise(company.id)} className="bg-white rounded-xl p-3 hover:shadow-md border border-gray-100 transition-all cursor-pointer group">
                                                                 <div className="flex items-start gap-2.5 mb-2">
                                                                     <div className="relative shrink-0">
                                                                         {company.logo_url ? (
@@ -1044,7 +1072,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                                                                 </button>
                                                                             </>
                                                                         )}
-                                                                        <button onClick={(e) => { e.stopPropagation(); setSelectedCompanyId(company.id); }} className="p-1 text-gray-300 hover:text-[#00A3E0] transition-colors" title="Voir profil">
+                                                                        <button onClick={(e) => { e.stopPropagation(); selectionnerEntreprise(company.id); }} className="p-1 text-gray-300 hover:text-[#00A3E0] transition-colors" title="Voir profil">
                                                                             <Eye size={13} />
                                                                         </button>
                                                                     </div>
