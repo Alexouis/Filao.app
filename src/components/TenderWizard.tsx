@@ -21,6 +21,7 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
+import { getEffectiveStatus } from '../helpers/tenderHelpers';
 import { track } from '../helpers/analytics';
 import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
@@ -3625,6 +3626,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         const amIInvitee = !!tenderId && !!myGroupementEntry && !myGroupementEntry.is_owner
             && (myGroupementEntry.status === GROUPEMENT_STATUSES.invite || isRefused);
 
+        // Dossier dans un état terminal : la réponse est jouée, rejoindre le
+        // groupement ne sert plus à préparer la candidature. Le bandeau
+        // d'invitation doit le dire, sinon l'invité croit participer à une
+        // réponse en cours. `getEffectiveStatus` couvre aussi l'expiration,
+        // calculée depuis la date limite et jamais stockée en base.
+        const statutEffectif = getEffectiveStatus(formData as any);
+        const dossierTermine = statutEffectif === STATUSES.won
+            || statutEffectif === STATUSES.lost
+            || statutEffectif === STATUSES.expired;
+
         // --- PROGRESS: global + per member ---
         const getMemberProgress = (member: UIGroupementMember, idx: number) => {
             const role = member.role || 'Co-traitant';
@@ -3815,17 +3826,29 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         <div className="flex items-center gap-4">
                             <div className="p-3 bg-white/10 rounded-xl shrink-0"><Mail size={22} className="text-white" /></div>
                             <div>
-                                <h3 className="font-bold text-base">Invitation à collaborer</h3>
+                                <h3 className="font-bold text-base">
+                                    {dossierTermine ? 'Invitation sur un dossier clôturé' : 'Invitation à collaborer'}
+                                </h3>
                                 <p className="text-white/75 text-sm">
                                     Vous avez été invité à travailler sur <strong>"{formData.titre}"</strong> en tant que <strong>{myGroupementEntry.role}</strong>.
-                                    Acceptez pour accéder à l'ensemble du dossier.
+                                    {dossierTermine ? (
+                                        <>
+                                            {' '}Ce dossier est <strong>
+                                                {statutEffectif === STATUSES.won ? 'remporté'
+                                                    : statutEffectif === STATUSES.lost ? 'perdu'
+                                                        : 'expiré'}
+                                            </strong> : la réponse a déjà été jouée. En rejoignant, vous y accédez <strong>en consultation</strong>.
+                                        </>
+                                    ) : (
+                                        <> Acceptez pour accéder à l'ensemble du dossier.</>
+                                    )}
                                 </p>
                             </div>
                         </div>
                         <div className="flex gap-3 shrink-0">
                             <button onClick={() => handleInvitationResponse(false)} disabled={loading} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-bold text-sm transition-colors">Refuser</button>
                             <button onClick={() => handleInvitationResponse(true)} disabled={loading} className="px-5 py-2.5 bg-white text-[#0B1F38] font-bold rounded-xl hover:bg-gray-100 transition-colors shadow-lg text-sm flex items-center gap-2">
-                                {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> Accepter et rejoindre</>}
+                                {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> {dossierTermine ? 'Rejoindre en consultation' : 'Accepter et rejoindre'}</>}
                             </button>
                         </div>
                     </div>
