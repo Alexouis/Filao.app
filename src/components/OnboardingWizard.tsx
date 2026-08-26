@@ -166,6 +166,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         site_web: '',
     });
 
+    const [userData, setUserData] = useState({ poste: '' });
+    const [entrepriseId, setEntrepriseId] = useState<string | null>(null);
+
     /**
      * Remise à zéro de l'activité quand l'entreprise CHANGE réellement.
      *
@@ -185,20 +188,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         const precedent = siretPrecedent.current;
         siretPrecedent.current = siret;
 
-        // Premier passage, ou remplissage initial depuis la base : ce n'est pas
-        // un changement d'entreprise. Réinitialiser ici effacerait les
-        // compétences déjà enregistrées, chargées juste après le montage.
+        // Déjà rattaché à une entreprise : on édite SA fiche, on n'en change
+        // pas. Ses compétences et zones viennent d'être chargées depuis la base
+        // — les effacer ferait perdre le travail de l'entreprise, y compris
+        // celui d'un collègue, à un membre qui vient tout juste de la rejoindre.
+        if (entrepriseId) return;
+
+        // Premier passage, ou remplissage initial : ce n'est pas un changement.
         if (precedent === null || precedent === '') return;
 
-        // Champ vidé : l'utilisateur corrige probablement sa saisie, on attend
-        // qu'il saisisse un autre numéro avant de conclure.
+        // Champ vidé : l'utilisateur corrige probablement sa saisie.
         if (!siret) return;
 
         if (siret !== precedent) reinitialiserActivite();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyData.siret]);
-    const [userData, setUserData] = useState({ poste: '' });
-    const [entrepriseId, setEntrepriseId] = useState<string | null>(null);
+    }, [companyData.siret, entrepriseId]);
 
     // --- Step 2: Advanced Taxonomy ---
     const [refDomains, setRefDomains] = useState<RefDomain[]>([]);
