@@ -183,16 +183,59 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
      * changement.
      */
     const siretPrecedent = React.useRef<string | null>(null);
+    /**
+     * Surveillance de la demande en attente.
+     *
+     * Quand un administrateur accepte, rien n'en informe le demandeur : son
+     * profil local ignore le nouvel `entreprise_id`, l'écran reste sur
+     * « Demande envoyée », et les compétences de l'entreprise ne se chargent
+     * pas — il fallait recharger la page en le devinant.
+     *
+     * On interroge donc périodiquement le statut, et on recharge dès qu'il
+     * change. L'intervalle est volontairement large : une décision se compte en
+     * minutes, pas en secondes.
+     */
+    useEffect(() => {
+        if (!demandeEnvoyee || !userProfile?.id) return;
+
+        const verifier = async () => {
+            const { data } = await supabase
+                .from('demandes_rattachement')
+                .select('statut')
+                .eq('utilisateur_id', userProfile.id)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (!data || data.statut === 'en_attente') return;
+            // Acceptée comme refusée : dans les deux cas l'écran doit changer,
+            // et un rechargement complet garantit un profil à jour.
+            window.location.reload();
+        };
+
+        const minuteur = setInterval(verifier, 15000);
+        return () => clearInterval(minuteur);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [demandeEnvoyee, userProfile?.id]);
+
+    /** SIRET de l'entreprise à laquelle on est rattaché, tel que chargé en base. */
+    const siretRattachement = React.useRef<string | null>(null);
+    /** Blocage explicite quand on tente de changer d'entreprise en étant rattaché. */
+    const [erreurEntreprise, setErreurEntreprise] = useState<string | null>(null);
+
     useEffect(() => {
         const siret = (companyData.siret || '').trim();
         const precedent = siretPrecedent.current;
         siretPrecedent.current = siret;
 
-        // Déjà rattaché à une entreprise : on édite SA fiche, on n'en change
-        // pas. Ses compétences et zones viennent d'être chargées depuis la base
-        // — les effacer ferait perdre le travail de l'entreprise, y compris
-        // celui d'un collègue, à un membre qui vient tout juste de la rejoindre.
-        if (entrepriseId) return;
+        // La saisie a changé : le blocage éventuel n'est plus d'actualité.
+        if (siret !== precedent) setErreurEntreprise(null);
+
+        // Le SIRET saisi est celui de NOTRE entreprise : on édite sa fiche, on
+        // n'en change pas. Ses compétences viennent d'être chargées depuis la
+        // base — les effacer ferait perdre le travail de l'entreprise, y compris
+        // celui d'un collègue, à un membre qui vient de la rejoindre.
+        if (siret && siret === siretRattachement.current) return;
 
         // Premier passage, ou remplissage initial : ce n'est pas un changement.
         if (precedent === null || precedent === '') return;
@@ -200,9 +243,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         // Champ vidé : l'utilisateur corrige probablement sa saisie.
         if (!siret) return;
 
+        // On s'éloigne de l'entreprise rattachée, ou l'on passe d'un SIRET saisi
+        // à un autre : les choix d'activité ne valent plus.
         if (siret !== precedent) reinitialiserActivite();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyData.siret, entrepriseId]);
+    }, [companyData.siret]);
 
     // --- Step 2: Advanced Taxonomy ---
     const [refDomains, setRefDomains] = useState<RefDomain[]>([]);
@@ -233,6 +278,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     .single();
                 if (ent) {
                     setEntrepriseId(ent.id);
+                    // Mémorise le SIRET de l'entreprise rattachée : tant que le
+                    // champ porte cette valeur, on édite sa fiche et les choix
+                    // d'activité ne doivent pas être remis à zéro.
+                    siretRattachement.current = (ent.siret || '').trim();
                     setCompanyData({
                         nom: ent.nom || '', 
                         prenom: ent.prenom || '',
@@ -433,6 +482,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             let currentEntId = entrepriseId;
 
             if (currentEntId) {
+                // Garde-fou : un membre rattaché qui saisit un AUTRE SIRET ne
+                // doit pas écraser la fiche de son entreprise. Sans ce contrôle,
+                // l'`update` ci-dessous remplaçait le nom, le SIRET et l'adresse
+                // d'Axero par ceux d'une autre société — pour tous ses membres,
+                // sans que personne ne l'ait demandé.
+                const siretRattache = siretRattachement.current;
+                const siretSaisi = (payload.siret || '').trim();
+                if (siretRattache && siretSaisi && siretSaisi !== siretRattache) {
+                    setSaving(false);
+                    setErreurEntreprise(
+                        "Vous appartenez déjà à une entreprise. Pour en rejoindre une autre, "
+                        + "demandez d'abord à un administrateur de vous retirer de celle-ci."
+                    );
+                    return;
+                }
+
                 // Update existing
                 const { error } = await supabase.from('entreprises').update(payload).eq('id', currentEntId);
                 if (error) throw error;
@@ -713,7 +778,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             <h2 className="text-xl font-bold text-[#0B1F38] mb-3">Demande envoyée</h2>
                             <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-8">
                                 Un administrateur de <strong>{entrepriseExistante.nom}</strong> doit
-                                valider votre rattachement. Vous serez notifié dès que ce sera fait.
+                                valider votre rattachement. Cette page se mettra à jour
+                                automatiquement dès qu'il aura répondu.
                             </p>
                             <button
                                 onClick={changerEntreprise}
@@ -1518,6 +1584,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                     proposer laissait croire qu'on pouvait s'en
                                     dispenser, alors qu'on bute de toute façon
                                     sur l'écran final. */}
+                                {/* Blocage explicite : changer d'entreprise en
+                                    étant rattaché écraserait la fiche partagée. */}
+                                {erreurEntreprise && (
+                                    <span className="text-xs text-red-600 font-medium text-right max-w-sm">
+                                        {erreurEntreprise}
+                                    </span>
+                                )}
                                 {step === 3 && (
                                     <button onClick={handleSkip}
                                         className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
