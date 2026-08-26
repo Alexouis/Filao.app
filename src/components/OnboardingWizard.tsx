@@ -97,16 +97,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
      * voulu. On les réinitialise donc en même temps que l'écran.
      */
     const changerEntreprise = () => {
-        setSelectedNatures([]);
-        setSelectedDomains([]);
-        setSelectedSpecialties([]);
-        setSelectedZones([]);
-        setDomainesDeplies([]);
+        reinitialiserActivite();
         setDemandeRefusee(false);
         setDemandeEnvoyee(false);
         setEntrepriseOrpheline(false);
         setEntrepriseExistante(null);
     };
+
+    /** Vide les choix de l'étape 2, sans toucher à l'écran affiché. */
+    const reinitialiserActivite = () => {
+        setSelectedNatures([]);
+        setSelectedDomains([]);
+        setSelectedSpecialties([]);
+        setSelectedZones([]);
+        setDomainesDeplies([]);
+    };
+
     const [cleReprise, setCleReprise] = useState('');
     const [cleErreur, setCleErreur] = useState<string | null>(null);
 
@@ -159,6 +165,38 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         code_naf: '', libelle_naf: '', date_creation: '',
         site_web: '',
     });
+
+    /**
+     * Remise à zéro de l'activité quand l'entreprise CHANGE réellement.
+     *
+     * Les boutons « Renseigner une autre entreprise » ne couvrent que l'écran de
+     * rattachement. Or on peut aussi revenir à l'étape 1 et saisir un autre
+     * SIRET sans passer par là : les compétences et zones de l'entreprise
+     * précédente restaient alors sélectionnées, et auraient été enregistrées au
+     * nom de la nouvelle.
+     *
+     * On surveille donc l'identifiant réellement saisi. Le premier passage ne
+     * réinitialise rien : il correspond au chargement initial, pas à un
+     * changement.
+     */
+    const siretPrecedent = React.useRef<string | null>(null);
+    useEffect(() => {
+        const siret = (companyData.siret || '').trim();
+        const precedent = siretPrecedent.current;
+        siretPrecedent.current = siret;
+
+        // Premier passage, ou remplissage initial depuis la base : ce n'est pas
+        // un changement d'entreprise. Réinitialiser ici effacerait les
+        // compétences déjà enregistrées, chargées juste après le montage.
+        if (precedent === null || precedent === '') return;
+
+        // Champ vidé : l'utilisateur corrige probablement sa saisie, on attend
+        // qu'il saisisse un autre numéro avant de conclure.
+        if (!siret) return;
+
+        if (siret !== precedent) reinitialiserActivite();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [companyData.siret]);
     const [userData, setUserData] = useState({ poste: '' });
     const [entrepriseId, setEntrepriseId] = useState<string | null>(null);
 
