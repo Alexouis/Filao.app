@@ -77,6 +77,12 @@ const AppContent = () => {
       } else {
         p.delete('id');
       }
+      // Le sous-onglet des paramètres n'a de sens que sur cet écran : sans ce
+      // nettoyage, `?section=security` resterait accroché à l'URL du tableau de
+      // bord ou de Mes AO.
+      if (tab !== 'settings') {
+        p.delete('section');
+      }
       return p;
     });
   };
