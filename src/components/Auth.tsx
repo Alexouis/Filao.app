@@ -51,6 +51,24 @@ const VERSION_CGU = '2026-07-01';
 export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
     const { showToast } = useToast();
     const [mode, setMode] = useState<'login' | 'register'>('login');
+
+    // Un message d'erreur ne concerne que l'écran qui l'a produit. Sans ce
+    // nettoyage, l'avertissement de « Mot de passe oublié » — « Renseignez votre
+    // adresse e-mail » — survivait au passage vers l'inscription et s'affichait
+    // au-dessus d'un formulaire qu'il ne concernait pas.
+    //
+    // Le premier rendu est ignoré : l'erreur d'un lien de confirmation expiré,
+    // lue plus bas dans le fragment de l'URL, serait sinon effacée aussitôt
+    // affichée — selon l'ordre d'exécution des effets, ce qui rendrait le
+    // comportement instable.
+    const premierRendu = React.useRef(true);
+    useEffect(() => {
+        if (premierRendu.current) {
+            premierRendu.current = false;
+            return;
+        }
+        setError(null);
+    }, [mode]);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [email, setEmail] = useState('');

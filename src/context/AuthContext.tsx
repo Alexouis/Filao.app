@@ -82,6 +82,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 .maybeSingle();
 
             if (error) {
+                // Sans profil, l'application ne peut pas s'afficher : le gardien
+                // de première connexion attend cette donnée. On journalise et on
+                // laisse `userProfile` à null — l'écran de chargement reste
+                // visible plutôt que de laisser entrer dans un état incohérent.
                 console.error('Error fetching user profile:', error);
                 return;
             }

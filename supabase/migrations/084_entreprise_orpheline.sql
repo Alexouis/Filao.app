@@ -99,8 +99,9 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_deja      UUID;
-  v_orpheline TIMESTAMPTZ;
+  v_deja       UUID;
+  v_orpheline  TIMESTAMPTZ;
+  v_demandeur  TEXT;
 BEGIN
   IF p_entreprise IS NULL OR auth.uid() IS NULL THEN
     RETURN 'erreur';
@@ -124,6 +125,39 @@ BEGIN
   ON CONFLICT (entreprise_id, utilisateur_id) DO UPDATE
       SET statut = 'en_attente', motif_refus = NULL, created_at = now()
       WHERE demandes_rattachement.statut = 'refusee';
+
+  -- Notifier les administrateurs de l'entreprise.
+  --
+  -- Sans cela, la demande attendait qu'un administrateur ouvre par hasard
+  -- « Mon entreprise » : rien ne l'avertissait, et le demandeur restait bloqué
+  -- sans comprendre pourquoi.
+  --
+  -- Les notifications applicatives vivent dans la colonne jsonb
+  -- `utilisateurs.notifications` (la table dédiée a été retirée en migration
+  -- 063) : on empile donc l'entrée en tête du tableau.
+  SELECT COALESCE(NULLIF(TRIM(CONCAT(prenom, ' ', nom)), ''), email)
+    INTO v_demandeur
+    FROM utilisateurs WHERE id = auth.uid();
+
+  UPDATE utilisateurs u
+     SET notifications = (
+           jsonb_build_array(
+             jsonb_build_object(
+               'id', gen_random_uuid(),
+               'type', 'demande_rattachement',
+               'titre', 'Demande de rattachement',
+               'message', v_demandeur || ' souhaite rejoindre votre entreprise sur Filao.',
+               'lien', '/?tab=company',
+               'lu', false,
+               'date', now()
+             )
+           ) || COALESCE(u.notifications, '[]'::jsonb)
+         )
+    FROM roles r
+   WHERE r.id = u.role_id
+     AND u.entreprise_id = p_entreprise
+     AND r.name = 'admin'
+     AND u.compte_supprime_le IS NULL;
 
   RETURN 'en_attente';
 END;

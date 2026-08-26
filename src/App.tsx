@@ -547,7 +547,26 @@ const AppContent = () => {
   // rattaché à une entreprise existante (demande validée par un administrateur)
   // n'a pas à repasser par l'assistant.
   const sansEntreprise = userProfile && !userProfile.entreprise_id;
-  if (userProfile && (!userProfile.onboarding_completed || sansEntreprise)) {
+
+  // Profil pas encore disponible alors qu'une session existe.
+  //
+  // La garde s'écrivait `if (userProfile && …)` : elle était donc entièrement
+  // CONTOURNÉE tant que `userProfile` valait `null`. Or c'est l'état d'un compte
+  // tout juste créé — la ligne `utilisateurs` est créée de façon asynchrone
+  // après la première connexion, et sa récupération peut aussi échouer.
+  // L'utilisateur atterrissait alors directement sur le tableau de bord, sans
+  // entreprise ni onboarding, dans un état où presque rien ne fonctionne.
+  //
+  // On attend donc le profil avant de rendre l'application.
+  if (!userProfile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-filao-surface">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-filao-primary"></div>
+      </div>
+    );
+  }
+
+  if (!userProfile.onboarding_completed || sansEntreprise) {
     return (
       <OnboardingWizard
         userProfile={userProfile}

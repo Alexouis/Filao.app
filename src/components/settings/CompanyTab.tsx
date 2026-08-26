@@ -121,8 +121,15 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     .select('id, prenom, nom, email')
                     .in('id', demandesBrutes.map((d: any) => d.utilisateur_id));
 
-                const parId = new Map((profils || []).map((p: any) => [p.id, p]));
-                setDemandes(demandesBrutes.map((d: any) => ({ ...d, profil: parId.get(d.utilisateur_id) })));
+                // Indexation par identifiant.
+                //
+                // ⚠️ Pas de `new Map()` ici : ce fichier importe l'icône `Map`
+                // de lucide-react, qui MASQUE le constructeur natif. L'appel
+                // échouait à l'exécution (« Map is not a constructor ») sans que
+                // TypeScript ne signale quoi que ce soit, le nom étant valide.
+                const parId: Record<string, any> = {};
+                for (const p of profils || []) parId[p.id] = p;
+                setDemandes(demandesBrutes.map((d: any) => ({ ...d, profil: parId[d.utilisateur_id] })));
             } else {
                 setDemandes([]);
             }
