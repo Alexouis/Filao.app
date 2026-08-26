@@ -188,6 +188,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // une application où des concurrents cohabitent, ce n'est pas acceptable.
         // On mémorise l'identité active et on recharge l'application dès qu'elle
         // change, après en avoir informé l'utilisateur.
+        // Changement de session venant d'un AUTRE ONGLET.
+        //
+        // `onAuthStateChange` se déclenche dans l'onglet où la connexion a lieu,
+        // mais sa propagation aux autres onglets n'est pas garantie : un onglet
+        // resté ouvert peut continuer d'afficher le compte précédent, avec ses
+        // dossiers et son réseau, alors que le jeton du localStorage appartient
+        // désormais à quelqu'un d'autre. Les requêtes partent alors avec la
+        // nouvelle identité — d'où les 404 « Profil expéditeur non trouvé » sur
+        // des actions qui fonctionnaient quelques minutes plus tôt.
+        //
+        // L'événement `storage` du navigateur, lui, ne se déclenche QUE dans les
+        // autres onglets : c'est exactement le signal manquant.
+        const onStorage = (e: StorageEvent) => {
+            // Supabase stocke la session sous une clé `sb-<ref>-auth-token`.
+            if (!e.key || !/^sb-.*-auth-token$/.test(e.key)) return;
+            // Suppression de la clé = déconnexion ailleurs ; modification =
+            // connexion avec un autre compte. Dans les deux cas, l'état affiché
+            // n'est plus celui de la session réelle.
+            window.location.reload();
+        };
+        window.addEventListener('storage', onStorage);
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             const nouvelleIdentite = session?.user?.id ?? null;
             if (
@@ -246,7 +268,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             premierEvenement = false;
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            subscription.unsubscribe();
+            window.removeEventListener('storage', onStorage);
+        };
     }, []);
 
     // Sync notifications_on with browser permission
