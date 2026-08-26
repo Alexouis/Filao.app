@@ -488,7 +488,10 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
 
             {/* Journal des connexions */}
             <div className="mt-3">
-                <SettingsCard title="Connexions récentes" icon={Shield}>
+                <SettingsCard
+                    title={connexions.length > 0 ? `Connexions récentes (${connexions.length})` : 'Connexions récentes'}
+                    icon={Shield}
+                >
                     <div className="flex items-start justify-between gap-4 mb-4">
                         <p className="text-sm text-gray-500">
                             Vérifiez les connexions récentes à votre compte. Si vous ne reconnaissez pas un accès, déconnectez les autres sessions et changez votre mot de passe.
@@ -508,7 +511,12 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                     ) : connexions.length === 0 ? (
                         <p className="text-sm text-gray-400 py-4 text-center">Aucune connexion enregistrée pour le moment.</p>
                     ) : (
-                        <div className="divide-y divide-gray-100">
+                        /* Hauteur bornée avec défilement interne : la liste peut
+                           compter des dizaines d'entrées et repoussait alors les
+                           cartes 2FA, Mot de passe et Zone Danger hors de l'écran.
+                           Le `pr-1` réserve la gouttière de l'ascenseur pour que
+                           les dates ne passent pas dessous. */
+                        <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto pr-1">
                             {connexions.map((c) => (
                                 <div key={c.id} className="flex items-center justify-between py-2.5 text-sm">
                                     <div>
