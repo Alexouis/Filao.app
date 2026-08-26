@@ -201,11 +201,25 @@ Deno.serve(async (req: Request) => {
         .is('compte_supprime_le', null);
 
       if ((autresMembresActifs ?? 0) === 0) {
-        const { data, error } = await adminClient.rpc('generer_cle_reprise', {
-          p_entreprise: entrepriseId,
-        });
-        if (error) console.error('Génération de la clé de reprise échouée', error);
-        else cleReprise = data as string | null;
+        // Entreprise jamais engagée (aucun groupement, dossier, pièce ni lien
+        // réseau) : rien ne la retient, on la supprime et son SIRET redevient
+        // libre. On transmet l'utilisateur en cours de suppression pour qu'il
+        // ne compte pas comme membre bloquant.
+        const { data: supprimee } = await adminClient
+          .rpc('supprimer_entreprise_si_inutilisee', {
+            p_entreprise: entrepriseId,
+            p_hors_utilisateur: userId,
+          });
+
+        if (!supprimee) {
+          // Entreprise conservée : elle devient orpheline, la clé de reprise
+          // est le seul moyen sûr d'en reprendre la main.
+          const { data, error } = await adminClient.rpc('generer_cle_reprise', {
+            p_entreprise: entrepriseId,
+          });
+          if (error) console.error('Génération de la clé de reprise échouée', error);
+          else cleReprise = data as string | null;
+        }
       }
     }
 
