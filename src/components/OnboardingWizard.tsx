@@ -84,6 +84,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     // demande de rattachement plutôt que d'échouer sur la contrainte UNIQUE.
     const [entrepriseExistante, setEntrepriseExistante] = useState<{ id: string; nom: string } | null>(null);
     const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
+    // Entreprise sans membre actif : aucun administrateur ne peut valider.
+    const [entrepriseOrpheline, setEntrepriseOrpheline] = useState(false);
 
     // Une demande de rattachement est peut-être déjà en cours : l'utilisateur
     // n'a pas d'entreprise (il est donc renvoyé ici par le gardien de première
@@ -518,7 +520,28 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
                 <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 text-center">
-                    {demandeEnvoyee ? (
+                    {entrepriseOrpheline ? (
+                        <>
+                            <h2 className="text-xl font-bold text-[#0B1F38] mb-3">
+                                Cette entreprise n'a plus de membre actif
+                            </h2>
+                            <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-6">
+                                <strong>{entrepriseExistante.nom}</strong> figure sur Filao, mais
+                                aucun compte ne la porte actuellement : personne ne peut valider
+                                votre rattachement.
+                            </p>
+                            <p className="text-xs text-[#0B1F38]/45 leading-relaxed mb-6">
+                                Contactez le support pour en reprendre la main. Ses dossiers et
+                                documents sont conservés.
+                            </p>
+                            <button
+                                onClick={() => { setEntrepriseOrpheline(false); setEntrepriseExistante(null); }}
+                                className="text-xs text-[#00A3E0] hover:underline"
+                            >
+                                Renseigner une autre entreprise
+                            </button>
+                        </>
+                    ) : demandeEnvoyee ? (
                         <>
                             <h2 className="text-xl font-bold text-[#0B1F38] mb-3">Demande envoyée</h2>
                             <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-8">
@@ -551,6 +574,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                         });
                                         if (error) throw error;
                                         if (data === 'deja_rattache') { onComplete(false); return; }
+                                        // Plus aucun membre actif : personne ne
+                                        // pourrait valider la demande. On le dit
+                                        // plutôt que de laisser attendre sans fin.
+                                        if (data === 'entreprise_orpheline') {
+                                            setEntrepriseOrpheline(true);
+                                            return;
+                                        }
                                         setDemandeEnvoyee(true);
                                     } catch (err) {
                                         console.error('Demande de rattachement échouée', err);

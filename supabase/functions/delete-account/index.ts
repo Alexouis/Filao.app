@@ -136,20 +136,105 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 3. Suppression du profil.
-    if (userProfile) {
-      const { error: deleteProfileError } = await adminClient
-        .from('utilisateurs')
-        .delete()
-        .eq('id', userId);
+    // 3. Fichiers personnels.
+    //
+    //    À purger AVANT l'anonymisation : le préfixe `{email}/` est construit à
+    //    partir de l'adresse, que l'anonymisation remplace. Faire l'inverse
+    //    rendrait ces fichiers introuvables — orphelins et indétectables.
+    //
+    //    Ne sont retirés que les chemins PERSONNELS. Le coffre-fort
+    //    (`documents/{entreprise_id}/`) et les pièces de marché
+    //    (`tenders/dce/{tender_id}/`) restent : ils appartiennent à l'entreprise
+    //    ou sont partagés avec les cotraitants, dont les dossiers peuvent être
+    //    encore en cours.
+    const emailUtilisateur = (user.email ?? '').toLowerCase().trim();
+    const prefixesPersonnels = [
+      emailUtilisateur,                    // pièces personnelles et dépôts
+      `documents/${userId}`,               // pièces rattachées au compte
+      `tenders/temp/${userId}`,            // dépôts avant création d'un dossier
+    ].filter(Boolean);
 
-      if (deleteProfileError) {
-        console.error('Error deleting profile:', deleteProfileError);
-        return reponse({ success: false, error: 'Erreur lors de la suppression du profil' });
+    for (const prefixe of prefixesPersonnels) {
+      try {
+        const { data: objets } = await adminClient.storage.from('documents').list(prefixe);
+        const chemins = (objets ?? []).map((o) => `${prefixe}/${o.name}`);
+        // Par lots : l'API refuse les listes trop longues.
+        for (let i = 0; i < chemins.length; i += 100) {
+          await adminClient.storage.from('documents').remove(chemins.slice(i, i + 100));
+        }
+      } catch (err) {
+        // Best-effort : un échec de purge ne doit pas empêcher la suppression du
+        // compte, sous peine de bloquer l'exercice du droit à l'effacement.
+        console.error('Purge du stockage personnel échouée', prefixe, err);
       }
     }
 
-    // 4. Suppression du compte d'authentification.
+    // Photo de profil, dans le bucket public.
+    if (emailUtilisateur) {
+      try {
+        const { data: photos } = await adminClient.storage
+          .from('public-assets').list(`photos/${emailUtilisateur}`);
+        const chemins = (photos ?? []).map((o) => `photos/${emailUtilisateur}/${o.name}`);
+        if (chemins.length > 0) {
+          await adminClient.storage.from('public-assets').remove(chemins);
+        }
+      } catch (err) {
+        console.error('Purge de la photo de profil échouée', err);
+      }
+    }
+
+    // 4. Profil : anonymisation plutôt que suppression quand l'utilisateur
+    //    porte des dossiers.
+    //
+    //    `reponses_ao.createur_id` référence `utilisateurs`. Supprimer la ligne
+    //    emporterait les dossiers — et le travail des cotraitants avec eux. La
+    //    migration 083 interdit d'ailleurs désormais cette suppression au niveau
+    //    de la base.
+    //
+    //    L'anonymisation satisfait le droit à l'effacement (art. 17) : les
+    //    données personnelles disparaissent, seule subsiste une référence vide
+    //    qui maintient l'intégrité des dossiers — que la réglementation des
+    //    marchés publics impose par ailleurs de conserver.
+    if (userProfile) {
+      const { count: dossiersPortesTotal } = await adminClient
+        .from('reponses_ao')
+        .select('id', { count: 'exact', head: true })
+        .eq('createur_id', userId);
+
+      if ((dossiersPortesTotal ?? 0) > 0) {
+        const { error: anonymiseError } = await adminClient
+          .from('utilisateurs')
+          .update({
+            prenom: 'Compte',
+            nom: 'supprimé',
+            email: `supprime+${userId}@filao.invalid`,
+            telephone: null,
+            photo_url: null,
+            date_naissance: null,
+            notification_preferences: null,
+            compte_supprime_le: new Date().toISOString(),
+          })
+          .eq('id', userId);
+
+        if (anonymiseError) {
+          console.error('Error anonymizing profile:', anonymiseError);
+          return reponse({ success: false, error: "Erreur lors de l'anonymisation du profil" });
+        }
+      } else {
+        // Aucun dossier porté : la suppression pure ne casse rien.
+        const { error: deleteProfileError } = await adminClient
+          .from('utilisateurs')
+          .delete()
+          .eq('id', userId);
+
+        if (deleteProfileError) {
+          console.error('Error deleting profile:', deleteProfileError);
+          return reponse({ success: false, error: 'Erreur lors de la suppression du profil' });
+        }
+      }
+    }
+
+    // 5. Suppression du compte d'authentification.
     const { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteAuthError) {
       console.error('Error deleting auth user:', deleteAuthError);
