@@ -183,9 +183,34 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4. Profil : anonymisation plutôt que suppression quand l'utilisateur
-    //    porte des dossiers.
+    // 4. Clé de reprise : produite quand le DERNIER membre actif s'en va.
     //
+    // L'entreprise n'est pas supprimée (`groupements.entreprise_id` est en
+    // CASCADE : l'effacer retirerait sa ligne des groupements d'autres
+    // entreprises). Elle devient orpheline, et cette clé est le seul moyen sûr
+    // d'en reprendre la main — le SIRET, lui, est public et ne prouve rien.
+    //
+    // Elle n'est lisible qu'ici : la base n'en garde que l'empreinte.
+    let cleReprise: string | null = null;
+    if (entrepriseId) {
+      const { count: autresMembresActifs } = await adminClient
+        .from('utilisateurs')
+        .select('id', { count: 'exact', head: true })
+        .eq('entreprise_id', entrepriseId)
+        .neq('id', userId)
+        .is('compte_supprime_le', null);
+
+      if ((autresMembresActifs ?? 0) === 0) {
+        const { data, error } = await adminClient.rpc('generer_cle_reprise', {
+          p_entreprise: entrepriseId,
+        });
+        if (error) console.error('Génération de la clé de reprise échouée', error);
+        else cleReprise = data as string | null;
+      }
+    }
+
+    // 5. Profil : anonymisation plutôt que suppression quand l'utilisateur
+    //    porte des dossiers.    //
     //    `reponses_ao.createur_id` référence `utilisateurs`. Supprimer la ligne
     //    emporterait les dossiers — et le travail des cotraitants avec eux. La
     //    migration 083 interdit d'ailleurs désormais cette suppression au niveau
@@ -234,7 +259,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 5. Suppression du compte d'authentification.
+    // 6. Suppression du compte d'authentification.
     const { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(userId);
     if (deleteAuthError) {
       console.error('Error deleting auth user:', deleteAuthError);
@@ -245,7 +270,8 @@ Deno.serve(async (req: Request) => {
       console.log(`Account deleted — userId: ${userId}, reason: ${reason}`);
     }
 
-    return reponse({ success: true });
+    // La clé est remise UNE SEULE FOIS : elle n'est plus lisible ensuite.
+    return reponse({ success: true, cleReprise });
   } catch (err) {
     console.error('Unexpected error:', err);
     return reponse({ success: false, error: 'Erreur interne du serveur' });
