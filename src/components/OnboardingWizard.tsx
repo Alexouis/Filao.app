@@ -88,6 +88,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [entrepriseOrpheline, setEntrepriseOrpheline] = useState(false);
     // Demande de rattachement refusée par un administrateur de l'entreprise.
     const [demandeRefusee, setDemandeRefusee] = useState(false);
+
+    /**
+     * Repart sur une autre entreprise.
+     *
+     * Les choix de l'étape 2 décrivent l'activité d'UNE entreprise donnée : les
+     * conserver les rattacherait à la suivante sans que l'utilisateur l'ait
+     * voulu. On les réinitialise donc en même temps que l'écran.
+     */
+    const changerEntreprise = () => {
+        setSelectedNatures([]);
+        setSelectedDomains([]);
+        setSelectedSpecialties([]);
+        setSelectedZones([]);
+        setDomainesDeplies([]);
+        setDemandeRefusee(false);
+        setDemandeEnvoyee(false);
+        setEntrepriseOrpheline(false);
+        setEntrepriseExistante(null);
+    };
     const [cleReprise, setCleReprise] = useState('');
     const [cleErreur, setCleErreur] = useState<string | null>(null);
 
@@ -570,7 +589,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             </button>
 
                             <button
-                                onClick={() => { setDemandeRefusee(false); setEntrepriseExistante(null); }}
+                                onClick={changerEntreprise}
                                 className="text-xs text-[#00A3E0] hover:underline"
                             >
                                 Renseigner une autre entreprise
@@ -641,7 +660,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             </p>
 
                             <button
-                                onClick={() => { setEntrepriseOrpheline(false); setEntrepriseExistante(null); }}
+                                onClick={changerEntreprise}
                                 className="text-xs text-[#00A3E0] hover:underline"
                             >
                                 Renseigner une autre entreprise
@@ -655,7 +674,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                 valider votre rattachement. Vous serez notifié dès que ce sera fait.
                             </p>
                             <button
-                                onClick={() => { setEntrepriseExistante(null); setDemandeEnvoyee(false); }}
+                                onClick={changerEntreprise}
                                 className="text-xs text-[#00A3E0] hover:underline"
                             >
                                 Renseigner une autre entreprise
@@ -701,7 +720,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             </button>
 
                             <button
-                                onClick={() => setEntrepriseExistante(null)}
+                                onClick={changerEntreprise}
                                 className="text-xs text-[#0B1F38]/50 hover:text-[#0B1F38] hover:underline"
                             >
                                 Ce n'est pas mon entreprise — en renseigner une autre

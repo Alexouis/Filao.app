@@ -140,19 +140,19 @@ BEGIN
     FROM utilisateurs WHERE id = auth.uid();
 
   UPDATE utilisateurs u
-     SET notifications = (
-           jsonb_build_array(
-             jsonb_build_object(
-               'id', gen_random_uuid(),
-               'type', 'demande_rattachement',
-               'titre', 'Demande de rattachement',
-               'message', v_demandeur || ' souhaite rejoindre votre entreprise sur Filao.',
-               'lien', '/?tab=company',
-               'lu', false,
-               'date', now()
-             )
-           ) || COALESCE(u.notifications, '[]'::jsonb)
-         )
+     SET notifications = ARRAY[
+           -- Même forme que les notifications existantes (voir
+           -- send-deadline-reminders) : `read` et non `lu`, date ISO. Un champ
+           -- mal nommé laisserait la notification éternellement « non lue ».
+           jsonb_build_object(
+             'id', gen_random_uuid(),
+             'type', 'demande_rattachement',
+             'titre', 'Demande de rattachement',
+             'message', v_demandeur || ' souhaite rejoindre votre entreprise sur Filao.',
+             'date', now(),
+             'read', false
+           )
+         ] || COALESCE(u.notifications, ARRAY[]::jsonb[])
     FROM roles r
    WHERE r.id = u.role_id
      AND u.entreprise_id = p_entreprise
