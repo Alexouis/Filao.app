@@ -291,14 +291,31 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 if (authError) throw authError;
 
                 if (authData.user) {
-                    // Send branded confirmation email via Brevo
-                    // (fire-and-forget — Supabase email is fallback)
-                    supabase.functions.invoke('send-confirmation-email', {
-                        body: { email },
-                    }).catch((e) => console.warn('send-confirmation-email failed:', e));
+                    // Supabase ne signale PAS qu'une adresse est déjà prise : il
+                    // renvoie un succès avec `identities` vide. C'est délibéré —
+                    // une erreur explicite transformerait le formulaire en outil
+                    // pour découvrir quelles adresses ont un compte, information
+                    // précieuse pour du hameçonnage ciblé, et pour savoir quels
+                    // concurrents utilisent Filao.
+                    //
+                    // On respecte ce choix — l'écran reste identique dans les
+                    // deux cas — mais on cesse d'envoyer un e-mail de
+                    // confirmation qui n'aboutirait à rien, et on oriente vers
+                    // la connexion et la réinitialisation. L'information utile
+                    // part vers la boîte mail, pas vers le navigateur.
+                    const adresseDejaUtilisee = Array.isArray(authData.user.identities)
+                        && authData.user.identities.length === 0;
+
+                    if (!adresseDejaUtilisee) {
+                        // Send branded confirmation email via Brevo
+                        // (fire-and-forget — Supabase email is fallback)
+                        supabase.functions.invoke('send-confirmation-email', {
+                            body: { email },
+                        }).catch((e) => console.warn('send-confirmation-email failed:', e));
+                    }
 
                     setRegisteredEmail(email);
-                    track('inscription_terminee', {});
+                    if (!adresseDejaUtilisee) track('inscription_terminee', {});
                     setConfirmationSent(true);
                     setNom('');
                     setPrenom('');
@@ -366,6 +383,23 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 <p className="text-gray-400 text-xs leading-relaxed pt-2">
                     Cliquez sur le lien dans l'email pour activer votre compte.
                     Pensez à vérifier vos spams si vous ne le voyez pas.
+                </p>
+                {/* Formulé pour couvrir les deux cas sans les distinguer : une
+                    adresse déjà inscrite ne reçoit pas de nouvel e-mail, et
+                    l'utilisateur doit alors se connecter plutôt qu'attendre. */}
+                <p className="text-gray-400 text-xs leading-relaxed pt-1">
+                    Si aucun e-mail n'arrive, il se peut que cette adresse ait déjà un
+                    compte Filao.{' '}
+                    <button
+                        onClick={() => { setConfirmationSent(false); setMode('login'); }}
+                        className="text-[#00A3E0] underline hover:no-underline"
+                    >
+                        Se connecter
+                    </button>
+                    {' '}ou{' '}
+                    <a href="/reset-password" className="text-[#00A3E0] underline hover:no-underline">
+                        réinitialiser le mot de passe
+                    </a>.
                 </p>
             </div>
 
