@@ -49,6 +49,8 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     const [deleteReason, setDeleteReason] = useState('');
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [deleteSuccess, setDeleteSuccess] = useState(false);
+    // Clé de reprise de l'entreprise, affichée une seule fois après suppression.
+    const [cleReprise, setCleReprise] = useState<string | null>(null);
     const [deleteError, setDeleteError] = useState<{ message: string; aos?: string[] } | null>(null);
 
     useEffect(() => {
@@ -356,6 +358,19 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                 } else {
                     setDeleteError({ message: data?.error || 'Une erreur est survenue.' });
                 }
+                return;
+            }
+
+            // Clé de reprise éventuelle : émise quand l'utilisateur était le
+            // dernier membre d'une entreprise qui ne peut pas être supprimée.
+            // Elle n'est lisible qu'ICI — la base n'en garde que l'empreinte.
+            if (data.cleReprise) {
+                setCleReprise(data.cleReprise);
+                setDeleteSuccess(true);
+                await supabase.auth.signOut();
+                // Pas de redirection automatique : la clé serait perdue avant
+                // d'avoir été notée. L'utilisateur sort lui-même une fois qu'il
+                // l'a mise en lieu sûr.
                 return;
             }
 
@@ -717,7 +732,50 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                                     <Check size={28} className="text-green-500" />
                                 </div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-2">Compte supprimé</h3>
-                                <p className="text-sm text-gray-500">Votre compte a bien été supprimé. Vous allez être redirigé…</p>
+
+                                {cleReprise ? (
+                                    <>
+                                        <p className="text-sm text-gray-600 mb-4">
+                                            Vous étiez le dernier membre de votre entreprise. Ses dossiers
+                                            et documents sont conservés.
+                                        </p>
+
+                                        <div className="text-left bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                                            <p className="text-xs font-bold text-amber-900 mb-1">
+                                                Clé de reprise — notez-la maintenant
+                                            </p>
+                                            <p className="text-[11px] text-amber-800/90 mb-3 leading-relaxed">
+                                                Elle permettra à un collègue de reprendre la main sur
+                                                l'entreprise. <strong>Elle ne sera plus jamais affichée</strong> :
+                                                nous n'en conservons qu'une empreinte, impossible à
+                                                retrouver.
+                                            </p>
+                                            <code className="block text-xs font-mono bg-white border border-amber-200 rounded-lg px-3 py-2.5 text-gray-800 break-all select-all">
+                                                {cleReprise}
+                                            </code>
+                                            <button
+                                                onClick={() => {
+                                                    navigator.clipboard?.writeText(cleReprise);
+                                                    showToast('Clé copiée.', 'success');
+                                                }}
+                                                className="text-xs text-amber-800 underline mt-2"
+                                            >
+                                                Copier la clé
+                                            </button>
+                                        </div>
+
+                                        {/* Pas de redirection automatique tant que la clé est
+                                            affichée : elle disparaîtrait avant d'avoir été notée. */}
+                                        <button
+                                            onClick={() => { window.location.href = '/'; }}
+                                            className="w-full py-2.5 bg-[#0B1F38] hover:bg-[#0B1F38]/90 text-white text-sm font-bold rounded-xl transition-colors"
+                                        >
+                                            J'ai noté la clé — quitter
+                                        </button>
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-gray-500">Votre compte a bien été supprimé. Vous allez être redirigé…</p>
+                                )}
                             </div>
                         ) : (
                             <>

@@ -86,6 +86,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
     // Entreprise sans membre actif : aucun administrateur ne peut valider.
     const [entrepriseOrpheline, setEntrepriseOrpheline] = useState(false);
+    const [cleReprise, setCleReprise] = useState('');
+    const [cleErreur, setCleErreur] = useState<string | null>(null);
 
     // Une demande de rattachement est peut-être déjà en cours : l'utilisateur
     // n'a pas d'entreprise (il est donc renvoyé ici par le gardien de première
@@ -530,10 +532,60 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                 aucun compte ne la porte actuellement : personne ne peut valider
                                 votre rattachement.
                             </p>
-                            <p className="text-xs text-[#0B1F38]/45 leading-relaxed mb-6">
-                                Contactez le support pour en reprendre la main. Ses dossiers et
-                                documents sont conservés.
+                            <p className="text-xs text-[#0B1F38]/45 leading-relaxed mb-5">
+                                Si vous disposez de la <strong>clé de reprise</strong> remise au
+                                dernier membre lors de son départ, saisissez-la pour reprendre
+                                l'entreprise. Ses dossiers et documents sont conservés.
                             </p>
+
+                            <input
+                                type="text"
+                                value={cleReprise}
+                                onChange={(e) => { setCleReprise(e.target.value); setCleErreur(null); }}
+                                placeholder="Clé de reprise"
+                                className="w-full bg-[#F8FAFC] border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-mono text-center tracking-wide focus:outline-none focus:border-[#00A3E0] mb-2"
+                            />
+                            {cleErreur && (
+                                <p className="text-[11px] text-red-600 mb-2">{cleErreur}</p>
+                            )}
+
+                            <button
+                                onClick={async () => {
+                                    setSaving(true);
+                                    setCleErreur(null);
+                                    try {
+                                        const { data, error } = await supabase.rpc('reprendre_entreprise', {
+                                            p_cle: cleReprise.trim(),
+                                        });
+                                        if (error) throw error;
+                                        if (data === 'reprise') {
+                                            // Rechargement : le profil porte désormais une
+                                            // entreprise et le rôle d'administrateur.
+                                            window.location.href = '/';
+                                            return;
+                                        }
+                                        setCleErreur(
+                                            data === 'deja_rattache'
+                                                ? 'Votre compte est déjà rattaché à une entreprise.'
+                                                : 'Clé invalide ou déjà utilisée.'
+                                        );
+                                    } catch (err) {
+                                        console.error('Reprise d\'entreprise échouée', err);
+                                        setCleErreur('Reprise impossible pour le moment.');
+                                    } finally {
+                                        setSaving(false);
+                                    }
+                                }}
+                                disabled={saving || cleReprise.trim().length < 16}
+                                className="w-full py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-40 mb-4"
+                            >
+                                {saving ? 'Vérification…' : 'Reprendre cette entreprise'}
+                            </button>
+
+                            <p className="text-[11px] text-[#0B1F38]/40 mb-4">
+                                Sans cette clé, contactez le support pour en reprendre la main.
+                            </p>
+
                             <button
                                 onClick={() => { setEntrepriseOrpheline(false); setEntrepriseExistante(null); }}
                                 className="text-xs text-[#00A3E0] hover:underline"
