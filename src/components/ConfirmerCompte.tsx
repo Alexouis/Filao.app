@@ -24,7 +24,7 @@ import { APP_CONFIG } from '../config';
 export const ConfirmerCompte: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const tokenHash = params.get('token_hash');
-    const type = (params.get('type') || 'signup') as 'signup' | 'email_change' | 'recovery';
+    const type = (params.get('type') || 'signup') as 'signup' | 'email' | 'email_change' | 'recovery';
 
     const [etat, setEtat] = useState<'attente' | 'encours' | 'ok' | 'erreur'>(
         tokenHash ? 'attente' : 'erreur'
@@ -33,28 +33,53 @@ export const ConfirmerCompte: React.FC = () => {
         tokenHash ? '' : "Ce lien est incomplet. Demandez un nouveau lien de confirmation."
     );
 
+    const [emailRenvoi, setEmailRenvoi] = useState('');
+    const [renvoiEnCours, setRenvoiEnCours] = useState(false);
+    const [renvoye, setRenvoye] = useState(false);
+
     const confirmer = async () => {
         if (!tokenHash) return;
         setEtat('encours');
-        try {
-            const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
-            if (error) throw error;
 
-            // Jeton consommé : on le retire de l'URL pour qu'il ne subsiste ni
-            // dans l'historique, ni dans un lien partagé par mégarde.
-            window.history.replaceState(null, '', window.location.pathname);
+        // Supabase attend le type `email` pour une confirmation d'inscription
+        // par `token_hash` — c'est ce qu'utilisent ses propres exemples de
+        // templates — alors que le paramètre transmis vaut souvent `signup`.
+        // Les deux existent selon les flux, et se tromper renvoie exactement la
+        // même erreur qu'un lien périmé : impossible à distinguer à l'écran.
+        // On essaie donc le type reçu, puis le second en repli.
+        const candidats: Array<'email' | 'signup' | 'recovery' | 'email_change'> =
+            type === 'recovery' || type === 'email_change'
+                ? [type]
+                : type === 'email' ? ['email', 'signup'] : ['signup', 'email'];
 
-            setEtat('ok');
-            // La session est ouverte : on laisse le temps de lire, puis on entre.
-            setTimeout(() => { window.location.href = '/'; }, 1800);
-        } catch (err: any) {
-            setEtat('erreur');
-            setMessage(
-                err?.message?.includes('expired') || err?.code === 'otp_expired'
-                    ? "Ce lien a expiré ou a déjà été utilisé. Connectez-vous, ou demandez un nouveau lien."
-                    : "La confirmation a échoué. Connectez-vous, ou demandez un nouveau lien."
-            );
+        let derniereErreur: any = null;
+
+        for (const candidat of candidats) {
+            const { error } = await supabase.auth.verifyOtp({
+                token_hash: tokenHash,
+                type: candidat,
+            });
+
+            if (!error) {
+                // Jeton consommé : on le retire de l'URL pour qu'il ne subsiste
+                // ni dans l'historique, ni dans un lien partagé par mégarde.
+                window.history.replaceState(null, '', window.location.pathname);
+                setEtat('ok');
+                setTimeout(() => { window.location.href = '/'; }, 1800);
+                return;
+            }
+            derniereErreur = error;
         }
+
+        // Le détail reste en console : il distingue « déjà confirmé » de
+        // « expiré », ce que le message affiché ne peut pas faire sans induire
+        // l'utilisateur en erreur.
+        console.error('verifyOtp a échoué', derniereErreur);
+        setEtat('erreur');
+        setMessage(
+            "Ce lien a expiré, a déjà été utilisé, ou votre compte est déjà confirmé. "
+            + "Essayez de vous connecter — si cela ne fonctionne pas, demandez un nouveau lien."
+        );
     };
 
     return (
@@ -77,9 +102,59 @@ export const ConfirmerCompte: React.FC = () => {
                         </div>
                         <h1 className="text-2xl font-bold text-filao-dark">Lien invalide</h1>
                         <p className="text-sm text-gray-500 leading-relaxed">{message}</p>
+
+                        {/* Renvoi d'un lien.
+                            Chaque inscription ou renvoi INVALIDE le jeton
+                            précédent : avec plusieurs e-mails en boîte, ouvrir
+                            le mauvais mène ici sans issue. Ce bouton produit un
+                            lien neuf, et rend caducs tous les précédents. */}
+                        {!renvoye ? (
+                            <div className="space-y-2 text-left">
+                                <label className="text-xs font-medium text-gray-600">
+                                    Recevoir un nouveau lien
+                                </label>
+                                <input
+                                    type="email"
+                                    value={emailRenvoi}
+                                    onChange={(e) => setEmailRenvoi(e.target.value)}
+                                    placeholder="votre@email.com"
+                                    className="w-full bg-[#EFF4F8] border border-transparent rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:bg-white focus:border-filao-blue/30 transition-all"
+                                />
+                                <button
+                                    onClick={async () => {
+                                        if (!emailRenvoi.trim()) return;
+                                        setRenvoiEnCours(true);
+                                        try {
+                                            await supabase.auth.resend({
+                                                type: 'signup',
+                                                email: emailRenvoi.trim(),
+                                            });
+                                            // Réponse neutre quoi qu'il arrive : confirmer
+                                            // qu'une adresse existe en ferait un outil
+                                            // d'énumération.
+                                            setRenvoye(true);
+                                        } finally {
+                                            setRenvoiEnCours(false);
+                                        }
+                                    }}
+                                    disabled={renvoiEnCours || !emailRenvoi.trim()}
+                                    className="w-full bg-[#0E4F70] text-white font-bold py-3 rounded-lg hover:bg-[#0A3D58] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {renvoiEnCours && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    Envoyer un nouveau lien
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-gray-600 bg-[#EFF4F8] rounded-lg px-4 py-3">
+                                Si un compte à confirmer existe pour cette adresse, un nouveau lien
+                                vient d'être envoyé. <strong>Ouvrez le message le plus récent</strong> :
+                                les précédents ne sont plus valides.
+                            </p>
+                        )}
+
                         <a
                             href="/login"
-                            className="inline-block w-full bg-[#0E4F70] text-white font-bold py-3.5 rounded-lg hover:bg-[#0A3D58] transition-colors"
+                            className="inline-block text-xs text-[#00A3E0] underline hover:no-underline"
                         >
                             Aller à la connexion
                         </a>
