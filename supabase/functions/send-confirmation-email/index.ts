@@ -28,17 +28,48 @@ Deno.serve(async (req: Request) => {
         );
 
         // Generate the signup confirmation link
+        //
+        // ⚠️ CONFLIT AVEC L'E-MAIL NATIF DE SUPABASE
+        // `generateLink` produit un NOUVEAU jeton, ce qui INVALIDE celui déjà
+        // envoyé par `signUp`. Si l'e-mail natif de Supabase est actif, le
+        // destinataire reçoit deux messages : cliquer sur le premier donne
+        // « Email link is invalid or has expired ».
+        //
+        // Il faut donc DÉSACTIVER l'envoi natif dans les réglages Auth du
+        // projet (« Confirm signup » → template désactivé), pour que cet e-mail
+        // de marque soit le seul émis.
         const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
             type: "signup",
             email,
+            options: {
+                // Même destination que `signUp` côté client : sans elle, le lien
+                // ramène à la racine du site, où rien ne traite le jeton.
+                redirectTo: `${Deno.env.get("APP_URL") ?? ""}/login`,
+            },
         });
 
-        if (linkError || !linkData?.properties?.action_link) {
+        if (linkError || !linkData?.properties?.hashed_token) {
             console.error("Error generating link:", linkError);
             throw new Error("Impossible de générer le lien de confirmation");
         }
 
-        const confirmationUrl = linkData.properties.action_link;
+        // Lien vers NOTRE page de confirmation, et non vers le lien d'action de
+        // Supabase.
+        //
+        // POURQUOI CE DÉTOUR
+        // Le lien d'action consomme le jeton DÈS SA VISITE. Or les analyseurs
+        // de liens des messageries professionnelles (Outlook Safe Links,
+        // Proofpoint, antivirus) ouvrent les URL avant le destinataire pour les
+        // inspecter : le jeton, à usage unique, était donc déjà brûlé quand
+        // l'utilisateur cliquait — d'où « Email link is invalid or has expired »
+        // sur un lien pourtant tout neuf.
+        //
+        // En transmettant le `hashed_token` à une page qui exige un CLIC pour
+        // appeler `verifyOtp`, un robot peut charger la page sans rien
+        // consommer. Seule une action humaine valide le compte.
+        const appUrl = (Deno.env.get("APP_URL") ?? "").replace(/\/$/, "");
+        const confirmationUrl =
+            `${appUrl}/confirmer?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=signup`;
 
         // Send via Brevo API using template ID 1
         const brevoApiKey = Deno.env.get("BREVO_API_KEY");

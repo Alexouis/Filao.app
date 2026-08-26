@@ -68,6 +68,31 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
     const [confirmationSent, setConfirmationSent] = useState(false);
     const [registeredEmail, setRegisteredEmail] = useState('');
 
+    // Erreurs renvoyées par Supabase dans le FRAGMENT de l'URL
+    // (`#error=access_denied&error_code=otp_expired&...`).
+    //
+    // Un lien de confirmation périmé ou déjà consommé ramène ici sans que rien
+    // ne l'explique : l'utilisateur voyait un écran de connexion ordinaire, en
+    // se demandant si son compte avait été créé. On lit donc le fragment pour
+    // afficher un message compréhensible et la marche à suivre.
+    useEffect(() => {
+        const fragment = window.location.hash;
+        if (!fragment.includes('error')) return;
+
+        const params = new URLSearchParams(fragment.replace(/^#/, ''));
+        if (!params.get('error')) return;
+
+        setError(
+            params.get('error_code') === 'otp_expired'
+                ? "Ce lien de confirmation a expiré ou a déjà été utilisé. Connectez-vous, ou demandez un nouveau lien depuis « Mot de passe oublié »."
+                : "Ce lien n'est plus valide. Connectez-vous, ou demandez un nouveau lien."
+        );
+
+        // Nettoyage : sans cela le fragment resterait dans la barre d'adresse et
+        // le message réapparaîtrait à chaque rechargement.
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }, []);
+
     // Form styles
     const inputClass = "w-full bg-[#EFF4F8] border border-transparent rounded-lg px-4 py-3 text-filao-dark placeholder-gray-400 focus:outline-none focus:border-filao-blue/30 focus:bg-white transition-all";
     const labelClass = "block text-sm font-bold text-filao-dark mb-1";
@@ -265,6 +290,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     email,
                     password,
                     options: {
+                        // Destination si l'e-mail NATIF de Supabase est actif.
+                        //
+                        // ⚠️ Ce template doit être DÉSACTIVÉ dans les réglages
+                        // Auth du projet : son lien consomme le jeton à la
+                        // simple visite, donc reste vulnérable aux analyseurs de
+                        // liens des messageries. Seul l'e-mail de marque, qui
+                        // pointe vers `/confirmer`, exige un clic humain.
+                        emailRedirectTo: `${window.location.origin}/login`,
                         data: {
                             nom,
                             prenom,

@@ -14,6 +14,7 @@ import { CalendarPage } from './components/CalendarPage';
 import { Auth } from './components/Auth';
 import { MfaGate } from './components/MfaGate';
 import { Confidentialite, ConditionsUtilisation } from './components/LegalPages';
+import { ConfirmerCompte } from './components/ConfirmerCompte';
 import { CollaboratorSubmission } from './components/CollaboratorSubmission';
 import { ToastProvider } from './components/ui/Toast';
 import { InvitationLanding } from './components/InvitationLanding';
@@ -453,6 +454,12 @@ const AppContent = () => {
     return <ResetPassword />;
   }
 
+  // Confirmation d'inscription : publique, et volontairement AVANT le contrôle
+  // de session — l'utilisateur n'est pas encore authentifié quand il arrive.
+  if (location.pathname === '/confirmer') {
+    return <ConfirmerCompte />;
+  }
+
   // Pages légales : publiques par nécessité. La console Google Cloud exige des
   // URL accessibles sans compte pour l'écran de consentement OAuth, et l'article
   // 13 du RGPD impose de délivrer l'information avant la collecte, donc avant
@@ -492,7 +499,7 @@ const AppContent = () => {
    * La navigation interne passe par des paramètres de requête (`/?tab=…`), donc
    * la racine est le seul chemin de l'application authentifiée.
    */
-  const CHEMINS_CONNUS = ['/', '/login', '/register', '/reset-password', '/collaborator-access', '/confidentialite', '/cgu'];
+  const CHEMINS_CONNUS = ['/', '/login', '/register', '/reset-password', '/collaborator-access', '/confidentialite', '/cgu', '/confirmer'];
   if (!CHEMINS_CONNUS.includes(location.pathname)) {
     return <NotFound />;
   }
