@@ -79,7 +79,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [entryMode, setEntryMode] = useState<'siret' | 'manual'>('siret');
 
     // --- Step 1: Company ---
-    const [siretInput, setSiretInput] = useState('');
+    // SIRET restitué après un détachement : la saisie précédant le rechargement
+    // est reprise, pour que le changement d'entreprise reste fluide.
+    const [siretInput, setSiretInput] = useState(() => {
+        try {
+            const memorise = sessionStorage.getItem('siretApresDetachement');
+            if (memorise) {
+                sessionStorage.removeItem('siretApresDetachement');
+                return memorise;
+            }
+        } catch { /* stockage indisponible */ }
+        return '';
+    });
     // Entreprise déjà inscrite détectée au même SIRET : bascule l'écran sur la
     // demande de rattachement plutôt que d'échouer sur la contrainte UNIQUE.
     const [entrepriseExistante, setEntrepriseExistante] = useState<{ id: string; nom: string } | null>(null);
@@ -170,89 +181,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [entrepriseId, setEntrepriseId] = useState<string | null>(null);
 
     /**
-     * Remise à zéro de l'activité quand l'entreprise CHANGE réellement.
-     *
-     * Les boutons « Renseigner une autre entreprise » ne couvrent que l'écran de
-     * rattachement. Or on peut aussi revenir à l'étape 1 et saisir un autre
-     * SIRET sans passer par là : les compétences et zones de l'entreprise
-     * précédente restaient alors sélectionnées, et auraient été enregistrées au
-     * nom de la nouvelle.
-     *
-     * On surveille donc l'identifiant réellement saisi. Le premier passage ne
-     * réinitialise rien : il correspond au chargement initial, pas à un
-     * changement.
+     * SIRET de l'entreprise à laquelle on est rattaché, tel que chargé en base.
+     * Sert au garde-fou empêchant d'écraser sa fiche avec une autre société.
      */
-    const siretPrecedent = React.useRef<string | null>(null);
-    /**
-     * Surveillance de la demande en attente.
-     *
-     * Quand un administrateur accepte, rien n'en informe le demandeur : son
-     * profil local ignore le nouvel `entreprise_id`, l'écran reste sur
-     * « Demande envoyée », et les compétences de l'entreprise ne se chargent
-     * pas — il fallait recharger la page en le devinant.
-     *
-     * On interroge donc périodiquement le statut, et on recharge dès qu'il
-     * change. L'intervalle est volontairement large : une décision se compte en
-     * minutes, pas en secondes.
-     */
-    useEffect(() => {
-        if (!demandeEnvoyee || !userProfile?.id) return;
-
-        const verifier = async () => {
-            const { data } = await supabase
-                .from('demandes_rattachement')
-                .select('statut')
-                .eq('utilisateur_id', userProfile.id)
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            if (!data || data.statut === 'en_attente') return;
-            // Acceptée comme refusée : dans les deux cas l'écran doit changer,
-            // et un rechargement complet garantit un profil à jour.
-            window.location.reload();
-        };
-
-        const minuteur = setInterval(verifier, 15000);
-        return () => clearInterval(minuteur);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [demandeEnvoyee, userProfile?.id]);
-
-    /** SIRET de l'entreprise à laquelle on est rattaché, tel que chargé en base. */
     const siretRattachement = React.useRef<string | null>(null);
-    /** Vrai une fois le chargement initial terminé (avec ou sans entreprise). */
-    const initialisationFaite = React.useRef(false);
+    /** Nom de l'entreprise rattachée. Le bandeau l'affiche, et lui seul :
+     *  `companyData.nom` est écrasé dès qu'on recherche un autre SIRET, et le
+     *  bandeau prétendait alors un rattachement à l'entreprise RECHERCHÉE. */
+    const [nomRattachement, setNomRattachement] = useState<string | null>(null);
     /** Blocage explicite quand on tente de changer d'entreprise en étant rattaché. */
     const [erreurEntreprise, setErreurEntreprise] = useState<string | null>(null);
 
+    /**
+     * L'utilisateur administre-t-il l'entreprise à laquelle il est rattaché ?
+     *
+     * La fiche et les compétences sont PARTAGÉES par tous les membres : les
+     * laisser modifiables par un arrivant lui ferait écraser le travail de ses
+     * collègues sans s'en rendre compte. Les policies le refusent désormais
+     * (migration 089) ; l'interface doit le refléter plutôt que de laisser
+     * échouer l'enregistrement en silence.
+     */
+    const [estAdminEntreprise, setEstAdminEntreprise] = useState(false);
+    /** Vrai pour un membre rattaché sans droit d'écriture : affichage en lecture seule. */
+    const lectureSeule = !!entrepriseId && !estAdminEntreprise;
+
     useEffect(() => {
-        const siret = (companyData.siret || '').trim();
-        const precedent = siretPrecedent.current;
-        siretPrecedent.current = siret;
+        if (!entrepriseId) { setEstAdminEntreprise(false); return; }
+        let annule = false;
+        (async () => {
+            const { data } = await supabase.rpc('est_admin_entreprise');
+            if (!annule) setEstAdminEntreprise(!!data);
+        })();
+        return () => { annule = true; };
+    }, [entrepriseId]);
 
-        // La saisie a changé : le blocage éventuel n'est plus d'actualité.
-        if (siret !== precedent) setErreurEntreprise(null);
 
-        // Tant que les données ne sont pas chargées, tout changement vient du
-        // remplissage initial, pas de l'utilisateur.
-        //
-        // On ne se fie plus à « précédent vide » pour le détecter : VIDER le
-        // champ avant de retaper un autre numéro produisait exactement la même
-        // signature, et la remise à zéro ne se déclenchait donc jamais dans ce
-        // cas — le plus courant en pratique.
-        if (!initialisationFaite.current) return;
-
-        // Champ vidé : l'utilisateur corrige sa saisie, on attend qu'il ait fini.
-        if (!siret) return;
-
-        // Le SIRET saisi est celui de NOTRE entreprise : on édite sa fiche, on
-        // n'en change pas. Ses compétences ne doivent pas être effacées — ce
-        // serait faire perdre à un nouveau membre le travail de ses collègues.
-        if (siret === siretRattachement.current) return;
-
-        if (siret !== precedent) reinitialiserActivite();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyData.siret]);
 
     // --- Step 2: Advanced Taxonomy ---
     const [refDomains, setRefDomains] = useState<RefDomain[]>([]);
@@ -283,10 +246,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     .single();
                 if (ent) {
                     setEntrepriseId(ent.id);
-                    // Mémorise le SIRET de l'entreprise rattachée : tant que le
-                    // champ porte cette valeur, on édite sa fiche et les choix
-                    // d'activité ne doivent pas être remis à zéro.
+                    // Mémorise le SIRET de l'entreprise rattachée, pour détecter
+                    // une tentative de la remplacer par une autre société.
                     siretRattachement.current = (ent.siret || '').trim();
+                    setNomRattachement(ent.nom || null);
                     setCompanyData({
                         nom: ent.nom || '', 
                         prenom: ent.prenom || '',
@@ -339,9 +302,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             if (gz.data) setRefGeoZones(gz.data);
             setLoadingRef(false);
 
-            // Chargement terminé : à partir d'ici, tout changement du champ
-            // SIRET vient de l'utilisateur et doit être traité comme tel.
-            initialisationFaite.current = true;
         };
         loadExisting();
     }, [userProfile.entreprise_id]);
@@ -491,19 +451,60 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             let currentEntId = entrepriseId;
 
             if (currentEntId) {
-                // Garde-fou : un membre rattaché qui saisit un AUTRE SIRET ne
-                // doit pas écraser la fiche de son entreprise. Sans ce contrôle,
-                // l'`update` ci-dessous remplaçait le nom, le SIRET et l'adresse
-                // d'Axero par ceux d'une autre société — pour tous ses membres,
-                // sans que personne ne l'ait demandé.
+                // SIRET différent de celui de l'entreprise rattachée : c'est un
+                // CHANGEMENT d'entreprise, pas une modification de fiche.
+                //
+                // On se détache d'abord, puis on repart sur le parcours normal —
+                // création, ou demande de rattachement si elle existe déjà.
+                // Sans cela, l'`update` plus bas remplaçait le nom, le SIRET et
+                // l'adresse de l'entreprise rattachée par ceux d'une autre
+                // société, pour tous ses membres et sans que personne ne le
+                // demande. C'est ainsi qu'AXERO est devenue MICROSOFT FRANCE.
                 const siretRattache = siretRattachement.current;
                 const siretSaisi = (payload.siret || '').trim();
                 if (siretRattache && siretSaisi && siretSaisi !== siretRattache) {
+                    const { data: sortie, error: erreurSortie } = await supabase.rpc('quitter_entreprise');
+
+                    if (erreurSortie) {
+                        // Dernier administrateur d'une équipe à plusieurs : le
+                        // déclencheur refuse, son message indique quoi faire.
+                        setSaving(false);
+                        setErreurEntreprise(erreurSortie.message || "Impossible de quitter votre entreprise actuelle.");
+                        return;
+                    }
+                    if (sortie === 'dossiers_en_cours') {
+                        setSaving(false);
+                        setErreurEntreprise(
+                            "Vous portez des appels d'offres en cours. Clôturez-les ou transmettez-les "
+                            + "avant de rejoindre une autre entreprise."
+                        );
+                        return;
+                    }
+
+                    // Détaché : on repart d'un état propre. Le rechargement
+                    // garantit un profil et des données à jour.
+                    //
+                    // Le SIRET saisi est mémorisé : sans cela l'utilisateur
+                    // devrait le ressaisir après le rechargement, sans
+                    // comprendre pourquoi sa saisie a disparu.
+                    try {
+                        sessionStorage.setItem('siretApresDetachement', siretSaisi);
+                    } catch { /* stockage indisponible : simple ressaisie */ }
                     setSaving(false);
-                    setErreurEntreprise(
-                        "Vous appartenez déjà à une entreprise. Pour en rejoindre une autre, "
-                        + "demandez d'abord à un administrateur de vous retirer de celle-ci."
-                    );
+                    window.location.reload();
+                    return;
+                }
+
+                // Membre sans droit d'écriture, resté sur SON entreprise : rien
+                // à écrire — la policy refuserait sans erreur visible, et
+                // l'utilisateur croirait avoir enregistré.
+                //
+                // ⚠️ Ce raccourci doit venir APRÈS le contrôle de changement de
+                // SIRET : placé avant, il court-circuitait le détachement, et un
+                // membre non-admin ne pouvait plus jamais changer d'entreprise.
+                if (lectureSeule) {
+                    setSaving(false);
+                    setStep(2);
                     return;
                 }
 
@@ -577,6 +578,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     // --- SAVE STEP 2 ---
     const saveTaxonomy = async () => {
         if (!entrepriseId || selectedNatures.length === 0 || selectedDomains.length === 0 || selectedZones.length === 0) return;
+
+        // Membre sans droit d'écriture : les compétences appartiennent à
+        // l'entreprise et sont déjà renseignées. Le `delete` ci-dessous
+        // supprimerait celles de ses collègues si la policy le laissait passer —
+        // et échouerait en silence sinon, laissant croire à un enregistrement.
+        if (lectureSeule) return;
+
         setSaving(true);
         try {
             // 1. Natures
@@ -903,6 +911,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     {/* ========== STEP 1: COMPANY ========== */}
                     {step === 1 && (
                         <div className="space-y-6 animate-in fade-in duration-300">
+                            {/* Rattaché à une entreprise existante : dire d'où
+                                viennent ces informations, et offrir la seule
+                                action utile — la quitter pour en choisir une
+                                autre. Sans elle, l'utilisateur était bloqué. */}
+                            {entrepriseId && lectureSeule && (
+                                <div className="bg-[#EFF4F8] border border-[#00A3E0]/15 rounded-2xl p-4 flex items-start justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold text-[#0B1F38]">
+                                            Vous êtes rattaché à {nomRattachement || 'votre entreprise'}
+                                        </p>
+                                        <p className="text-xs text-[#0B1F38]/55 mt-0.5 leading-relaxed">
+                                            Ces informations sont gérées par un administrateur de votre
+                                            entreprise. Pour en rejoindre une autre, saisissez simplement
+                                            son SIRET.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="text-center mb-6">
                                 <h1 className="text-2xl font-bold text-gray-900">Commençons par identifier votre entreprise</h1>
                                 <p className="text-gray-500 mt-1">
@@ -1115,6 +1142,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                     {/* ========== STEP 2: COMPETENCES ET ZONE D'INTERVENTION ========== */}
                     {step === 2 && (
+                        <fieldset
+                            disabled={lectureSeule}
+                            className={lectureSeule ? 'opacity-70' : undefined}
+                        >
+                        {/* Un <fieldset> désactivé neutralise tous les boutons et
+                            champs qu'il contient : c'est ce qui rend la lecture
+                            seule EFFECTIVE, le bandeau seul ne faisait que
+                            l'annoncer. */}
+                        {lectureSeule && (
+                            <p className="max-w-xl mx-auto mb-6 text-xs text-[#0B1F38]/55 bg-[#EFF4F8] border border-[#00A3E0]/15 rounded-xl px-4 py-3 text-center">
+                                L'activité et les zones d'intervention sont gérées par un
+                                administrateur de {nomRattachement || 'votre entreprise'}.
+                            </p>
+                        )}
                         <div className="space-y-8 animate-in fade-in duration-500 pb-12">
                             <div className="text-center mb-8">
                                 <h1 className="text-2xl font-bold text-gray-900">Votre activité et expertise</h1>
@@ -1470,6 +1511,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                 </>
                             )}
                         </div>
+                        </fieldset>
                     )}
 
 
