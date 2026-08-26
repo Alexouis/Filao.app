@@ -534,7 +534,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                 // Create new
                 const { data: newEnt, error } = await supabase
                     .from('entreprises')
-                    .insert(payload)
+                    .insert({
+                        ...payload,
+                        // Sans `created_by`, le déclencheur de promotion
+                        // (migration 090) ne peut pas identifier le créateur :
+                        // il restait simple membre de sa propre entreprise.
+                        created_by: userProfile.id,
+                    })
                     .select('id')
                     .single();
                 if (error) throw error;

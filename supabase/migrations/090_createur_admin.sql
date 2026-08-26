@@ -95,3 +95,41 @@ UPDATE utilisateurs u
 --     join roles r on r.id = u.role_id
 --    where r.name <> 'admin';
 --   -- attendu : uniquement des lignes où un AUTRE admin actif existe.
+
+-- ---------------------------------------------------------------
+-- Reprise complémentaire : `created_by` absent
+-- ---------------------------------------------------------------
+-- L'insertion depuis l'onboarding n'envoyait pas `created_by` (corrigé côté
+-- front avec cette migration) : pour ces entreprises, ni le déclencheur ni la
+-- reprise ci-dessus ne peuvent identifier le créateur.
+--
+-- Repli raisonnable : une entreprise sans `created_by` dont l'UNIQUE membre
+-- actif est simple utilisateur n'a aucun administrateur possible — on promeut
+-- ce membre. Aucun risque d'usurpation : il est déjà seul à bord.
+UPDATE utilisateurs u
+   SET role_id = (SELECT id FROM roles WHERE name = 'admin')
+ WHERE u.compte_supprime_le IS NULL
+   AND u.role_id <> (SELECT id FROM roles WHERE name = 'admin')
+   AND u.entreprise_id IN (
+     SELECT e.id FROM entreprises e
+      WHERE e.created_by IS NULL
+   )
+   AND NOT EXISTS (
+     SELECT 1 FROM utilisateurs a
+      WHERE a.entreprise_id = u.entreprise_id
+        AND a.id <> u.id
+        AND a.compte_supprime_le IS NULL
+   );
+
+-- Et poser `created_by` pour que le déclencheur fonctionne à l'avenir sur ces
+-- lignes, au bénéfice du membre unique.
+UPDATE entreprises e
+   SET created_by = u.id
+  FROM utilisateurs u
+ WHERE u.entreprise_id = e.id
+   AND e.created_by IS NULL
+   AND u.compte_supprime_le IS NULL
+   AND NOT EXISTS (
+     SELECT 1 FROM utilisateurs x
+      WHERE x.entreprise_id = e.id AND x.id <> u.id AND x.compte_supprime_le IS NULL
+   );
