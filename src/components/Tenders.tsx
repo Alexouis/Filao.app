@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from './ui/Toast';
+import { reparerEncodage } from '../helpers/boampHelpers';
 import { ErrorState } from './ui/StateViews';
 import {
   CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
@@ -1129,7 +1130,7 @@ export const Tenders: React.FC<TendersProps> = ({
                     
                     <div className="flex justify-between items-start gap-4 relative z-10">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-lg font-bold text-[#0B1F38] line-clamp-2 leading-tight group-hover:text-[#00A3E0] transition-colors">{tender.titre}</h3>
+                        <h3 className="text-lg font-bold text-[#0B1F38] line-clamp-2 leading-tight group-hover:text-[#00A3E0] transition-colors">{reparerEncodage(tender.titre)}</h3>
                         <div className="flex items-center gap-2 mt-2">
                             {(tender.success_score || 0) > 0 && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 uppercase tracking-tight">Probabilité: {tender.success_score}%</span>}
                             {jeSuisPorteur ? (
@@ -1157,7 +1158,7 @@ export const Tenders: React.FC<TendersProps> = ({
                     <div className="flex justify-between items-end relative z-10 pt-2 border-t border-[#0B1F38]/5">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 text-xs font-medium text-[#0B1F38]/60">
-                            <span className="truncate">{tender.organisme_acheteur}</span>
+                            <span className="truncate">{reparerEncodage(tender.organisme_acheteur)}</span>
                         </div>
                         <div className="flex items-center gap-4 mt-3">
                            <div className="flex items-center gap-2">

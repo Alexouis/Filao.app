@@ -498,28 +498,54 @@ export const dedoublonnerAvis = (avis: any[]): any[] => {
 // ---------------------------------------------------------------
 
 /**
+ * Décode les entités HTML numériques et nommées les plus courantes.
+ *
+ * Les avis BOAMP arrivent avec des libellés échappés pour le HTML :
+ * « Ville d&#039;Issy-les-Moulineaux » s'affichait tel quel, l'apostrophe restant
+ * sous forme d'entité. On ne peut pas s'en remettre à `innerHTML` — ce serait
+ * ouvrir une injection sur une donnée venant d'une source externe — donc le
+ * décodage est explicite et limité aux entités attendues.
+ */
+const decoderEntitesHtml = (valeur: string): string =>
+    valeur
+        // Numériques décimales (&#039;) et hexadécimales (&#x27;).
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ')
+        // `&amp;` en dernier : le décoder plus tôt transformerait « &amp;#039; »
+        // en « &#039; », qu'un passage précédent aurait déjà manqué.
+        .replace(/&amp;/g, '&');
+
+/**
  * Répare les libellés mal encodés à l'ingestion.
  *
  * Les avis BOAMP arrivent parfois en « mojibake » : du texte UTF-8 relu comme
  * du Latin-1, ce qui transforme « é » en « Ã© » et produit des noms d'acheteur
- * illisibles. On refait le trajet inverse.
+ * illisibles. On refait le trajet inverse, puis on décode les entités HTML.
  *
- * La conversion n'est appliquée que si elle AMÉLIORE la chaîne : sur un libellé
- * déjà correct, la même opération le corromprait.
+ * La conversion du mojibake n'est appliquée que si elle AMÉLIORE la chaîne : sur
+ * un libellé déjà correct, la même opération le corromprait.
  */
 export const reparerEncodage = (valeur?: string | null): string => {
     if (!valeur) return '';
+    let texte = valeur;
     // Signature du mojibake : les séquences « Ã… », « Â… » n'existent pas dans
     // un libellé français correct.
-    if (!/[ÃÂ][\x80-\xBF]/.test(valeur)) return valeur;
-    try {
-        const octets = Uint8Array.from(valeur, c => c.charCodeAt(0) & 0xff);
-        const repare = new TextDecoder('utf-8', { fatal: false }).decode(octets);
-        // Le caractère de remplacement signale un échec : on garde l'original.
-        return repare.includes('\uFFFD') ? valeur : repare;
-    } catch {
-        return valeur;
+    if (/[ÃÂ][\x80-\xBF]/.test(texte)) {
+        try {
+            const octets = Uint8Array.from(texte, c => c.charCodeAt(0) & 0xff);
+            const repare = new TextDecoder('utf-8', { fatal: false }).decode(octets);
+            // Le caractère de remplacement signale un échec : on garde l'original.
+            if (!repare.includes('\uFFFD')) texte = repare;
+        } catch {
+            // Chaîne non convertible : on la garde telle quelle.
+        }
     }
+    return decoderEntitesHtml(texte);
 };
 
 /**
