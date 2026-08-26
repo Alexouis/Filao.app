@@ -1451,10 +1451,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                         Sélectionnez {manquesEtape2().join(', ')} pour continuer.
                                     </span>
                                 )}
-                                <button onClick={handleSkip}
-                                    className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
-                                    Passer
-                                </button>
+                                {/* « Passer » n'a de sens que sur une étape
+                                    facultative. L'entreprise (étape 1) et
+                                    l'activité (étape 2) sont obligatoires : le
+                                    proposer laissait croire qu'on pouvait s'en
+                                    dispenser, alors qu'on bute de toute façon
+                                    sur l'écran final. */}
+                                {step === 3 && (
+                                    <button onClick={handleSkip}
+                                        className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
+                                        Passer
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleNext}
                                     disabled={
