@@ -91,6 +91,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
     // évite d'afficher un panneau vide aux autres membres.
     const [demandes, setDemandes] = useState<any[]>([]);
     const [estAdmin, setEstAdmin] = useState(false);
+    /**
+     * Membre rattaché sans rôle administrateur : la fiche et les compétences
+     * sont PARTAGÉES, et les policies (migration 089) refusent son écriture —
+     * mais en silence. Sans cet état, l'écran laissait éditer puis affichait un
+     * succès pour un enregistrement qui n'avait rien écrit.
+     */
+    const lectureSeule = !!userProfile?.entreprise_id && !estAdmin;
     const [placesRestantes, setPlacesRestantes] = useState<number | null | undefined>(undefined);
     const [demandeEnCours, setDemandeEnCours] = useState<string | null>(null);
 
@@ -694,6 +701,13 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
     };
 
     const handleSave = async () => {
+        // Les policies refuseraient l'écriture sans erreur visible : autant le
+        // dire clairement plutôt que d'afficher un faux succès.
+        if (lectureSeule) {
+            setError("Ces informations sont gérées par un administrateur de votre entreprise.");
+            return;
+        }
+
         if (!userProfile) return;
         try {
             setSaving(true);
@@ -1107,14 +1121,20 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
 
 
                 <div className="flex gap-2">
-                    {isVerified && !isEditing && subTab !== 'docs' && (
+                    {lectureSeule && subTab !== 'docs' && (
+                        <span className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-[#0B1F38]/50 bg-[#EFF4F8]">
+                            <ShieldCheck size={16} />
+                            Géré par un administrateur
+                        </span>
+                    )}
+                    {!lectureSeule && isVerified && !isEditing && subTab !== 'docs' && (
                         <button onClick={toggleEditMode}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-filao-primary bg-filao-primary/10 hover:bg-filao-primary/20 transition-colors">
                             <PenLine size={16} />
                             Modifier
                         </button>
                     )}
-                    {(isEditing || !isVerified) && (
+                    {!lectureSeule && (isEditing || !isVerified) && (
                         <>
                             {isEditing && isVerified && (
                                 <button onClick={handleCancelEditing}
@@ -1150,6 +1170,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
 
             {/* =================== TAB: Informations générales =================== */}
             {subTab === 'info' && (
+                <fieldset disabled={lectureSeule} className={lectureSeule ? 'opacity-80' : undefined}>
                 <div className="space-y-3">
                     {/* SIRET Search — Only in EDIT mode */}
                     {isEditing && (
@@ -1769,6 +1790,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                         </div>
                     )}
                 </div>
+                </fieldset>
             )}
 
             {/* =================== TAB: Documents de candidature =================== */}
