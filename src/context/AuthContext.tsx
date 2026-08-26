@@ -29,6 +29,37 @@ interface AuthContextType {
 // --- Context ---
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Dernière connexion journalisée, mémorisée AU NIVEAU DU MODULE.
+ *
+ * `React.StrictMode` monte, démonte puis remonte les composants en
+ * développement : l'effet d'authentification s'exécute deux fois, chacun avec
+ * son propre abonnement `onAuthStateChange`. Une garde déclarée DANS l'effet est
+ * donc dupliquée elle aussi, et le même `SIGNED_IN` se retrouvait journalisé
+ * deux fois — d'où les doublons à la seconde près dans « Connexions récentes ».
+ *
+ * Cette variable survit aux remontages, ce qu'aucune garde interne à l'effet ne
+ * peut faire.
+ */
+let derniereConnexionJournalisee: { userId: string; horodatage: number } | null = null;
+
+/** Deux SIGNED_IN pour le même compte à moins de 30 s sont réputés être le même. */
+const FENETRE_ANTI_DOUBLON_MS = 30_000;
+
+/** Vrai si cette connexion doit être journalisée (et la mémorise le cas échéant). */
+const doitJournaliser = (userId: string): boolean => {
+    const maintenant = Date.now();
+    if (
+        derniereConnexionJournalisee
+        && derniereConnexionJournalisee.userId === userId
+        && maintenant - derniereConnexionJournalisee.horodatage < FENETRE_ANTI_DOUBLON_MS
+    ) {
+        return false;
+    }
+    derniereConnexionJournalisee = { userId, horodatage: maintenant };
+    return true;
+};
+
 // --- Provider ---
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [session, setSession] = useState<Session | null>(null);
@@ -248,9 +279,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 }
 
                 // Journal des connexions : seulement sur un SIGNED_IN qui n'est
-                // pas la restauration initiale. Best-effort — un échec de
-                // journalisation ne doit jamais bloquer l'entrée dans l'app.
-                if (event === 'SIGNED_IN' && !premierEvenement) {
+                // pas la restauration initiale, et une seule fois même si
+                // plusieurs abonnements coexistent (StrictMode). Best-effort —
+                // un échec de journalisation ne doit jamais bloquer l'entrée.
+                if (event === 'SIGNED_IN' && !premierEvenement && session.user?.id
+                    && doitJournaliser(session.user.id)) {
                     const methode = session.user?.app_metadata?.provider === 'google' ? 'google' : 'password';
                     supabase.functions.invoke('log-connexion', { body: { methode } })
                         .catch(err => console.warn('Journalisation de connexion échouée', err));
