@@ -220,6 +220,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
     /** SIRET de l'entreprise à laquelle on est rattaché, tel que chargé en base. */
     const siretRattachement = React.useRef<string | null>(null);
+    /** Vrai une fois le chargement initial terminé (avec ou sans entreprise). */
+    const initialisationFaite = React.useRef(false);
     /** Blocage explicite quand on tente de changer d'entreprise en étant rattaché. */
     const [erreurEntreprise, setErreurEntreprise] = useState<string | null>(null);
 
@@ -231,20 +233,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         // La saisie a changé : le blocage éventuel n'est plus d'actualité.
         if (siret !== precedent) setErreurEntreprise(null);
 
-        // Le SIRET saisi est celui de NOTRE entreprise : on édite sa fiche, on
-        // n'en change pas. Ses compétences viennent d'être chargées depuis la
-        // base — les effacer ferait perdre le travail de l'entreprise, y compris
-        // celui d'un collègue, à un membre qui vient de la rejoindre.
-        if (siret && siret === siretRattachement.current) return;
+        // Tant que les données ne sont pas chargées, tout changement vient du
+        // remplissage initial, pas de l'utilisateur.
+        //
+        // On ne se fie plus à « précédent vide » pour le détecter : VIDER le
+        // champ avant de retaper un autre numéro produisait exactement la même
+        // signature, et la remise à zéro ne se déclenchait donc jamais dans ce
+        // cas — le plus courant en pratique.
+        if (!initialisationFaite.current) return;
 
-        // Premier passage, ou remplissage initial : ce n'est pas un changement.
-        if (precedent === null || precedent === '') return;
-
-        // Champ vidé : l'utilisateur corrige probablement sa saisie.
+        // Champ vidé : l'utilisateur corrige sa saisie, on attend qu'il ait fini.
         if (!siret) return;
 
-        // On s'éloigne de l'entreprise rattachée, ou l'on passe d'un SIRET saisi
-        // à un autre : les choix d'activité ne valent plus.
+        // Le SIRET saisi est celui de NOTRE entreprise : on édite sa fiche, on
+        // n'en change pas. Ses compétences ne doivent pas être effacées — ce
+        // serait faire perdre à un nouveau membre le travail de ses collègues.
+        if (siret === siretRattachement.current) return;
+
         if (siret !== precedent) reinitialiserActivite();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [companyData.siret]);
@@ -333,6 +338,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             if (specs.data) setRefSpecialties(specs.data);
             if (gz.data) setRefGeoZones(gz.data);
             setLoadingRef(false);
+
+            // Chargement terminé : à partir d'ici, tout changement du champ
+            // SIRET vient de l'utilisateur et doit être traité comme tel.
+            initialisationFaite.current = true;
         };
         loadExisting();
     }, [userProfile.entreprise_id]);
