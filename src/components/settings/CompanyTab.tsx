@@ -103,9 +103,12 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 supabase.rpc('places_restantes_entreprise', { p_entreprise: entrepriseId }),
                 supabase
                     .from('demandes_rattachement')
-                    .select('id, created_at, utilisateur_id')
+                    .select('id, created_at, utilisateur_id, statut, motif_refus, traite_le')
                     .eq('entreprise_id', entrepriseId)
-                    .eq('statut', 'en_attente')
+                    // Les demandes traitées sont chargées aussi : un refus par
+                    // erreur doit pouvoir être corrigé, ce qui suppose de le
+                    // retrouver après coup.
+                    .in('statut', ['en_attente', 'refusee'])
                     .order('created_at', { ascending: true }),
             ]);
             setEstAdmin(!!admin);
@@ -1187,15 +1190,22 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     )}
 
                     {/* Demandes de rattachement — administrateurs uniquement */}
-                    {estAdmin && demandes.length > 0 && (
+                    {estAdmin && demandes.length > 0 && (() => {
+                        const enAttente = demandes.filter((d: any) => d.statut === 'en_attente');
+                        const refusees = demandes.filter((d: any) => d.statut === 'refusee');
+                        return (
                         <div className="mb-3 bg-white border border-amber-200 rounded-2xl p-5">
                             <div className="flex items-start justify-between gap-4 mb-4">
                                 <div>
                                     <h3 className="text-sm font-bold text-[#0B1F38]">
-                                        {demandes.length} demande{demandes.length > 1 ? 's' : ''} de rattachement
+                                        {enAttente.length > 0
+                                            ? `${enAttente.length} demande${enAttente.length > 1 ? 's' : ''} de rattachement`
+                                            : 'Demandes de rattachement'}
                                     </h3>
                                     <p className="text-xs text-[#0B1F38]/50 mt-0.5">
-                                        Ces personnes souhaitent rejoindre votre entreprise sur Filao.
+                                        {enAttente.length > 0
+                                            ? 'Ces personnes souhaitent rejoindre votre entreprise sur Filao.'
+                                            : 'Aucune demande en attente.'}
                                     </p>
                                 </div>
                                 {/* `null` = forfait sans limite d'utilisateurs. */}
@@ -1213,7 +1223,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                             </div>
 
                             <div className="divide-y divide-gray-100">
-                                {demandes.map((d: any) => {
+                                {enAttente.map((d: any) => {
                                     const p = d.profil;
                                     const nom = [p?.prenom, p?.nom].filter(Boolean).join(' ') || p?.email || 'Utilisateur';
                                     return (
@@ -1247,8 +1257,49 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                                     );
                                 })}
                             </div>
+
+                            {/* Historique des refus.
+                                Un refus par erreur doit pouvoir être corrigé : sans
+                                cette liste, la demande disparaissait de l'écran et
+                                seul le demandeur pouvait la relancer — sans savoir
+                                qu'il avait été refusé. */}
+                            {refusees.length > 0 && (
+                                <details className="mt-4 pt-4 border-t border-gray-100">
+                                    <summary className="text-xs font-bold text-[#0B1F38]/50 cursor-pointer hover:text-[#0B1F38]">
+                                        {refusees.length} demande{refusees.length > 1 ? 's' : ''} refusée{refusees.length > 1 ? 's' : ''}
+                                    </summary>
+                                    <div className="divide-y divide-gray-100 mt-2">
+                                        {refusees.map((d: any) => {
+                                            const p = d.profil;
+                                            const nom = [p?.prenom, p?.nom].filter(Boolean).join(' ') || p?.email || 'Utilisateur';
+                                            return (
+                                                <div key={d.id} className="flex items-center justify-between gap-4 py-3">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm text-[#0B1F38]/70 truncate">{nom}</p>
+                                                        <p className="text-xs text-[#0B1F38]/40 truncate">
+                                                            {d.motif_refus === 'quota_atteint'
+                                                                ? "Refusée — nombre d'utilisateurs atteint"
+                                                                : 'Refusée'}
+                                                            {d.traite_le && ` · ${new Date(d.traite_le).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}`}
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => traiterDemande(d.id, true)}
+                                                        disabled={demandeEnCours === d.id || placesRestantes === 0}
+                                                        title={placesRestantes === 0 ? "Quota d'utilisateurs atteint" : undefined}
+                                                        className="px-3 py-1.5 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 text-[11px] font-bold rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                                    >
+                                                        {demandeEnCours === d.id ? '…' : 'Accepter finalement'}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </details>
+                            )}
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* ========= READ-ONLY VIEW: 2×2 Grid of Cards ========= */}
                     {!isEditing && isVerified ? (

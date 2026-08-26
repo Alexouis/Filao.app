@@ -86,6 +86,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [demandeEnvoyee, setDemandeEnvoyee] = useState(false);
     // Entreprise sans membre actif : aucun administrateur ne peut valider.
     const [entrepriseOrpheline, setEntrepriseOrpheline] = useState(false);
+    // Demande de rattachement refusée par un administrateur de l'entreprise.
+    const [demandeRefusee, setDemandeRefusee] = useState(false);
     const [cleReprise, setCleReprise] = useState('');
     const [cleErreur, setCleErreur] = useState<string | null>(null);
 
@@ -99,9 +101,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         (async () => {
             const { data } = await supabase
                 .from('demandes_rattachement')
-                .select('entreprise_id, entreprises(nom)')
+                .select('entreprise_id, statut, entreprises(nom)')
                 .eq('utilisateur_id', userProfile.id)
-                .eq('statut', 'en_attente')
+                // On ne filtre plus sur « en_attente » : une demande REFUSÉE
+                // disparaissait de l'écran, renvoyant l'utilisateur au
+                // formulaire SIRET comme si rien ne s'était passé. Il
+                // redemandait alors sans jamais apprendre qu'il avait été
+                // refusé — et l'administrateur recevait une notification de
+                // plus à chaque tour.
+                .in('statut', ['en_attente', 'refusee'])
+                .order('created_at', { ascending: false })
+                .limit(1)
                 .maybeSingle();
 
             if (annule || !data) return;
@@ -109,7 +119,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                 id: data.entreprise_id,
                 nom: (data as any).entreprises?.nom || 'cette entreprise',
             });
-            setDemandeEnvoyee(true);
+            if (data.statut === 'refusee') setDemandeRefusee(true);
+            else setDemandeEnvoyee(true);
         })();
         return () => { annule = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -522,7 +533,50 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
                 <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 text-center">
-                    {entrepriseOrpheline ? (
+                    {demandeRefusee ? (
+                        <>
+                            <h2 className="text-xl font-bold text-[#0B1F38] mb-3">
+                                Demande non acceptée
+                            </h2>
+                            <p className="text-sm text-[#0B1F38]/60 leading-relaxed mb-6">
+                                Un administrateur de <strong>{entrepriseExistante.nom}</strong> n'a
+                                pas donné suite à votre demande de rattachement.
+                            </p>
+                            <p className="text-xs text-[#0B1F38]/45 leading-relaxed mb-6">
+                                Rapprochez-vous de lui si vous pensez qu'il s'agit d'une erreur : il
+                                peut revenir sur sa décision. Vous pouvez aussi relancer une
+                                demande, ou renseigner une autre entreprise.
+                            </p>
+
+                            <button
+                                onClick={async () => {
+                                    setSaving(true);
+                                    try {
+                                        const { data } = await supabase.rpc('demander_rattachement', {
+                                            p_entreprise: entrepriseExistante.id,
+                                        });
+                                        if (data === 'en_attente') {
+                                            setDemandeRefusee(false);
+                                            setDemandeEnvoyee(true);
+                                        }
+                                    } finally {
+                                        setSaving(false);
+                                    }
+                                }}
+                                disabled={saving}
+                                className="w-full py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-50 mb-3"
+                            >
+                                {saving ? 'Envoi…' : 'Relancer ma demande'}
+                            </button>
+
+                            <button
+                                onClick={() => { setDemandeRefusee(false); setEntrepriseExistante(null); }}
+                                className="text-xs text-[#00A3E0] hover:underline"
+                            >
+                                Renseigner une autre entreprise
+                            </button>
+                        </>
+                    ) : entrepriseOrpheline ? (
                         <>
                             <h2 className="text-xl font-bold text-[#0B1F38] mb-3">
                                 Cette entreprise n'a plus de membre actif
