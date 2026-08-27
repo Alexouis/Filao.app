@@ -209,7 +209,36 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
     const [expandedThematic, setExpandedThematic] = useState<string | null>(null);
 
     // Sub-tabs
-    const [subTab, setSubTab] = useState<'info' | 'docs'>(initialSubTab || 'info');
+    const [subTab, setSubTab] = useState<'info' | 'docs' | 'equipe'>(initialSubTab || 'info');
+
+    /** Membres de l'entreprise — consultation seule, aucune action pour l'instant. */
+    const [membres, setMembres] = useState<any[]>([]);
+    const [nomRoleAdmin, setNomRoleAdmin] = useState<string | null>(null);
+
+    useEffect(() => {
+        const entId = userProfile?.entreprise_id;
+        if (!entId) { setMembres([]); return; }
+        let annule = false;
+        (async () => {
+            // La policy de la migration 075 autorise chaque membre à voir ses
+            // collègues ; les comptes anonymisés sont exclus, ils ne font plus
+            // partie de l'équipe.
+            const [{ data: gens }, { data: roles }] = await Promise.all([
+                supabase
+                    .from('utilisateurs')
+                    .select('id, prenom, nom, email, photo_url, role_id, created_at')
+                    .eq('entreprise_id', entId)
+                    .is('compte_supprime_le', null)
+                    .order('created_at', { ascending: true }),
+                supabase.from('roles').select('id, name'),
+            ]);
+            if (annule) return;
+            const idAdmin = (roles || []).find((r: any) => r.name === 'admin')?.id || null;
+            setNomRoleAdmin(idAdmin);
+            setMembres(gens || []);
+        })();
+        return () => { annule = true; };
+    }, [userProfile?.entreprise_id]);
 
     // Document categories config
     type DocCategorie = 'presentation' | 'moyens_humains' | 'moyens_techniques' | 'references' | 'autres';
@@ -1164,6 +1193,11 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     <FolderOpen size={15} />
                     Documents de candidature
                 </button>
+                <button onClick={() => setSubTab('equipe')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'equipe' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <Users size={15} />
+                    Équipe{membres.length > 0 ? ` (${membres.length})` : ''}
+                </button>
             </div>
 
             {error && <div className="p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm">{error}</div>}
@@ -1791,6 +1825,49 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     )}
                 </div>
                 </fieldset>
+            )}
+
+            {/* =================== TAB: Équipe =================== */}
+            {subTab === 'equipe' && (
+                <div className="bg-white border border-gray-200 rounded-2xl p-5">
+                    <div className="mb-4">
+                        <h3 className="text-sm font-bold text-[#0B1F38]">
+                            {membres.length} membre{membres.length > 1 ? 's' : ''}
+                        </h3>
+                        <p className="text-xs text-[#0B1F38]/50 mt-0.5">
+                            Les personnes rattachées à votre entreprise sur Filao.
+                        </p>
+                    </div>
+
+                    <div className="divide-y divide-gray-100">
+                        {membres.map((m) => {
+                            const nom = [m.prenom, m.nom].filter(Boolean).join(' ') || m.email;
+                            const initiales = (m.prenom?.[0] || '') + (m.nom?.[0] || m.email?.[0] || '');
+                            const estAdminMembre = nomRoleAdmin && m.role_id === nomRoleAdmin;
+                            return (
+                                <div key={m.id} className="flex items-center gap-3 py-3">
+                                    {m.photo_url ? (
+                                        <img src={m.photo_url} alt="" className="w-9 h-9 rounded-full object-cover" />
+                                    ) : (
+                                        <div className="w-9 h-9 rounded-full bg-[#EFF4F8] flex items-center justify-center text-xs font-bold text-[#0B1F38]/60 uppercase">
+                                            {initiales}
+                                        </div>
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-[#0B1F38] truncate">
+                                            {nom}
+                                            {m.id === userProfile.id && <span className="text-[#0B1F38]/40 font-normal"> (vous)</span>}
+                                        </p>
+                                        <p className="text-xs text-[#0B1F38]/45 truncate">{m.email}</p>
+                                    </div>
+                                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ${estAdminMembre ? 'bg-[#E8F4FD] text-[#0078B8]' : 'bg-gray-100 text-gray-500'}`}>
+                                        {estAdminMembre ? 'Administrateur' : 'Membre'}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             )}
 
             {/* =================== TAB: Documents de candidature =================== */}

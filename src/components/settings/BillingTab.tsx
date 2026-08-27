@@ -123,6 +123,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     // 25 Mo. On part de la valeur en mémoire le temps de la requête, pour ne pas
     // faire clignoter l'affichage.
     const [usedStorage, setUsedStorage] = useState<number>((userProfile as any)?.storage_used || 0);
+    /** Occupation en utilisateurs : membres actifs / places du forfait (null = illimité). */
+    const [sieges, setSieges] = useState<{ occupes: number; restants: number | null } | null>(null);
 
     useEffect(() => {
         const entrepriseId = userProfile?.entreprise_id;
@@ -130,12 +132,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
         let annule = false;
         (async () => {
             try {
-                const { data, error } = await supabase.rpc('stockage_consomme_entreprise', {
-                    p_entreprise: entrepriseId,
-                });
-                if (!annule && !error && data !== null && data !== undefined) {
-                    setUsedStorage(Number(data) || 0);
+                const [stockage, membres, places] = await Promise.all([
+                    supabase.rpc('stockage_consomme_entreprise', { p_entreprise: entrepriseId }),
+                    supabase
+                        .from('utilisateurs')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('entreprise_id', entrepriseId)
+                        .is('compte_supprime_le', null),
+                    supabase.rpc('places_restantes_entreprise', { p_entreprise: entrepriseId }),
+                ]);
+                if (annule) return;
+                if (!stockage.error && stockage.data !== null && stockage.data !== undefined) {
+                    setUsedStorage(Number(stockage.data) || 0);
                 }
+                setSieges({
+                    occupes: membres.count ?? 0,
+                    // NULL signifie « illimité » (voir places_restantes_entreprise).
+                    restants: places.error || places.data === null || places.data === undefined
+                        ? null
+                        : Number(places.data),
+                });
             } catch (err) {
                 // Échec de lecture : on conserve la valeur affichée plutôt que
                 // de montrer zéro, qui serait trompeur.
@@ -193,6 +209,24 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                 {/* Usage Bars */}
                 <div className="space-y-4">
                     <div>
+                        <div className="flex justify-between text-xs mb-1.5">
+                            <span className="text-gray-400">Utilisateurs</span>
+                            <span className="text-white font-medium">
+                                {sieges
+                                    ? sieges.restants === null
+                                        ? `${sieges.occupes} — illimité`
+                                        : `${sieges.occupes} / ${sieges.occupes + sieges.restants}`
+                                    : '…'}
+                            </span>
+                        </div>
+                        {sieges && sieges.restants !== null && (
+                            <div className="w-full bg-white/10 rounded-full h-1.5 mb-4">
+                                <div
+                                    className="bg-[#00A3E0] h-1.5 rounded-full transition-all"
+                                    style={{ width: `${Math.min(100, Math.round((sieges.occupes / Math.max(1, sieges.occupes + sieges.restants)) * 100))}%` }}
+                                />
+                            </div>
+                        )}
                         <div className="flex justify-between text-xs mb-1.5">
                             <span className="text-gray-400">Espace de stockage</span>
                             <span className="text-white font-medium">{formatBytes(usedStorage)} / {formatBytes(totalStorage)}</span>
