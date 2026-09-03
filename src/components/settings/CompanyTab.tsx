@@ -165,6 +165,16 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 setError("Le nombre d'utilisateurs de votre forfait est atteint. Passez à une offre supérieure pour rattacher ce collaborateur.");
             } else if (data === 'non_autorise') {
                 setError("Vous n'êtes pas autorisé à traiter cette demande.");
+            } else if (data === 'deja_rattache') {
+                // Le demandeur a rejoint une autre entreprise entre-temps : la
+                // fonction refuse de le déplacer (migration 088) et clôt la
+                // demande, qui devient caduque (migration 091). Elle disparaît
+                // donc de la liste au rechargement ci-dessous.
+                //
+                // Sans ce message, le clic « Accepter » restait sans aucun effet
+                // visible — la ligne était toujours là — et l'administrateur
+                // recommençait indéfiniment.
+                setError("Ce collaborateur a rejoint une autre entreprise entre-temps : sa demande a été clôturée.");
             }
             await chargerDemandes();
             onUpdate();

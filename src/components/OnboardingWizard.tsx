@@ -144,6 +144,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         setFieldsLocked(false);
         setSearchError(null);
         setErreurEntreprise(null);
+
+        // Retirer la demande en attente (migration 091).
+        //
+        // L'utilisateur vient d'annoncer que cette entreprise n'est pas la
+        // sienne : sa demande n'a plus d'objet. Laissée « en_attente », elle
+        // restait dans la liste de l'administrateur, qui cliquait « Accepter »
+        // sans effet — le rattachement étant refusé en base dès lors que le
+        // demandeur a rejoint une autre entreprise entre-temps.
+        //
+        // Volontairement hors du chemin critique : l'écran est déjà réinitialisé
+        // ci-dessus, et un échec réseau ne doit pas retenir l'utilisateur. Le
+        // filet de sécurité côté base clôt de toute façon la demande au moment
+        // où l'administrateur la traite.
+        void (async () => {
+            try {
+                await supabase.rpc('annuler_demande_rattachement');
+            } catch (err) {
+                console.warn('Annulation de la demande de rattachement échouée', err);
+            }
+        })();
     };
 
     /** Vide les choix de l'étape 2, sans toucher à l'écran affiché. */
