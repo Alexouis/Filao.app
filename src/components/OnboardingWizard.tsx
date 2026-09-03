@@ -72,6 +72,20 @@ const STEPS = [
     { id: 3, label: 'C\'est parti !', icon: Rocket },
 ];
 
+/** Fiche entreprise vierge. Sert à l'état initial ET à la remise à zéro du
+ *  formulaire quand l'utilisateur repart sur une autre entreprise. */
+const FICHE_VIERGE = {
+    nom: '',
+    prenom: '',
+    nom_famille: '',
+    siret: '', adresse: '', ville: '', code_postal: '',
+    taille: '',
+    effectif: '',
+    forme_juridique: '',
+    code_naf: '', libelle_naf: '', date_creation: '',
+    site_web: '',
+};
+
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile, onComplete }) => {
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
@@ -113,6 +127,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         setDemandeEnvoyee(false);
         setEntrepriseOrpheline(false);
         setEntrepriseExistante(null);
+
+        // Retour explicite au formulaire d'identification, vierge.
+        //
+        // Sans cette remise à zéro, l'écran réapparaissait avec la fiche de
+        // l'entreprise qu'on vient justement de déclarer ne pas être la sienne,
+        // déjà validée (« Rechercher » masqué, bandeau vert affiché) : il
+        // suffisait de cliquer « Continuer » pour repartir dessus. « En
+        // renseigner une autre » doit vouloir dire ce qu'il annonce — on
+        // ressaisit un SIRET, et il repasse par la vérification.
+        setStep(1);
+        setEntryMode('siret');
+        setSiretInput('');
+        setCompanyData({ ...FICHE_VIERGE });
+        setIsVerified(false);
+        setFieldsLocked(false);
+        setSearchError(null);
+        setErreurEntreprise(null);
     };
 
     /** Vide les choix de l'étape 2, sans toucher à l'écran affiché. */
@@ -165,17 +196,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [searchError, setSearchError] = useState<string | null>(null);
     const [fieldsLocked, setFieldsLocked] = useState(false);
     const [isVerified, setIsVerified] = useState(false);
-    const [companyData, setCompanyData] = useState({
-        nom: '', 
-        prenom: '',
-        nom_famille: '',
-        siret: '', adresse: '', ville: '', code_postal: '',
-        taille: '', 
-        effectif: '',
-        forme_juridique: '',
-        code_naf: '', libelle_naf: '', date_creation: '',
-        site_web: '',
-    });
+    const [companyData, setCompanyData] = useState({ ...FICHE_VIERGE });
 
     const [userData, setUserData] = useState({ poste: '' });
     const [entrepriseId, setEntrepriseId] = useState<string | null>(null);
@@ -420,11 +441,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     };
 
     // --- SAVE STEP 1 ---
-    const saveCompany = async () => {
+    /**
+     * Enregistre l'entreprise de l'étape 1.
+     *
+     * @returns `true` si l'utilisateur est bien rattaché à une entreprise et
+     * peut passer à l'étape suivante ; `false` dans TOUS les autres cas —
+     * saisie incomplète, changement d'entreprise refusé, rattachement à
+     * demander, erreur d'écriture. L'appelant ne doit pas avancer sur `false` :
+     * l'étape 2 décrit l'activité d'une entreprise qui n'existe pas encore.
+     */
+    const saveCompany = async (): Promise<boolean> => {
         const isStandard = companyData.nom.trim().length > 0;
         const isIndividual = companyData.prenom.trim().length > 0 && companyData.nom_famille.trim().length > 0;
         
-        if (!isStandard && !isIndividual) return;
+        if (!isStandard && !isIndividual) return false;
+        // Une erreur d'une tentative précédente resterait affichée sous le
+        // bouton pendant la nouvelle, laissant croire à un nouvel échec.
+        setErreurEntreprise(null);
         setSaving(true);
         try {
             // Prepared payload with correct types and fallback values
@@ -470,7 +503,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                         // déclencheur refuse, son message indique quoi faire.
                         setSaving(false);
                         setErreurEntreprise(erreurSortie.message || "Impossible de quitter votre entreprise actuelle.");
-                        return;
+                        return false;
                     }
                     if (sortie === 'dossiers_en_cours') {
                         setSaving(false);
@@ -478,7 +511,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             "Vous portez des appels d'offres en cours. Clôturez-les ou transmettez-les "
                             + "avant de rejoindre une autre entreprise."
                         );
-                        return;
+                        return false;
                     }
 
                     // Détaché : on repart d'un état propre. Le rechargement
@@ -492,7 +525,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     } catch { /* stockage indisponible : simple ressaisie */ }
                     setSaving(false);
                     window.location.reload();
-                    return;
+                    return false;
                 }
 
                 // Membre sans droit d'écriture, resté sur SON entreprise : rien
@@ -502,10 +535,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                 // ⚠️ Ce raccourci doit venir APRÈS le contrôle de changement de
                 // SIRET : placé avant, il court-circuitait le détachement, et un
                 // membre non-admin ne pouvait plus jamais changer d'entreprise.
+                // C'est un succès : il n'y a rien à écrire, mais l'utilisateur
+                // EST rattaché. `handleNext` fait avancer l'étape — inutile de
+                // le faire ici aussi.
                 if (lectureSeule) {
                     setSaving(false);
-                    setStep(2);
-                    return;
+                    return true;
                 }
 
                 // Update existing
@@ -527,7 +562,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     if (existante) {
                         setEntrepriseExistante({ id: existante.id, nom: existante.nom });
                         setSaving(false);
-                        return; // la suite se joue dans l'écran de rattachement
+                        // Échec : aucune entreprise n'a été créée et l'utilisateur
+                        // n'est rattaché à rien. La suite se joue dans l'écran de
+                        // rattachement, pas à l'étape 2.
+                        return false;
                     }
                 }
 
@@ -574,22 +612,32 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     poste: userData.poste || null,
                 }).eq('id', userProfile.id);
             }
+
+            // Sans identifiant d'entreprise, l'étape 2 n'aurait rien à quoi
+            // rattacher les compétences : `saveTaxonomy` sortirait en silence.
+            return !!currentEntId;
         } catch (err) {
             console.error('Error saving company:', err);
+            setErreurEntreprise(
+                "Enregistrement impossible pour le moment. Vérifiez votre connexion et réessayez."
+            );
+            return false;
         } finally {
             setSaving(false);
         }
     };
 
     // --- SAVE STEP 2 ---
-    const saveTaxonomy = async () => {
-        if (!entrepriseId || selectedNatures.length === 0 || selectedDomains.length === 0 || selectedZones.length === 0) return;
+    /** @returns `true` si les compétences sont enregistrées (ou n'avaient pas à
+     *  l'être), `false` si l'étape doit rester affichée. */
+    const saveTaxonomy = async (): Promise<boolean> => {
+        if (!entrepriseId || selectedNatures.length === 0 || selectedDomains.length === 0 || selectedZones.length === 0) return false;
 
         // Membre sans droit d'écriture : les compétences appartiennent à
         // l'entreprise et sont déjà renseignées. Le `delete` ci-dessous
         // supprimerait celles de ses collègues si la policy le laissait passer —
         // et échouerait en silence sinon, laissant croire à un enregistrement.
-        if (lectureSeule) return;
+        if (lectureSeule) return true;
 
         setSaving(true);
         try {
@@ -613,9 +661,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             await supabase.from('company_geo_zones').delete().eq('entreprise_id', entrepriseId);
             await supabase.from('company_geo_zones').insert(selectedZones.map(z => ({ entreprise_id: entrepriseId, geo_zone_id: z })));
 
-
+            return true;
         } catch (err) {
             console.error('Error saving taxonomy:', err);
+            return false;
         } finally {
             setSaving(false);
         }
@@ -652,12 +701,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         return manques;
     };
 
+    /**
+     * Avance d'une étape — mais SEULEMENT si l'étape courante s'est réellement
+     * enregistrée.
+     *
+     * L'avancement était inconditionnel : `saveCompany()` ne renvoyait rien, et
+     * l'étape 2 s'affichait même quand l'enregistrement avait été interrompu.
+     * Le cas le plus grave : le SIRET saisi appartient à une entreprise déjà
+     * inscrite. `saveCompany` basculait sur l'écran de rattachement, mais
+     * `setStep(2)` s'exécutait derrière. « Ce n'est pas mon entreprise » rendait
+     * alors la main sur l'étape 2 — sans entreprise créée, sans SIRET à
+     * ressaisir, la vérification entièrement contournée.
+     */
     const handleNext = async () => {
         if (step === 1) {
-            await saveCompany();
+            const ok = await saveCompany();
+            if (!ok) return;
         }
         if (step === 2) {
-            await saveTaxonomy();
+            const ok = await saveTaxonomy();
+            if (!ok) return;
         }
         if (step < 3) setStep(step + 1);
     };
