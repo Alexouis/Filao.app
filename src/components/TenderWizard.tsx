@@ -3963,7 +3963,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         // (migrations 072 et 074), mais on distingue désormais les deux cas pour
         // qu'une régression de lecture ne se traduise plus par un score
         // faussement optimiste.
-        const successScore = (() => {
+        //
+        // Le commentaire ci-dessus annonçait cette distinction ; elle n'était
+        // pas dans le code, et le bug est revenu tel quel pour l'administrateur
+        // (migration 100). On la fait pour de bon : `required_skills` est un
+        // JSONB porté par la ligne du dossier, lisible par quiconque lit le
+        // dossier. S'il contient des libellés alors que les identifiants
+        // (chargés depuis `reponses_ao_specialties`) sont vides, c'est la
+        // LECTURE de la table qui a échoué, pas le dossier qui n'exige rien.
+        const lectureCompetencesEchouee =
+            (formData.required_specialty_ids?.length ?? 0) === 0
+            && (formData.required_skills?.length ?? 0) > 0;
+
+        const successScore: number | null = (() => {
+            if (lectureCompetencesEchouee) return null;
             const reqCount = formData.required_specialty_ids?.length ?? 0;
             if (reqCount === 0) return 85;
             const coveredCount = formData.required_specialty_ids.filter(sid => allCoveredSpecialtyIds.includes(sid)).length;
@@ -4072,8 +4085,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         // SVG Gauge helper
         const gaugeRadius = 40;
         const gaugeCircumference = 2 * Math.PI * gaugeRadius;
-        const gaugeOffset = gaugeCircumference - (successScore / 100) * gaugeCircumference;
-        const gaugeColor = successScore >= 70 ? '#10B981' : successScore >= 40 ? '#F59E0B' : '#EF4444';
+        // Jauge vide et neutre quand le score n'est pas calculable : afficher
+        // une valeur — 0 ou 85 — ferait passer un défaut de lecture pour une
+        // réalité du dossier.
+        const gaugeOffset = successScore === null
+            ? gaugeCircumference
+            : gaugeCircumference - (successScore / 100) * gaugeCircumference;
+        const gaugeColor = successScore === null ? '#9CA3AF'
+            : successScore >= 70 ? '#10B981' : successScore >= 40 ? '#F59E0B' : '#EF4444';
 
         // Budget formatting
         const formatBudget = (val: number) => {
@@ -4329,7 +4348,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                     className="transition-all duration-1000" />
                                             </svg>
                                             <div className="absolute inset-0 flex items-center justify-center">
-                                                <span className="text-xl font-extrabold text-[#0B1F38]">{successScore}%</span>
+                                                <span className="text-xl font-extrabold text-[#0B1F38]" title={successScore === null ? "Les compétences requises n'ont pas pu être lues : score indisponible." : undefined}>{successScore === null ? '—' : `${successScore}%`}</span>
                                             </div>
                                         </div>
                                         <div className="min-w-0">
