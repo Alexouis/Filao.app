@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from './ui/Toast';
 import { reparerEncodage } from '../helpers/boampHelpers';
 import { ErrorState } from './ui/StateViews';
+import { TenderReadOnlyPanel } from './TenderReadOnlyPanel';
 import {
   CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
   Pencil, Trash2, X, Plus,
@@ -129,6 +130,9 @@ export const Tenders: React.FC<TendersProps> = ({
     (t: any) => estDossierDunCollegue(t) && !estAdmin,
     [estDossierDunCollegue, estAdmin]
   );
+
+  /** Dossier ouvert en consultation (membre non habilité à l'éditer). */
+  const [tenderConsulte, setTenderConsulte] = useState<any | null>(null);
 
   /** Sert à n'afficher la bascule que si elle a un effet. */
   const nbDossiersCollegues = useMemo(
@@ -452,19 +456,13 @@ export const Tenders: React.FC<TendersProps> = ({
   };
 
   const handleOpenTender = (statut: string, id: string) => {
-    // Un membre ordinaire voit la ligne du dossier d'un collègue, mais pas son
-    // groupement, ses échanges ni ses pièces (092). L'ouvrir afficherait un
-    // dossier vide, que rien ne distinguerait d'un bug de chargement.
+    // Un membre ordinaire voit la ligne du dossier d'un collègue et la
+    // composition du groupement (092, 095), mais ni les échanges ni les pièces.
+    // Le wizard suppose qu'on écrit : on ouvre un panneau de consultation, qui
+    // n'affiche que ce que la RLS accorde réellement à ce profil.
     const cible = tenders.find(t => t.id === id);
     if (estEnLectureSeule(cible)) {
-      const porteur = [cible?.createur?.prenom, cible?.createur?.nom]
-        .filter(Boolean).join(' ').trim();
-      showToast(
-        porteur
-          ? `Ce dossier est porté par ${porteur}. Demandez-lui l'accès, ou à un administrateur de votre entreprise.`
-          : "Ce dossier est porté par un collègue. Demandez-lui l'accès, ou à un administrateur de votre entreprise.",
-        'info'
-      );
+      setTenderConsulte(cible || null);
       return;
     }
     if (onEditDraft) onEditDraft(id);
@@ -1399,6 +1397,10 @@ export const Tenders: React.FC<TendersProps> = ({
         />
       )}
       {OutcomeConfirmationModal()}
+      <TenderReadOnlyPanel
+        tender={tenderConsulte}
+        onClose={() => setTenderConsulte(null)}
+      />
     </div>
   );
 };
