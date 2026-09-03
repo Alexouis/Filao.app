@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Tender, Groupement } from '../types';
 import {
@@ -9,6 +9,7 @@ import {
   PlanType,
   REQUIRED_DOCS_BY_ROLE // <--- Added this import
 } from '../config';
+import { chargerForfaits, forfait, illimite } from '@/helpers/planLimits';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
 import { GLASS_STYLE } from '../lib/styles';
@@ -411,14 +412,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // --- DYNAMIC DATA ---
-  let currentPlanKey = (userProfile?.plan as PlanType) || PLANS_TYPES.free;
-  // If the user has a plan that doesn't exist in config (e.g. old data), fallback to free
-  if (!PLANS_CONFIG[currentPlanKey]) {
-    currentPlanKey = PLANS_TYPES.free;
-  }
-  const currentPlanConfig = PLANS_CONFIG[currentPlanKey];
-  const tenderLimit = currentPlanConfig.limits.activeTenders;
-  const isLimitReached = tenderLimit !== 9999 && activeTendersCount >= tenderLimit;
+  // Quota lu dans `plan_limits`, et non dans `PLANS_CONFIG`.
+  //
+  // Les deux divergent depuis la migration 048, qui a fixé `partenaire` à 0
+  // dossier en base alors que la constante du front en annonce toujours 1.
+  // L'écran affichait donc « 0/1 » et proposait de créer un dossier que le
+  // déclencheur `verifier_quota_avant_creation` refusait ensuite — sans que
+  // rien n'explique le refus. `canCreateTender` avait déjà été bascul   é sur la
+  // table (`planLimits.ts`) ; cet affichage était resté en arrière.
+  //
+  // `chargerForfaits` n'est appelé qu'une fois, dans `AuthContext`, sans
+  // provoquer de nouveau rendu : un écran monté avant la fin du chargement
+  // garderait le repli codé en dur, c'est-à-dire l'ancienne valeur fausse. On
+  // s'abonne donc explicitement à sa résolution. L'appel est idempotent.
+  const [forfaitsCharges, setForfaitsCharges] = useState(false);
+  useEffect(() => {
+    let annule = false;
+    chargerForfaits().finally(() => { if (!annule) setForfaitsCharges(true); });
+    return () => { annule = true; };
+  }, []);
+
+  const offre = useMemo(
+    () => forfait(userProfile?.plan),
+    [userProfile?.plan, forfaitsCharges]
+  );
+  const sansLimite = illimite(offre);
+  const tenderLimit = offre.maxAoSimultanes ?? 0;
+  /** Le forfait Réseau ne permet de porter aucun dossier : on ne rejoint que
+   *  des groupements. C'est un cas distinct d'un quota atteint. */
+  const aucunDossierPermis = !sansLimite && tenderLimit === 0;
+  const isLimitReached = !sansLimite && activeTendersCount >= tenderLimit;
 
   // Generate Recent Activity
   // Styles — using shared GLASS_STYLE for uniform shadow across all pages
@@ -461,7 +484,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <section className={`lg:col-span-2 ${GLASS_STYLE} rounded-3xl flex flex-col h-full overflow-hidden`}>
               <div className="p-6 flex justify-between items-center shrink-0 gap-4">
                 <p className={`text-sm font-medium ${isLimitReached ? 'text-red-500' : 'text-[#0B1F38]/60'}`}>
-                  {activeTendersCount}/{tenderLimit === 9999 ? '∞' : tenderLimit} dossiers actifs (Plan {currentPlanConfig.label})
+                  {aucunDossierPermis
+                    ? `L'offre ${offre.nomCommercial} ne permet pas de porter de dossier`
+                    : `${activeTendersCount}/${sansLimite ? '∞' : tenderLimit} dossiers actifs (Plan ${offre.nomCommercial})`}
                 </p>
                 <button
                   onClick={handleAddTenderClick}
@@ -573,7 +598,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 )}
 
                 {/* Upsell Banner - Fixed visual and alignment */}
-                {activeTendersCount >= tenderLimit - 1 && tenderLimit !== 9999 && (
+                {(aucunDossierPermis || activeTendersCount >= tenderLimit - 1) && !sansLimite && (
                   <div
                     onClick={() => onNavigate('pricing')}
                     className="p-5 rounded-2xl border border-[#0B1F38]/10 bg-gradient-to-br from-white/60 to-white/40 flex flex-col items-center justify-center text-center gap-3 group hover:bg-white/90 hover:shadow-md transition-all cursor-pointer relative overflow-hidden"
@@ -587,7 +612,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="relative z-10">
                       <h3 className="font-bold text-[#0B1F38]">Débloquer plus de dossiers</h3>
                       <p className="text-xs text-[#0B1F38]/60 mt-1 max-w-xs mx-auto">
-                        Votre plan actuel est limité à <span className="text-[#0B1F38] font-bold">{tenderLimit} AO actifs simultanés</span>.
+                        {aucunDossierPermis
+                          ? <>L'offre {offre.nomCommercial} permet de rejoindre des groupements, mais pas de <span className="text-[#0B1F38] font-bold">porter vos propres dossiers</span>.</>
+                          : <>Votre plan actuel est limité à <span className="text-[#0B1F38] font-bold">{tenderLimit} AO actifs simultanés</span>.</>}
                       </p>
                     </div>
 
@@ -712,7 +739,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
           if (onNavigate) onNavigate('pricing');
         }}
         limitType="activeTenders"
-        planLabel={PLANS_CONFIG[(userProfile?.plan as PlanType) || PLANS_TYPES.free]?.label || 'Gratuit'}
+        // Même source que le reste de l'écran : `PLANS_CONFIG` reste en repli,
+        // mais ne doit plus servir de référence d'affichage.
+        planLabel={offre.nomCommercial}
         message={canCreateTender(userProfile, tenders).message}
       />
     </div>

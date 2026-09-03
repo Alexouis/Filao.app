@@ -470,9 +470,13 @@ export const PLANS = [
     price: 0,
     popular: false,
     cta: 'Votre plan actuel',
+    // Aligné sur le descriptif de `plan_limits` (migration 051), qui corrigeait
+    // déjà « 1 AO offert » — annoncé pour un forfait qui n'autorise aucun
+    // dossier porté.
     features: [
-      '1 AO offert (premier dossier)',
-      'Réponse en tant que partenaire invité',
+      'Rejoindre les dossiers auxquels vous êtes invité',
+      'Déposer vos pièces et gérer votre coffre-fort',
+      'Fiche entreprise et réseau',
       '1 utilisateur',
     ],
   },
@@ -537,7 +541,15 @@ export const PLANS_CONFIG: Record<PlanType, {
     price: 0,
     label: 'Réseau',
     limits: {
-      activeTenders: 1, // 1 AO offert, controlled via ao_offert_utilise on entreprises
+      // 0 et non 1 : la migration 048 a fixé `partenaire` à zéro dossier en
+      // base, l'offre Réseau ne permettant que de REJOINDRE des groupements.
+      // La valeur 1 faisait afficher « 0/1 » puis refuser la création par le
+      // déclencheur `verifier_quota_avant_creation`, sans explication.
+      //
+      // `ao_offert_utilise`, mentionné ici et dans `planHelpers`, n'existe ni
+      // en base ni dans aucune requête : ce mécanisme d'AO offert n'a jamais
+      // été implémenté.
+      activeTenders: 0,
       storage: 0.5 * 1024 * 1024 * 1024,
       users: 1,
       aiAccess: false,

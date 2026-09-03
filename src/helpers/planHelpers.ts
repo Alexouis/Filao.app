@@ -5,7 +5,8 @@ import { forfait, illimite } from './planLimits';
 
 /**
  * Checks if the user can create a new tender based on their plan.
- * For 'partenaire' plan, the limit is 1 AO offert (tracked via ao_offert_utilise on entreprises).
+ * Le quota vient de `plan_limits` : `partenaire` est à 0 dossier porté.
+ * (`ao_offert_utilise` n'a jamais existé en base — mention historique.)
  * For paid plans, the limit is based on activeTenders in PLANS_CONFIG.
  */
 export const canCreateTender = (
