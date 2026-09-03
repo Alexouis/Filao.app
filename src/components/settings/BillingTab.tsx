@@ -17,6 +17,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     const [countLoading, setCountLoading] = useState(true);
     const [portalLoading, setPortalLoading] = useState(false);
 
+    /**
+     * L'abonnement engage l'ENTREPRISE, pas celui qui clique : changer de
+     * forfait, modifier un moyen de paiement ou résilier concerne tous ses
+     * membres et sa facturation. Seul un administrateur en dispose.
+     *
+     * On interroge `est_admin_entreprise()` plutôt que `userProfile.role` :
+     * ce champ n'est alimenté nulle part dans `AuthContext`, et s'en servir
+     * aurait donné une protection qui ne protège rien.
+     *
+     * ⚠️ Ce contrôle retire l'accès de l'interface ; il ne le REFUSE pas. Les
+     * fonctions `create-portal-session` et `create-checkout-session` restent
+     * invocables directement. Le contrôle qui fait foi est le leur.
+     */
+    const [estAdmin, setEstAdmin] = useState(false);
+    const [droitsCharges, setDroitsCharges] = useState(false);
+
+    useEffect(() => {
+        let annule = false;
+        (async () => {
+            const { data } = await supabase.rpc('est_admin_entreprise');
+            if (annule) return;
+            setEstAdmin(!!data);
+            setDroitsCharges(true);
+        })();
+        return () => { annule = true; };
+    }, [userProfile?.entreprise_id]);
+
     // TVA / Billing Email modals
     const [isTVAModalOpen, setIsTVAModalOpen] = useState(false);
     const [isBillingEmailModalOpen, setIsBillingEmailModalOpen] = useState(false);
@@ -47,6 +74,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
 
     const handleOpenPortal = async () => {
         if (!userProfile?.entreprise_id) return;
+        // Garde-fou en plus du bouton désactivé : l'état peut changer entre le
+        // rendu et le clic, et un membre ne doit jamais ouvrir le portail de
+        // paiement de son entreprise — il y résilierait l'abonnement de tous.
+        if (!estAdmin) return;
         try {
             setPortalLoading(true);
             const response = await supabase.functions.invoke('create-portal-session', {
@@ -305,7 +336,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                     </p>
                     <button
                         onClick={handleOpenPortal}
-                        disabled={portalLoading || !hasStripeSubscription}
+                        disabled={portalLoading || !hasStripeSubscription || !estAdmin}
                         className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {portalLoading ? (
@@ -317,7 +348,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                             </>
                         )}
                     </button>
-                    {!hasStripeSubscription && (
+                    {droitsCharges && !estAdmin ? (
+                        <p className="text-xs text-gray-400 mt-2 text-center">
+                            Seul un administrateur de votre entreprise peut gérer l'abonnement
+                            et les moyens de paiement.
+                        </p>
+                    ) : !hasStripeSubscription && (
                         <p className="text-xs text-gray-400 mt-2 text-center">
                             Disponible après souscription à un forfait payant
                         </p>

@@ -113,6 +113,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [entrepriseOrpheline, setEntrepriseOrpheline] = useState(false);
     // Demande de rattachement refusée par un administrateur de l'entreprise.
     const [demandeRefusee, setDemandeRefusee] = useState(false);
+    /** Échec du retrait d'une demande en attente. Affiché sur l'écran de
+     *  rattachement : sans message, l'utilisateur croirait avoir renoncé. */
+    const [erreurRattachement, setErreurRattachement] = useState<string | null>(null);
 
     /**
      * Repart sur une autre entreprise.
@@ -121,12 +124,43 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
      * conserver les rattacherait à la suivante sans que l'utilisateur l'ait
      * voulu. On les réinitialise donc en même temps que l'écran.
      */
-    const changerEntreprise = () => {
+    const changerEntreprise = async () => {
+        // Une demande est en attente : la retirer AVANT de rendre la main.
+        //
+        // Ce retrait était auparavant lancé sans être attendu, pour ne pas
+        // retenir l'utilisateur. Mais un échec réseau le laissait alors croire
+        // qu'il avait renoncé, alors que sa demande restait vivante : un
+        // administrateur pouvait l'accepter et le rattacher à une entreprise
+        // qu'il venait explicitement de refuser. Une seconde d'attente vaut
+        // mieux qu'un rattachement subi.
+        //
+        // Une fois le retrait enregistré, la demande passe « caduque » et
+        // devient définitivement intraitable (migration 091) : la course avec
+        // l'administrateur est close, pas seulement réduite.
+        if (demandeEnvoyee) {
+            setSaving(true);
+            setErreurRattachement(null);
+            try {
+                const { error } = await supabase.rpc('annuler_demande_rattachement');
+                if (error) throw error;
+            } catch (err) {
+                console.error('Retrait de la demande de rattachement échoué', err);
+                setErreurRattachement(
+                    "Impossible de retirer votre demande pour le moment. Vérifiez votre "
+                    + "connexion et réessayez : sans cela, elle resterait en attente de validation."
+                );
+                setSaving(false);
+                return;
+            }
+            setSaving(false);
+        }
+
         reinitialiserActivite();
         setDemandeRefusee(false);
         setDemandeEnvoyee(false);
         setEntrepriseOrpheline(false);
         setEntrepriseExistante(null);
+        setErreurRattachement(null);
 
         // Retour explicite au formulaire d'identification, vierge.
         //
@@ -144,26 +178,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         setFieldsLocked(false);
         setSearchError(null);
         setErreurEntreprise(null);
-
-        // Retirer la demande en attente (migration 091).
-        //
-        // L'utilisateur vient d'annoncer que cette entreprise n'est pas la
-        // sienne : sa demande n'a plus d'objet. Laissée « en_attente », elle
-        // restait dans la liste de l'administrateur, qui cliquait « Accepter »
-        // sans effet — le rattachement étant refusé en base dès lors que le
-        // demandeur a rejoint une autre entreprise entre-temps.
-        //
-        // Volontairement hors du chemin critique : l'écran est déjà réinitialisé
-        // ci-dessus, et un échec réseau ne doit pas retenir l'utilisateur. Le
-        // filet de sécurité côté base clôt de toute façon la demande au moment
-        // où l'administrateur la traite.
-        void (async () => {
-            try {
-                await supabase.rpc('annuler_demande_rattachement');
-            } catch (err) {
-                console.warn('Annulation de la demande de rattachement échouée', err);
-            }
-        })();
     };
 
     /** Vide les choix de l'étape 2, sans toucher à l'écran affiché. */
@@ -765,6 +779,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] px-4">
                 <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 text-center">
+                    {erreurRattachement && (
+                        <p className="text-xs text-red-600 leading-relaxed mb-4 bg-red-50 border border-red-100 rounded-xl p-3">
+                            {erreurRattachement}
+                        </p>
+                    )}
                     {demandeRefusee ? (
                         <>
                             <h2 className="text-xl font-bold text-[#0B1F38] mb-3">
@@ -803,9 +822,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                             <button
                                 onClick={changerEntreprise}
-                                className="text-xs text-[#00A3E0] hover:underline"
+                                disabled={saving}
+                                className="text-xs text-[#00A3E0] hover:underline disabled:opacity-50"
                             >
-                                Renseigner une autre entreprise
+                                {saving ? 'Retrait…' : 'Renseigner une autre entreprise'}
                             </button>
                         </>
                     ) : entrepriseOrpheline ? (
@@ -874,9 +894,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                             <button
                                 onClick={changerEntreprise}
-                                className="text-xs text-[#00A3E0] hover:underline"
+                                disabled={saving}
+                                className="text-xs text-[#00A3E0] hover:underline disabled:opacity-50"
                             >
-                                Renseigner une autre entreprise
+                                {saving ? 'Retrait…' : 'Renseigner une autre entreprise'}
                             </button>
                         </>
                     ) : demandeEnvoyee ? (
@@ -889,9 +910,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             </p>
                             <button
                                 onClick={changerEntreprise}
-                                className="text-xs text-[#00A3E0] hover:underline"
+                                disabled={saving}
+                                className="text-xs text-[#00A3E0] hover:underline disabled:opacity-50"
                             >
-                                Renseigner une autre entreprise
+                                {saving ? 'Retrait…' : 'Renseigner une autre entreprise'}
                             </button>
                         </>
                     ) : (
@@ -935,7 +957,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                             <button
                                 onClick={changerEntreprise}
-                                className="text-xs text-[#0B1F38]/50 hover:text-[#0B1F38] hover:underline"
+                                disabled={saving}
+                                className="text-xs text-[#0B1F38]/50 hover:text-[#0B1F38] hover:underline disabled:opacity-50"
                             >
                                 Ce n'est pas mon entreprise — en renseigner une autre
                             </button>

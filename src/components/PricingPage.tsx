@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { forfait, tousLesForfaits } from '../helpers/planLimits';
 import { Check, Crown, ArrowRight, Mail, Loader2 } from 'lucide-react';
 import { PLANS, PLANS_CONFIG, STRIPE_PRICES, PlanType, UserProfile } from '../config';
@@ -14,6 +14,28 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
     const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+    /**
+     * Souscrire engage l'ENTREPRISE : le forfait, son prix et ses limites valent
+     * pour tous ses membres. Seul un administrateur le décide.
+     *
+     * La grille tarifaire reste consultable par tous — elle est publique, et un
+     * membre doit pouvoir constater les limites de son forfait pour en parler à
+     * son administrateur. C'est le passage au paiement qui est réservé.
+     *
+     * ⚠️ Contrôle d'interface uniquement : `create-checkout-session` reste
+     * invocable directement. Le refus qui compte est le sien.
+     */
+    const [estAdmin, setEstAdmin] = useState(false);
+
+    useEffect(() => {
+        let annule = false;
+        (async () => {
+            const { data } = await supabase.rpc('est_admin_entreprise');
+            if (!annule) setEstAdmin(!!data);
+        })();
+        return () => { annule = true; };
+    }, [userProfile?.entreprise_id]);
+
     let currentPlan = (userProfile?.plan as PlanType) || 'partenaire';
     if (!PLANS_CONFIG[currentPlan]) currentPlan = 'partenaire';
 
@@ -24,6 +46,16 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
         }
 
         if (planId === currentPlan || planId === 'partenaire') return;
+
+        // Garde-fou en plus du bouton désactivé : l'état a pu changer entre le
+        // rendu et le clic.
+        if (!estAdmin) {
+            setErrorMessage(
+                "Seul un administrateur de votre entreprise peut modifier le forfait. "
+                + "Rapprochez-vous de lui pour faire évoluer votre abonnement."
+            );
+            return;
+        }
 
         const priceId = STRIPE_PRICES[planId];
         if (!priceId) return;
@@ -84,6 +116,13 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                     {errorMessage && (
                         <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg inline-block text-sm font-medium">
                             {errorMessage}
+                        </div>
+                    )}
+                    {/* Un bouton grisé sans explication laisse penser à une panne. */}
+                    {userProfile?.entreprise_id && !estAdmin && (
+                        <div className="mt-4 p-3 bg-[#EFF4F8] border border-[#00A3E0]/15 text-[#0B1F38]/70 rounded-lg inline-block text-sm">
+                            Le forfait engage toute l'entreprise : seul un administrateur peut le
+                            modifier. Rapprochez-vous de lui pour faire évoluer votre abonnement.
                         </div>
                     )}
                 </div>
@@ -183,7 +222,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                                 {/* CTA Button */}
                                 <button
                                     onClick={() => handleSubscribe(plan.id)}
-                                    disabled={isCurrentPlan || isLoading}
+                                    disabled={isCurrentPlan || isLoading || (!estAdmin && !offre.surDevis)}
                                     className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${isCurrentPlan
                                         ? 'bg-green-100 text-green-700 cursor-default'
                                         : offre.surDevis

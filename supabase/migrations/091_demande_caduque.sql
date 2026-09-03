@@ -77,19 +77,53 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_touchees INTEGER;
+  v_entreprises UUID[];
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN 'erreur';
   END IF;
 
-  UPDATE demandes_rattachement
-     SET statut = 'caduque', traite_le = now()
-   WHERE utilisateur_id = auth.uid()
-     AND statut = 'en_attente';
+  WITH annulees AS (
+    UPDATE demandes_rattachement
+       SET statut = 'caduque', traite_le = now()
+     WHERE utilisateur_id = auth.uid()
+       AND statut = 'en_attente'
+    RETURNING entreprise_id
+  )
+  SELECT array_agg(entreprise_id) INTO v_entreprises FROM annulees;
 
-  GET DIAGNOSTICS v_touchees = ROW_COUNT;
-  RETURN CASE WHEN v_touchees > 0 THEN 'annulee' ELSE 'aucune' END;
+  IF v_entreprises IS NULL THEN
+    RETURN 'aucune';
+  END IF;
+
+  -- Retirer la notification devenue sans objet.
+  --
+  -- L'administrateur gardait un badge non lu menant à une liste vide : la
+  -- demande avait disparu de son écran, l'alerte qui l'y envoyait non.
+  --
+  -- Les notifications vivent dans la colonne `utilisateurs.notifications`
+  -- (jsonb[], voir migration 089). PostgreSQL n'offre pas de filtre direct sur
+  -- un tableau : on le déplie, on écarte les entrées concernées, on le
+  -- reconstruit. `WITH ORDINALITY` préserve l'ordre d'origine — les
+  -- notifications sont empilées les plus récentes en tête, et une
+  -- réagrégation non ordonnée les mélangerait.
+  UPDATE utilisateurs u
+     SET notifications = COALESCE((
+           SELECT array_agg(n ORDER BY ord)
+             FROM unnest(u.notifications) WITH ORDINALITY AS t(n, ord)
+            WHERE NOT (
+                  n->>'type' = 'demande_rattachement'
+              AND n->>'demandeur_id' = auth.uid()::text
+            )
+         ), ARRAY[]::jsonb[])
+    FROM roles r
+   WHERE r.id = u.role_id
+     AND r.name = 'admin'
+     AND u.entreprise_id = ANY (v_entreprises)
+     AND u.compte_supprime_le IS NULL
+     AND u.notifications IS NOT NULL;
+
+  RETURN 'annulee';
 END;
 $$;
 
@@ -123,8 +157,14 @@ BEGIN
     RETURN 'non_autorise';
   END IF;
 
-  -- Une demande déjà acceptée ne se retraite pas : le rattachement est fait.
-  IF v_demande.statut = 'acceptee' THEN
+  -- Ni une demande acceptée (le rattachement est fait), ni une demande caduque
+  -- (le demandeur l'a retirée) ne se retraitent.
+  --
+  -- Sans « caduque » ici, une demande retirée par son auteur restait
+  -- acceptable : elle ne s'affiche plus dans la liste, mais rien n'empêchait un
+  -- écran resté ouvert d'en envoyer l'identifiant. Le retrait doit être
+  -- définitif tant que l'utilisateur ne redemande pas lui-même.
+  IF v_demande.statut IN ('acceptee', 'caduque') THEN
     RETURN 'non_autorise';
   END IF;
 
@@ -189,6 +229,88 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION traiter_demande_rattachement(UUID, BOOLEAN) TO authenticated;
+
+-- ---------------------------------------------------------------
+-- 4. Identifier le demandeur dans la notification
+-- ---------------------------------------------------------------
+-- Reprise intégrale de la version 089, à un champ près : `demandeur_id`.
+--
+-- La notification ne portait que le NOM du demandeur, en clair dans son
+-- message. Retirer l'alerte au moment de l'annulation aurait supposé de
+-- reconnaître ce nom dans une chaîne de caractères — fragile, et faux dès que
+-- deux homonymes demandent la même entreprise. L'identifiant rend le retrait
+-- exact.
+--
+-- Les notifications déjà émises n'ont pas ce champ : elles ne seront pas
+-- retirées. La dégradation est silencieuse et sans conséquence — un badge
+-- résiduel sur une liste vide, ce que la 091 corrige pour la suite.
+CREATE OR REPLACE FUNCTION demander_rattachement(p_entreprise UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_deja       UUID;
+  v_orpheline  TIMESTAMPTZ;
+  v_demandeur  TEXT;
+BEGIN
+  IF p_entreprise IS NULL OR auth.uid() IS NULL THEN
+    RETURN 'erreur';
+  END IF;
+
+  SELECT entreprise_id INTO v_deja FROM utilisateurs WHERE id = auth.uid();
+  IF v_deja IS NOT NULL THEN
+    RETURN 'deja_rattache';
+  END IF;
+
+  SELECT sans_membre_depuis INTO v_orpheline
+    FROM entreprises WHERE id = p_entreprise;
+  IF v_orpheline IS NOT NULL THEN
+    RETURN 'entreprise_orpheline';
+  END IF;
+
+  INSERT INTO demandes_rattachement (entreprise_id, utilisateur_id)
+       VALUES (p_entreprise, auth.uid())
+  ON CONFLICT (entreprise_id, utilisateur_id) DO UPDATE
+      SET statut = 'en_attente',
+          motif_refus = NULL,
+          created_at = now(),
+          traite_le = NULL,
+          traite_par = NULL;
+      -- Pas de clause WHERE (migration 089) : une demande « acceptee » doit
+      -- pouvoir repartir après un départ de l'entreprise, et une demande
+      -- « caduque » si l'utilisateur se ravise. Le contrôle utile est en amont.
+
+  SELECT COALESCE(NULLIF(TRIM(CONCAT(prenom, ' ', nom)), ''), email)
+    INTO v_demandeur
+    FROM utilisateurs WHERE id = auth.uid();
+
+  UPDATE utilisateurs u
+     SET notifications = ARRAY[
+           jsonb_build_object(
+             'id', gen_random_uuid(),
+             'type', 'demande_rattachement',
+             -- Nouveau : permet de retirer précisément cette alerte si le
+             -- demandeur retire sa demande.
+             'demandeur_id', auth.uid(),
+             'titre', 'Demande de rattachement',
+             'message', v_demandeur || ' souhaite rejoindre votre entreprise sur Filao.',
+             'date', now(),
+             'read', false
+           )
+         ] || COALESCE(u.notifications, ARRAY[]::jsonb[])
+    FROM roles r
+   WHERE r.id = u.role_id
+     AND u.entreprise_id = p_entreprise
+     AND r.name = 'admin'
+     AND u.compte_supprime_le IS NULL;
+
+  RETURN 'en_attente';
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION demander_rattachement(UUID) TO authenticated;
 
 -- ---------------------------------------------------------------
 -- Contrôle après application
