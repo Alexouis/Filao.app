@@ -2902,9 +2902,40 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 createur_id: user.id
             }));
 
-            const { error: upsertError } = await supabase.from('reponses_ao').upsert(draftData);
+            // Création et mise à jour séparées, plutôt qu'un `upsert` unique.
+            //
+            // Deux raisons. D'abord `createur_id` : l'ancien `upsert` le
+            // réécrivait à chaque enregistrement avec l'utilisateur courant.
+            // Depuis que l'administrateur peut modifier les dossiers de ses
+            // collègues (migration 093), enregistrer en revenait à se
+            // l'ATTRIBUER — le porteur changeait sans que personne ne l'ait
+            // demandé. Le créateur n'est écrit qu'à la création.
+            //
+            // Ensuite `ON CONFLICT` : sous RLS, PostgreSQL applique la policy
+            // SELECT à la ligne insérée quand un `INSERT` porte cette clause.
+            // La 099 a corrigé la policy, mais un `insert` nu n'y est tout
+            // simplement pas soumis : moins de surface, moins de surprises.
+            const { createur_id: _createur, ...donneesMaj } = draftData;
+            let upsertError: any = null;
+            if (estCreation) {
+                ({ error: upsertError } = await supabase.from('reponses_ao').insert(draftData));
+            } else {
+                // `tenderId` peut être posé dans l'état sans que la ligne existe
+                // en base : une tentative précédente a échoué après
+                // `setTenderId`. Un `update` toucherait alors 0 ligne SANS
+                // erreur, et l'assistant continuerait comme si tout était
+                // enregistré. On relit ce que l'update a touché, et on crée si
+                // rien ne l'a été.
+                const { data: touchees, error: errMaj } = await supabase
+                    .from('reponses_ao').update(donneesMaj).eq('id', newId).select('id');
+                if (errMaj) {
+                    upsertError = errMaj;
+                } else if (!touchees || touchees.length === 0) {
+                    ({ error: upsertError } = await supabase.from('reponses_ao').insert(draftData));
+                }
+            }
             if (upsertError) {
-                console.error('RLS or DB Error on reponses_ao upsert:', upsertError);
+                console.error('RLS or DB Error on reponses_ao save:', upsertError);
                 throw upsertError;
             }
 
