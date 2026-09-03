@@ -6,9 +6,22 @@ import { ChatWindow } from './ChatWindow';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import { GLASS_STYLE, GLASS_TILE_STYLE } from '../../lib/styles';
+import { estEnLectureSeule } from '../../helpers/accesDossier';
 
 export const ChatCenter: React.FC<{ onNavigate?: (tab: string, id?: string) => void }> = ({ onNavigate }) => {
-    const { user } = useAuth();
+    const { user, userProfile } = useAuth();
+
+    /** L'administrateur conserve l'accès aux échanges de son entreprise (094). */
+    const [estAdmin, setEstAdmin] = useState(false);
+    useEffect(() => {
+        let annule = false;
+        if (!userProfile?.entreprise_id) { setEstAdmin(false); return; }
+        (async () => {
+            const { data } = await supabase.rpc('est_admin_entreprise');
+            if (!annule) setEstAdmin(!!data);
+        })();
+        return () => { annule = true; };
+    }, [userProfile?.entreprise_id]);
     const { unreadCounts } = useChat();
     const [conversations, setConversations] = useState<ChatConversation[]>([]);
     const [loading, setLoading] = useState(true);
@@ -36,7 +49,11 @@ export const ChatCenter: React.FC<{ onNavigate?: (tab: string, id?: string) => v
         return () => {
             supabase.removeChannel(channel);
         };
-    }, []);
+        // `estAdmin` arrive après le premier rendu (RPC asynchrone) et le filtre
+        // en dépend : sans cette dépendance, un administrateur garderait la liste
+        // calculée comme un membre ordinaire, amputée des dossiers de ses
+        // collègues, jusqu'au prochain rechargement de la page.
+    }, [estAdmin, userProfile?.entreprise_id, user?.id]);
 
     const fetchConversations = async () => {
         setLoading(true);
@@ -49,6 +66,7 @@ export const ChatCenter: React.FC<{ onNavigate?: (tab: string, id?: string) => v
                     id, 
                     titre,
                     createur_id,
+                    entreprise_id,
                     groupements (
                         entreprise_id,
                         statut
@@ -58,12 +76,26 @@ export const ChatCenter: React.FC<{ onNavigate?: (tab: string, id?: string) => v
             if (error) throw error;
 
             // Filter tenders where user has access
+            //
+            // Deux corrections ici.
+            //
+            // 1. Le test d'appartenance ne regardait AUCUNE entreprise : la seule
+            //    présence d'un groupement accepté suffisait. Or le mandataire est
+            //    toujours inscrit accepté sur son propre dossier — la condition
+            //    était donc vraie pour tout dossier visible.
+            //
+            // 2. Depuis la migration 092, les dossiers portés par un collègue
+            //    remontent à tout membre de l'entreprise. Leur messagerie lui
+            //    reste fermée : la conversation s'affichait vide, sans rien pour
+            //    la distinguer d'un fil sans message. L'administrateur, lui, y a
+            //    droit (migration 094) et les conserve.
             const accessibleTenders = tenders?.filter(t => {
                 const isCreator = t.createur_id === user?.id;
-                const isMember = t.groupements?.some((g: any) => 
-                    g.statut === 'accepte'
+                const isMember = !!userProfile?.entreprise_id && t.groupements?.some((g: any) =>
+                    g.statut === 'accepte' && g.entreprise_id === userProfile.entreprise_id
                 );
-                return isCreator || isMember;
+                if (!isCreator && !isMember) return false;
+                return !estEnLectureSeule(t as any, userProfile, estAdmin);
             }) || [];
 
             // For each tender, get last message and unread count (mocked for now)

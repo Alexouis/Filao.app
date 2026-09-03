@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { estEnLectureSeule } from './helpers/accesDossier';
+import { TenderReadOnlyPanel } from './components/TenderReadOnlyPanel';
 import { OnboardingWizard } from './components/OnboardingWizard';
 
 import { TenderWizard } from './components/TenderWizard';
@@ -92,6 +94,21 @@ const AppContent = () => {
 
   // Tender caching state
   const [cachedTenders, setCachedTenders] = useState<Tender[]>([]);
+
+  /** Dossier d'un collègue ouvert en consultation (voir `ouvrirDossier`). */
+  const [dossierConsulte, setDossierConsulte] = useState<any | null>(null);
+  /** L'administrateur garde l'accès plein : migrations 093 (écriture) et 094 (échanges). */
+  const [estAdminEntreprise, setEstAdminEntreprise] = useState(false);
+
+  useEffect(() => {
+    let annule = false;
+    if (!userProfile?.entreprise_id) { setEstAdminEntreprise(false); return; }
+    (async () => {
+      const { data } = await supabase.rpc('est_admin_entreprise');
+      if (!annule) setEstAdminEntreprise(!!data);
+    })();
+    return () => { annule = true; };
+  }, [userProfile?.entreprise_id]);
   const [cacheTimestamp, setCacheTimestamp] = useState<number>(0);
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
@@ -203,7 +220,7 @@ const AppContent = () => {
         // dossier : l'utilisateur y a peut-être accès par son entreprise.
         if (error) console.warn('Rattachement à l\'invitation :', error);
       }
-      navigateTo('wizard', dossier);
+      void ouvrirDossier(dossier);
     };
 
     rattacher();
@@ -236,8 +253,55 @@ const AppContent = () => {
     setCollabCacheTimestamp(Date.now());
   };
 
-  const handleEditDraft = (id: string) => {
+  /**
+   * Point de passage unique vers l'éditeur d'un dossier.
+   *
+   * Un membre ordinaire voit les dossiers portés par ses collègues (migration
+   * 092) mais n'a droit ni à leur contenu ni à leur modification. L'éditeur lui
+   * présenterait des sections vides et refuserait tout enregistrement. On lui
+   * ouvre donc le panneau de consultation.
+   *
+   * Le contrôle est ici, et non dans chaque écran : le dossier s'ouvre depuis
+   * la liste, le tableau de bord, le calendrier, la page réseau, les
+   * notifications et un lien d'invitation. Sept chemins, une seule règle.
+   */
+  const ouvrirDossier = async (id: string | null) => {
+    if (!id) { navigateTo('wizard', null); return; }
+
+    let dossier: any = cachedTenders.find(t => t.id === id) || null;
+
+    // Absent du cache : le calendrier et les notifications peuvent viser un
+    // dossier que la liste n'a pas encore chargé. Une lecture ciblée suffit à
+    // trancher, et la RLS la refuse si l'utilisateur n'y a aucun droit.
+    if (!dossier) {
+      const { data } = await supabase
+        .from('reponses_ao')
+        .select('id, titre, createur_id, entreprise_id, statut, montant_estime, date_limite, organisme_acheteur, secteur_activite, lieu_execution')
+        .eq('id', id)
+        .maybeSingle();
+      dossier = data;
+    }
+
+    if (estEnLectureSeule(dossier, userProfile, estAdminEntreprise)) {
+      // Le panneau a besoin du groupement, absent de la lecture ciblée
+      // ci-dessus : on le complète avant d'afficher, sans quoi la section
+      // « Groupement » annoncerait à tort une candidature seule.
+      if (!dossier.groupements) {
+        const { data: grp } = await supabase
+          .from('groupements')
+          .select('id, role_groupement, statut, entreprise_id, entreprise:entreprises (id, nom, logo_url)')
+          .eq('projet_id', id);
+        dossier = { ...dossier, groupements: grp || [] };
+      }
+      setDossierConsulte(dossier);
+      return;
+    }
+
     navigateTo('wizard', id);
+  };
+
+  const handleEditDraft = (id: string) => {
+    void ouvrirDossier(id);
   };
 
   const handleStartNewTender = () => {
@@ -304,7 +368,13 @@ const AppContent = () => {
       case 'dashboard':
         return (
           <Dashboard
-            onNavigate={(tab, id) => navigateTo(tab as NavItem | 'wizard', id ?? null)}
+            // Le tableau de bord ouvre un dossier par `onNavigate('wizard', id)`
+            // et non par `onEditDraft`, réservé aux brouillons : sans ce renvoi,
+            // il court-circuitait le garde-fou de `ouvrirDossier`.
+            onNavigate={(tab, id) => {
+              if (tab === 'wizard' && id) { void ouvrirDossier(id); return; }
+              navigateTo(tab as NavItem | 'wizard', id ?? null);
+            }}
             cachedTenders={getCachedTenders()}
             onTendersLoad={handleTendersLoad}
             cachedCollaborators={getCachedCollaborators()}
@@ -362,7 +432,7 @@ const AppContent = () => {
             onTendersLoad={handleTendersLoad}
             onNavigateToTender={(tenderId, status) => {
               // Always open in Wizard (Tender Card)
-              navigateTo('wizard', tenderId);
+              void ouvrirDossier(tenderId);
             }}
             onNavigate={(tab) => navigateTo(tab as NavItem, null)}
             userProfile={userProfile}
@@ -375,7 +445,7 @@ const AppContent = () => {
             onCollaboratorsLoad={handleCollaboratorsLoad}
             onNavigate={(tenderId) => {
               // Always open in Wizard (Tender Card)
-              navigateTo('wizard', tenderId);
+              void ouvrirDossier(tenderId);
             }}
           />
         );
@@ -408,7 +478,7 @@ const AppContent = () => {
               if (tab === 'tenders' && tenderId) {
                 // Determine if we should open the wizard (Tender Card)
                 // If it's a tender navigation, we hijack it to the wizard
-                navigateTo('wizard', tenderId);
+                void ouvrirDossier(tenderId);
               } else {
                 navigateTo(tab as NavItem, null);
               }
@@ -424,7 +494,13 @@ const AppContent = () => {
       default:
         return (
           <Dashboard
-            onNavigate={(tab, id) => navigateTo(tab as NavItem | 'wizard', id ?? null)}
+            // Le tableau de bord ouvre un dossier par `onNavigate('wizard', id)`
+            // et non par `onEditDraft`, réservé aux brouillons : sans ce renvoi,
+            // il court-circuitait le garde-fou de `ouvrirDossier`.
+            onNavigate={(tab, id) => {
+              if (tab === 'wizard' && id) { void ouvrirDossier(id); return; }
+              navigateTo(tab as NavItem | 'wizard', id ?? null);
+            }}
             cachedTenders={getCachedTenders()}
             onTendersLoad={handleTendersLoad}
             cachedCollaborators={getCachedCollaborators()}
@@ -583,10 +659,16 @@ const AppContent = () => {
       userProfile={userProfile}
       isCollapsed={isSidebarCollapsed}
       setIsCollapsed={setIsSidebarCollapsed}
-      onOpenTender={(tenderId) => navigateTo('wizard', tenderId)}
+      onOpenTender={(tenderId) => void ouvrirDossier(tenderId)}
     >
       {renderContent()}
       {showSuccessModal && <SuccessModal onClose={closeSuccessModal} />}
+      {/* Monté ici, et non dans un écran : le dossier d'un collègue s'ouvre
+          depuis six d'entre eux. */}
+      <TenderReadOnlyPanel
+        tender={dossierConsulte}
+        onClose={() => setDossierConsulte(null)}
+      />
     </Layout>
   );
 }

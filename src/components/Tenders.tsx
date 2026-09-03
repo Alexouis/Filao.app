@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useToast } from './ui/Toast';
 import { reparerEncodage } from '../helpers/boampHelpers';
 import { ErrorState } from './ui/StateViews';
-import { TenderReadOnlyPanel } from './TenderReadOnlyPanel';
+import { estDossierDunCollegue as estCollegue, estEnLectureSeule as estLectureSeule } from '../helpers/accesDossier';
 import {
   CheckCircle2, AlertCircle, ArrowUpDown, Search, Users,
   Pencil, Trash2, X, Plus,
@@ -119,20 +119,10 @@ export const Tenders: React.FC<TendersProps> = ({
    * porteur, donc un administrateur qui la voit désormais (094) serait classé
    * « participant » et badgé « Mandataire » sur le dossier d'un autre.
    */
-  const estDossierDunCollegue = React.useCallback((t: any) => {
-    if (!t || t.createur_id === userId) return false;
-    if (!userProfile?.entreprise_id || !t.entreprise_id) return false;
-    return t.entreprise_id === userProfile.entreprise_id;
-  }, [userId, userProfile?.entreprise_id]);
-
-  /** Visible en liste, mais sans contenu lisible : à ne pas ouvrir. */
-  const estEnLectureSeule = React.useCallback(
-    (t: any) => estDossierDunCollegue(t) && !estAdmin,
-    [estDossierDunCollegue, estAdmin]
+  const estDossierDunCollegue = React.useCallback(
+    (t: any) => estCollegue(t, userProfile),
+    [userProfile?.id, userProfile?.entreprise_id]
   );
-
-  /** Dossier ouvert en consultation (membre non habilité à l'éditer). */
-  const [tenderConsulte, setTenderConsulte] = useState<any | null>(null);
 
   /** Sert à n'afficher la bascule que si elle a un effet. */
   const nbDossiersCollegues = useMemo(
@@ -540,11 +530,10 @@ export const Tenders: React.FC<TendersProps> = ({
     // composition du groupement (092, 095), mais ni les échanges ni les pièces.
     // Le wizard suppose qu'on écrit : on ouvre un panneau de consultation, qui
     // n'affiche que ce que la RLS accorde réellement à ce profil.
-    const cible = tenders.find(t => t.id === id);
-    if (estEnLectureSeule(cible)) {
-      setTenderConsulte(cible || null);
-      return;
-    }
+    // `onEditDraft` remonte à `App.ouvrirDossier`, qui tranche entre l'éditeur
+    // et le panneau de consultation. Décider ici aussi dupliquerait la règle,
+    // et c'est précisément cette duplication qui avait laissé le calendrier,
+    // le tableau de bord et les notifications sans garde-fou.
     if (onEditDraft) onEditDraft(id);
   };
   const handleOpenTeam = (e: React.MouseEvent, tender: Tender) => {
@@ -1313,7 +1302,7 @@ export const Tenders: React.FC<TendersProps> = ({
                 // gris discret pour tout le monde.
                 const jeSuisPorteur = tender.createur_id === userId;
                 const dossierCollegue = estDossierDunCollegue(tender);
-                const lectureSeuleTender = estEnLectureSeule(tender);
+                const lectureSeuleTender = estLectureSeule(tender, userProfile, estAdmin);
                 const porteurNom = [tender.createur?.prenom, tender.createur?.nom]
                   .filter(Boolean).join(' ').trim();
                 // Un dossier de collègue n'est ni « Mandataire » (ce n'est pas le
@@ -1510,10 +1499,6 @@ export const Tenders: React.FC<TendersProps> = ({
         />
       )}
       {OutcomeConfirmationModal()}
-      <TenderReadOnlyPanel
-        tender={tenderConsulte}
-        onClose={() => setTenderConsulte(null)}
-      />
     </div>
   );
 };
