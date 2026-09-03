@@ -219,7 +219,12 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             setLoadingRef(true);
             const [doms, specs] = await Promise.all([
                 supabase.from('ref_domains').select('id, label, natures').order('label'),
-                supabase.from('ref_specialties').select('id, domain_id, label').order('label'),
+                // Les lignes « Autre (champ texte libre) » sont des marqueurs de
+                // saisie libre, pas des spécialités : les proposer telles quelles
+                // dans le sélecteur n'a aucun sens pour l'utilisateur.
+                // `CompanyTab` et `TenderWizard` les écartaient déjà ; ce filtre
+                // manquait ici et dans l'onboarding.
+                supabase.from('ref_specialties').select('id, domain_id, label').not('label', 'ilike', 'Autre%').order('label'),
             ]);
             if (doms.data) setRefDomains(doms.data);
             if (specs.data) setRefSpecialties(specs.data);
@@ -343,6 +348,28 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         setJalons([...jalons, newJalon]);
         setEditingJalon(jalons.length);
     };
+
+    /**
+     * Sortie du mode édition d'un jalon.
+     *
+     * Par un clic hors de la ligne, et non par le `onBlur` du libellé : le
+     * sélecteur de date natif s'affiche hors du document, si bien qu'un
+     * `onBlur` ne peut pas distinguer « l'utilisateur passe au champ date » de
+     * « l'utilisateur a terminé ». Les valeurs étant enregistrées à la frappe,
+     * rester en édition une seconde de trop ne coûte rien — l'inverse
+     * empêchait purement et simplement de modifier la date.
+     */
+    const ligneJalonRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (editingJalon === null) return;
+        const surClic = (e: MouseEvent) => {
+            if (ligneJalonRef.current && !ligneJalonRef.current.contains(e.target as Node)) {
+                setEditingJalon(null);
+            }
+        };
+        document.addEventListener('mousedown', surClic);
+        return () => document.removeEventListener('mousedown', surClic);
+    }, [editingJalon]);
 
     const handleJalonChange = (index: number, field: string, value: any) => {
         const updated = [...jalons];
@@ -723,16 +750,28 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {jalons.map((j: any, i: number) => (
-                    <div key={j.id || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f5f5f5", borderRadius: 12 }}>
+                    <div
+                        key={j.id || i}
+                        ref={editingJalon === i ? ligneJalonRef : undefined}
+                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f5f5f5", borderRadius: 12 }}
+                    >
                         <div style={{ width: 10, height: 10, borderRadius: "50%", border: `2.5px solid ${j.color}`, flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
                             {editingJalon === i ? (
                                 <input
                                     type="text"
-                                    defaultValue={j.label}
-                                    onBlur={(e) => {
-                                        handleJalonChange(i, 'label', e.target.value);
-                                        setEditingJalon(null);
+                                    value={j.label}
+                                    // Saisie enregistrée en continu, et non au `onBlur`.
+                                    //
+                                    // L'ancienne version fermait l'édition dans ce même
+                                    // `onBlur` : cliquer sur le champ date faisait perdre
+                                    // le focus au libellé, la ligne repassait en lecture,
+                                    // et le champ date disparaissait avant que le clic
+                                    // n'aboutisse. La date était donc impossible à
+                                    // modifier sur un jalon fraîchement ajouté.
+                                    onChange={(e) => handleJalonChange(i, 'label', e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === 'Escape') setEditingJalon(null);
                                     }}
                                     autoFocus
                                     style={{ fontSize: 13, border: `1.5px solid ${T}`, borderRadius: 8, padding: "4px 8px", color: "#1a1a1a", outline: "none", width: "100%", marginBottom: 4 }}
@@ -746,8 +785,11 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                             {editingJalon === i ? (
                                 <input
                                     type="date"
-                                    defaultValue={j.date}
+                                    value={j.date}
                                     onChange={(e) => handleJalonChange(i, 'date', e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === 'Escape') setEditingJalon(null);
+                                    }}
                                     style={{ fontSize: 13, border: `1.5px solid ${T}`, borderRadius: 8, padding: "4px 8px", color: "#1a1a1a", outline: "none", width: 140 }}
                                 />
                             ) : (

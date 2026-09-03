@@ -12,6 +12,7 @@ import {
    Eye
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { forfait } from '../helpers/planLimits';
 import { APP_CONFIG, REQUIRED_DOCS_BY_ROLE, SECTORS_LABELS, MARKET_TYPES_LABELS, Tender, HANDOVER_TYPES_LABELS, PlanType, PLANS_CONFIG, PLANS_TYPES } from '../config';
 import { notifyCollaborationAccepted, notifyCollaborationRejected, notifyDocumentAdded } from '../helpers/notificationHelpers';
 import { capitalizeFirstLetter } from '../helpers/textHelpers'
@@ -379,14 +380,14 @@ export const CollaboratorSubmission: React.FC = () => {
          const delta = newFileSize - oldFileSize;
 
          // --- 2. CHECK CREATOR'S STORAGE LIMIT (Using Delta) ---
-         let creatorPlanKey = (owner.plan as PlanType) || PLANS_TYPES.free;
-         if (!PLANS_CONFIG[creatorPlanKey]) creatorPlanKey = PLANS_TYPES.free;
-         const planConfig = PLANS_CONFIG[creatorPlanKey];
+         // Quota du PORTEUR du dossier, lu dans `plan_limits` : c'est son
+         // stockage que consomme le dépôt d'un partenaire. `PLANS_CONFIG`
+         // annonçait jusqu'à quatre fois la valeur réelle (20 Go contre 5 sur
+         // l'offre Solo), le contrôle était donc largement trop permissif.
+         const storageLimit = forfait(owner.plan).maxStockageOctets;
          const currentUsage = owner.storage_used || 0;
-         // Note: Adjust 'storageLimit' access based on your actual config structure (e.g. planConfig.storageLimit or planConfig.limits.storage)
-         const storageLimit = planConfig.storageLimit || planConfig.limits?.storage;
 
-         if (delta > 0 && (currentUsage + delta > storageLimit)) {
+         if (storageLimit !== null && delta > 0 && (currentUsage + delta > storageLimit)) {
             setShowLimitModal(true);
             setUploadingFile(null);
             return; // STOP UPLOAD

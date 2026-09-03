@@ -561,7 +561,10 @@ export const PLANS_CONFIG: Record<PlanType, {
     label: 'Solo',
     limits: {
       activeTenders: 3,
-      storage: 20 * 1024 * 1024 * 1024,
+      // Aligné sur `plan_limits` (migration 048) : le repli ne doit pas être
+      // plus permissif que la base, sinon il autorise au-delà du forfait le
+      // temps du chargement.
+      storage: 5 * 1024 * 1024 * 1024,
       users: 1,
       aiAccess: true,
     },
@@ -572,7 +575,7 @@ export const PLANS_CONFIG: Record<PlanType, {
     label: 'Équipe',
     limits: {
       activeTenders: 10,
-      storage: 50 * 1024 * 1024 * 1024,
+      storage: 20 * 1024 * 1024 * 1024,
       users: 5,
       aiAccess: true,
     },
@@ -583,6 +586,8 @@ export const PLANS_CONFIG: Record<PlanType, {
     label: 'Organisation',
     limits: {
       activeTenders: 9999,
+      // Illimité en base ; on garde une borne haute en repli plutôt que
+      // l'infini, le temps du chargement.
       storage: 120 * 1024 * 1024 * 1024,
       users: 9999,
       aiAccess: true,

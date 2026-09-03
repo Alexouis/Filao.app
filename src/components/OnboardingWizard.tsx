@@ -349,7 +349,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
             setLoadingRef(true);
             const [doms, specs, gz] = await Promise.all([
                 supabase.from('ref_domains').select('*').order('display_order'),
-                supabase.from('ref_specialties').select('*').order('display_order'),
+                // Voir TenderCreationWizard : « Autre (champ texte libre) » est un
+                // marqueur, pas une compétence à cocher.
+                supabase.from('ref_specialties').select('*').not('label', 'ilike', 'Autre%').order('display_order'),
                 supabase.from('ref_geo_zones').select('*').order('display_order'),
             ]);
             if (doms.data) setRefDomains(doms.data);

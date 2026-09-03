@@ -55,6 +55,7 @@ import {
 } from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
+import { forfait } from '../helpers/planLimits';
 import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, departementDepuisCode, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
@@ -3298,12 +3299,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const oldFileSize = existingFiles?.find(f => f.name === fileName)?.metadata?.size || 0;
             const delta = file.size - oldFileSize;
 
-            let currentPlanKey = (userProfile?.plan as PlanType) || PLANS_TYPES.free;
-            if (!PLANS_CONFIG[currentPlanKey]) currentPlanKey = PLANS_TYPES.free;
-            const planConfig = PLANS_CONFIG[currentPlanKey];
+            // Quota de stockage lu dans `plan_limits`, et non dans
+            // `PLANS_CONFIG` : les deux divergeaient d'un facteur quatre sur
+            // l'offre Solo (20 Go annoncés en dur contre 5 Go en base) et de
+            // plus du double sur Équipe. Le contrôle laissait donc passer bien
+            // au-delà du forfait souscrit.
+            //
+            // `maxStockageOctets` à null signifie illimité : aucun refus.
+            const limiteStockage = forfait(userProfile?.plan).maxStockageOctets;
             const currentUsage = userProfile?.storage_used || 0;
 
-            if (delta > 0 && (currentUsage + delta > planConfig.limits.storage)) {
+            if (limiteStockage !== null && delta > 0 && (currentUsage + delta > limiteStockage)) {
                 setShowStorageLimitModal(true);
                 setUploadProgress(prev => { const n = { ...prev }; delete n[key]; return n; });
                 return;
