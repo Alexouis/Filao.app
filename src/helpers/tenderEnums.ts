@@ -454,5 +454,20 @@ export const messageErreurBase = (error: any): string | null => {
         return `Il manque ${libelle} pour enregistrer le dossier.`;
     }
 
+    // 42501 — new row violates row-level security policy
+    //
+    // Cas le plus fréquent : le dossier est `verrouille_par_quota`, et la policy
+    // d'écriture exige `NOT verrouille_par_quota` (migration 068). Toute
+    // écriture est alors refusée, y compris une simple correction de titre.
+    // PostgREST renvoie un 403 sans rien d'exploitable — l'utilisateur voyait
+    // « Erreur lors de l'initialisation du dossier », qui ne désigne rien.
+    //
+    // Le verrou est la conséquence d'un dépassement de quota, ou d'une offre
+    // qui n'autorise aucun dossier : on renvoie vers la seule action utile.
+    if (error?.code === '42501' || /row-level security/i.test(brut)) {
+        return "Ce dossier est verrouillé par le quota de votre offre : il ne peut plus être modifié. "
+            + "Refermez un autre dossier en cours, ou changez d'offre pour le débloquer.";
+    }
+
     return null;
 };
