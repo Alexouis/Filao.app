@@ -83,13 +83,16 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
   const fetchTenderCollaborators = async () => {
     try {
       // 1. Fetch from groupements (structured team)
+      //
+      // On lit `entreprise_id`, pas les membres. La jointure imbriquée
+      // `membres:utilisateurs (id)` revenait TOUJOURS vide depuis la migration
+      // 070, qui a refermé `utilisateurs` sur son propre compte : la liste des
+      // destinataires ne contenait donc jamais les salariés des entreprises
+      // cotraitantes. Concrètement, un partenaire accepté n'était pas notifié
+      // des nouveaux commentaires du dossier.
       const { data: grpData } = await supabase
         .from('groupements')
-        .select(`
-          entreprise:entreprises (
-            membres:utilisateurs (id)
-          )
-        `)
+        .select('entreprise_id')
         .eq('projet_id', tenderId)
         .eq('statut', 'accepte');
 
@@ -123,9 +126,19 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       }
 
       // 4. Combine all unique IDs
-      // Supabase infère les jointures imbriquées comme des tableaux ; la forme
-      // réelle dépend de la cardinalité de la relation, d'où le passage par any.
-      const grpUserIds = grpData?.flatMap((g: any) => g.entreprise?.membres?.map((m: any) => m.id) || []) || [];
+      // Les identifiants des membres passent par `utilisateurs_publics`, seul
+      // canal de lecture des profils d'autrui (migration 070).
+      const entrepriseIds = Array.from(new Set(
+        (grpData || []).map((g: any) => g.entreprise_id).filter(Boolean)
+      ));
+      let grpUserIds: string[] = [];
+      if (entrepriseIds.length > 0) {
+        const { data: membres } = await supabase
+          .from('utilisateurs_publics')
+          .select('id')
+          .in('entreprise_id', entrepriseIds);
+        grpUserIds = membres?.map((m: any) => m.id) || [];
+      }
       const allIds = Array.from(new Set([...grpUserIds, ...invUserIds]));
 
       setTenderCollaborators(allIds.map(id => ({ id })));

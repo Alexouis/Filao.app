@@ -186,8 +186,7 @@ export const Tenders: React.FC<TendersProps> = ({
   const pendingInvitationsCount = useMemo(() => {
     return tenders.filter(t => {
       const myGroupement = t.groupements?.find((g: any) => 
-        (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) ||
-        (g.entreprise?.membres?.some((m: any) => m.id === userId))
+        userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id
       );
       const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
       
@@ -276,9 +275,28 @@ export const Tenders: React.FC<TendersProps> = ({
 
       if (error) throw error;
 
+      // Même correctif que `fetchCollaborators` : la jointure `membres` est
+      // vide depuis la migration 070, on résout les référents par entreprise
+      // via `utilisateurs_publics`.
+      const idsEnt = Array.from(new Set(
+        (data || []).map((g: any) => g.entreprise_id).filter(Boolean)
+      ));
+      const referentParEnt = new Map<string, any>();
+      if (idsEnt.length > 0) {
+        const { data: profils } = await supabase
+          .from('utilisateurs_publics')
+          .select('id, prenom, nom, photo_url, email, entreprise_id')
+          .in('entreprise_id', idsEnt);
+        (profils || []).forEach((p: any) => {
+          if (p.entreprise_id && !referentParEnt.has(p.entreprise_id)) {
+            referentParEnt.set(p.entreprise_id, p);
+          }
+        });
+      }
+
       const distinctCollabs = new Map<string, any>();
       data?.forEach((g: any) => {
-        const ref = g.entreprise?.membres?.[0];
+        const ref = g.entreprise?.membres?.[0] || referentParEnt.get(g.entreprise_id);
         if (!ref || ref.id === uId) return;
         if (!distinctCollabs.has(ref.id)) {
           distinctCollabs.set(ref.id, {
@@ -373,8 +391,7 @@ export const Tenders: React.FC<TendersProps> = ({
       // Keep all non-refused tenders (both accepted and pending)
       const visibleTenders = validTenders.filter(t => {
         const myGroupement = t.groupements?.find((g: any) => 
-          (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) ||
-          (g.entreprise?.membres?.some((m: any) => m.id === userId))
+          userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id
         );
         const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
 
@@ -405,14 +422,50 @@ export const Tenders: React.FC<TendersProps> = ({
 
   const fetchCollaborators = async (tendersData: Tender[], userEmail: string | null) => {
     try {
+      // Référents des entreprises partenaires.
+      //
+      // Cette liste alimente la page Réseau. Elle se construisait sur
+      // `g.entreprise.membres[0]`, jointure vide depuis la migration 070
+      // (`utilisateurs` refermé sur son propre compte) : le réseau était donc
+      // systématiquement vide, sans erreur ni message.
+      //
+      // `utilisateurs_publics` est le canal prévu. Une seule requête pour
+      // toutes les entreprises rencontrées, plutôt qu'une par dossier.
+      const idsEntreprises = Array.from(new Set(
+        tendersData.flatMap((t: any) =>
+          Array.isArray(t.groupements)
+            ? t.groupements.map((g: any) => g.entreprise_id).filter(Boolean)
+            : []
+        )
+      ));
+
+      const referentParEntreprise = new Map<string, any>();
+      if (idsEntreprises.length > 0) {
+        const { data: profils } = await supabase
+          .from('utilisateurs_publics')
+          .select('id, prenom, nom, photo_url, email, entreprise_id')
+          .in('entreprise_id', idsEntreprises);
+
+        (profils || []).forEach((p: any) => {
+          if (p.entreprise_id && !referentParEntreprise.has(p.entreprise_id)) {
+            referentParEntreprise.set(p.entreprise_id, p);
+          }
+        });
+      }
+
       const uniqueCollabs = new Map<string, any>();
       tendersData.forEach((tender: any) => {
         const groupements = tender.groupements;
         if (!Array.isArray(groupements)) return;
 
         groupements.forEach((g: any) => {
-          const ref = g.entreprise?.membres?.[0];
-          if (!ref || ref.email === userEmail) return;
+          const ref = g.entreprise?.membres?.[0]
+            || referentParEntreprise.get(g.entreprise_id);
+          // L'e-mail peut être NULL hors dossier partagé (migration 070) : on
+          // écarte donc son propre référent par l'entreprise, pas par l'adresse.
+          if (!ref) return;
+          if (ref.email === userEmail) return;
+          if (userProfile?.entreprise_id && g.entreprise_id === userProfile.entreprise_id) return;
 
           if (!uniqueCollabs.has(ref.id)) {
             uniqueCollabs.set(ref.id, {
@@ -617,8 +670,7 @@ export const Tenders: React.FC<TendersProps> = ({
       // Hide tenders where I refused the invitation
       // Check in groupements
       const myGroupement = t.groupements?.find((g: any) => 
-        (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) ||
-        (g.entreprise?.membres?.some((m: any) => m.id === userId))
+        userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id
       );
 
       // Check in email invitations
@@ -669,11 +721,11 @@ export const Tenders: React.FC<TendersProps> = ({
     
     result.sort((a, b) => {
       if (showInvitationsOnly) {
-         const aGroupement = a.groupements?.find((g: any) => (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) || (g.entreprise?.membres?.some((m: any) => m.id === userId)));
+         const aGroupement = a.groupements?.find((g: any) => userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id);
          const aInvitation = a.invitations?.find((i: any) => i.email === userProfile?.email);
          const aIsRefused = aGroupement?.statut === 'refuse' || aInvitation?.status === 'refused';
          
-         const bGroupement = b.groupements?.find((g: any) => (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) || (g.entreprise?.membres?.some((m: any) => m.id === userId)));
+         const bGroupement = b.groupements?.find((g: any) => userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id);
          const bInvitation = b.invitations?.find((i: any) => i.email === userProfile?.email);
          const bIsRefused = bGroupement?.statut === 'refuse' || bInvitation?.status === 'refused';
          
@@ -1248,8 +1300,7 @@ export const Tenders: React.FC<TendersProps> = ({
                 })).slice(0, 3);
                 const totalTeamSize = uniqueTeam.size;
                 const myGroupement = groupementsArr.find((g: any) => 
-                  (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) ||
-                  (g.entreprise?.membres?.some((m: any) => m.id === userId))
+                  userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id
                 );
                 const myInvitation = invitationsArr.find((i: any) => i.email === userProfile?.email);
                 

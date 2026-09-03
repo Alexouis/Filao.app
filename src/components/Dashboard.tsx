@@ -168,9 +168,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (cachedTenders) {
       // Filter out refused tenders even from cache
       const visible = cachedTenders.filter(t => {
-        const myGroupement = t.groupements?.find((g: any) => 
-          (userProfile.entreprise_id && g.entreprise_id === userProfile.entreprise_id) ||
-          (g.entreprise?.membres?.some((m: any) => m.id === userProfile.id))
+        // La clause `entreprise.membres` a été retirée : cette jointure revient
+        // toujours vide depuis la migration 070 (`utilisateurs` n'est lisible
+        // que par soi-même). Elle laissait croire à un second chemin de
+        // détection alors que seule la comparaison d'entreprise opère.
+        const myGroupement = t.groupements?.find((g: any) =>
+          userProfile.entreprise_id && g.entreprise_id === userProfile.entreprise_id
         );
         if (myGroupement?.statut === 'refuse') return false;
 
@@ -240,9 +243,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
       // 2. Client-side filter to hide tenders where user has 'refuse' status
       const visibleTenders = (data as unknown as Tender[] || []).filter(t => {
         // Check groupements
-        const myGroupement = t.groupements?.find((g: any) => 
-          (userProfile.entreprise_id && g.entreprise_id === userProfile.entreprise_id) ||
-          (g.entreprise?.membres?.some((m: any) => m.id === user.id))
+        // Voir la note plus haut : `entreprise.membres` est vide depuis la 070.
+        const myGroupement = t.groupements?.find((g: any) =>
+          userProfile.entreprise_id && g.entreprise_id === userProfile.entreprise_id
         );
         if (myGroupement?.statut === 'refuse') return false;
 

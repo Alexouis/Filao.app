@@ -1903,10 +1903,42 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                 chrono.etape('company_specialties (toutes entreprises)');
 
+                // 5b. Référent de chaque entreprise du groupement.
+                //
+                // La requête ci-dessus imbrique `membres:utilisateurs!...`, mais
+                // depuis la migration 070 `utilisateurs` n'est lisible que par
+                // soi-même : cette jointure revient TOUJOURS vide. L'écran Équipe
+                // retombait donc sur le nom de l'entreprise, sans contact ni
+                // e-mail, et `hasAccount` valait false pour tout le monde — y
+                // compris pour des partenaires parfaitement inscrits.
+                //
+                // `utilisateurs_publics` est le canal prévu (migration 070). Vue
+                // non imbriquable par PostgREST : chargée à part, fusionnée ici.
+                const referentsParEntreprise: Record<string, any> = {};
+                if (companyIds.length > 0) {
+                    const { data: profils } = await supabase
+                        .from('utilisateurs_publics')
+                        .select('id, prenom, nom, photo_url, email, entreprise_id')
+                        .in('entreprise_id', companyIds);
+
+                    // Premier profil rencontré par entreprise. Le choix est
+                    // arbitraire, comme l'était `membres[0]` : cette ligne
+                    // représente l'ENTREPRISE partenaire, pas une personne
+                    // désignée. L'e-mail peut être NULL hors dossier partagé,
+                    // d'où le repli sur le nom de l'entreprise plus bas.
+                    (profils || []).forEach((p: any) => {
+                        if (p.entreprise_id && !referentsParEntreprise[p.entreprise_id]) {
+                            referentsParEntreprise[p.entreprise_id] = p;
+                        }
+                    });
+                }
+
+                chrono.etape('referents (utilisateurs_publics)');
+
                 // 3. Map groupements to UI format
                 const mappedGroupements: UIGroupementMember[] = groupementsData.map((g: any) => {
                     const ent = g.entreprise;
-                    const referent = ent?.membres?.[0];
+                    const referent = ent?.membres?.[0] || referentsParEntreprise[g.entreprise_id];
                     const memberSpecs = specialtiesMap[g.entreprise_id] || [];
                     // `name` désigne le CONTACT, `company` l'entreprise — c'est la
                     // convention de `addCollaborator` et de la construction du
