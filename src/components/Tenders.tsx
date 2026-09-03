@@ -85,6 +85,57 @@ export const Tenders: React.FC<TendersProps> = ({
   const [selectedTenderId, setSelectedTenderId] = useState<string | null>(null);
   const [showInvitationsOnly, setShowInvitationsOnly] = useState(false);
 
+  /**
+   * Dossiers portés par des collègues.
+   *
+   * Depuis la migration 092, un dossier de l'entreprise remonte à tous ses
+   * membres, mais son CONTENU (groupement, échanges, pièces) reste réservé au
+   * porteur, aux cotraitants et — depuis les 093/094 — à l'administrateur.
+   *
+   * Deux conséquences pour cet écran :
+   *   - le filtre de visibilité ci-dessous les écartait, il faut les garder ;
+   *   - un membre ordinaire qui en ouvrirait un tomberait sur une coquille
+   *     vide. On les distingue donc à l'affichage.
+   */
+  const [estAdmin, setEstAdmin] = useState(false);
+  /** Bascule demandée : par défaut mes dossiers, au besoin ceux de l'entreprise. */
+  const [voirToutEntreprise, setVoirToutEntreprise] = useState(false);
+
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const { data } = await supabase.rpc('est_admin_entreprise');
+      if (!annule) setEstAdmin(!!data);
+    })();
+    return () => { annule = true; };
+  }, [userProfile?.entreprise_id]);
+
+  /**
+   * Le dossier est-il porté par un collègue ?
+   *
+   * On s'appuie sur `reponses_ao.entreprise_id` (colonne figée par la 092) et
+   * non sur la ligne de groupement : celle du mandataire porte l'entreprise du
+   * porteur, donc un administrateur qui la voit désormais (094) serait classé
+   * « participant » et badgé « Mandataire » sur le dossier d'un autre.
+   */
+  const estDossierDunCollegue = React.useCallback((t: any) => {
+    if (!t || t.createur_id === userId) return false;
+    if (!userProfile?.entreprise_id || !t.entreprise_id) return false;
+    return t.entreprise_id === userProfile.entreprise_id;
+  }, [userId, userProfile?.entreprise_id]);
+
+  /** Visible en liste, mais sans contenu lisible : à ne pas ouvrir. */
+  const estEnLectureSeule = React.useCallback(
+    (t: any) => estDossierDunCollegue(t) && !estAdmin,
+    [estDossierDunCollegue, estAdmin]
+  );
+
+  /** Sert à n'afficher la bascule que si elle a un effet. */
+  const nbDossiersCollegues = useMemo(
+    () => tenders.filter(estDossierDunCollegue).length,
+    [tenders, estDossierDunCollegue]
+  );
+
 
   // Rating Modal State
   const [isRateModalOpen, setIsRateModalOpen] = useState(false);
@@ -297,7 +348,11 @@ export const Tenders: React.FC<TendersProps> = ({
         const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
 
         const isRefused = myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused';
-        return myGroupement || myInvitation || t.createur_id === userId;
+        // Les dossiers des collègues sont désormais conservés : la RLS les
+        // remonte (092) et les jeter ici reviendrait à annuler côté client la
+        // visibilité d'entreprise qu'on vient d'ouvrir côté serveur.
+        return myGroupement || myInvitation || t.createur_id === userId
+          || estDossierDunCollegue(t);
       });
 
       setTenders(visibleTenders);
@@ -397,9 +452,23 @@ export const Tenders: React.FC<TendersProps> = ({
   };
 
   const handleOpenTender = (statut: string, id: string) => {
+    // Un membre ordinaire voit la ligne du dossier d'un collègue, mais pas son
+    // groupement, ses échanges ni ses pièces (092). L'ouvrir afficherait un
+    // dossier vide, que rien ne distinguerait d'un bug de chargement.
+    const cible = tenders.find(t => t.id === id);
+    if (estEnLectureSeule(cible)) {
+      const porteur = [cible?.createur?.prenom, cible?.createur?.nom]
+        .filter(Boolean).join(' ').trim();
+      showToast(
+        porteur
+          ? `Ce dossier est porté par ${porteur}. Demandez-lui l'accès, ou à un administrateur de votre entreprise.`
+          : "Ce dossier est porté par un collègue. Demandez-lui l'accès, ou à un administrateur de votre entreprise.",
+        'info'
+      );
+      return;
+    }
     if (onEditDraft) onEditDraft(id);
   };
-
   const handleOpenTeam = (e: React.MouseEvent, tender: Tender) => {
     e.stopPropagation();
     if (onEditDraft) onEditDraft(tender.id);
@@ -547,6 +616,11 @@ export const Tenders: React.FC<TendersProps> = ({
         if (filterRole === 'Rejoints' && jeSuisPorteur) return false;
       }
 
+      // Bascule « toute l'entreprise ». Par défaut on n'affiche que ses propres
+      // dossiers : une secrétaire qui suit dix chefs de projet noierait sinon
+      // les siens sous ceux des autres.
+      if (!voirToutEntreprise && estDossierDunCollegue(t)) return false;
+
       // Handle pending/accepted visibility consistently
       const isRefused = myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused';
       const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
@@ -589,7 +663,8 @@ export const Tenders: React.FC<TendersProps> = ({
       return 0;
     });
     return result;
-  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, filterRole, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id]);
+  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, filterRole, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id,
+      voirToutEntreprise, estDossierDunCollegue]);
 
 
   useEffect(() => {
@@ -895,6 +970,26 @@ export const Tenders: React.FC<TendersProps> = ({
                 )}
               </button>
 
+            {/* Bascule « toute l'entreprise ».
+                Masquée s'il n'y a rien à basculer : un bouton qui ne change
+                jamais rien apprend à l'ignorer. */}
+            {nbDossiersCollegues > 0 && !showInvitationsOnly && (
+              <button
+                onClick={() => setVoirToutEntreprise(v => !v)}
+                title={voirToutEntreprise
+                  ? "Revenir à vos dossiers uniquement"
+                  : `Afficher aussi les ${nbDossiersCollegues} dossier${nbDossiersCollegues > 1 ? 's' : ''} portés par vos collègues`}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  voirToutEntreprise
+                  ? "bg-[#00A3E0] text-white border-[#00A3E0] shadow-md"
+                  : "bg-white/60 text-[#0B1F38]/70 border-white/80 hover:bg-white/90"
+                }`}
+              >
+                <Briefcase size={14} />
+                <span>{voirToutEntreprise ? "Toute l'entreprise" : 'Mes dossiers'}</span>
+              </button>
+            )}
+
             <div className="h-6 w-px bg-[#0B1F38]/10 mx-1" />
 
             {/* Compact Status Filter */}
@@ -1106,7 +1201,19 @@ export const Tenders: React.FC<TendersProps> = ({
                 // les distinguait à l'écran : le rôle s'affichait dans le même
                 // gris discret pour tout le monde.
                 const jeSuisPorteur = tender.createur_id === userId;
-                const myRoleBadge = jeSuisPorteur ? 'Mandataire' : (myGroupement || myInvitation) ? (myGroupement?.role_groupement || myInvitation?.role || 'Collaborateur') : 'Collaborateur';
+                const dossierCollegue = estDossierDunCollegue(tender);
+                const lectureSeuleTender = estEnLectureSeule(tender);
+                const porteurNom = [tender.createur?.prenom, tender.createur?.nom]
+                  .filter(Boolean).join(' ').trim();
+                // Un dossier de collègue n'est ni « Mandataire » (ce n'est pas le
+                // mien) ni « Collaborateur » (je n'y participe pas) : il lui faut
+                // son propre libellé, sans quoi la liste laisse croire à une
+                // participation.
+                const myRoleBadge = jeSuisPorteur
+                  ? 'Mandataire'
+                  : dossierCollegue
+                    ? (porteurNom || 'Collègue')
+                    : (myGroupement || myInvitation) ? (myGroupement?.role_groupement || myInvitation?.role || 'Collaborateur') : 'Collaborateur';
                 const effectiveStatus = getEffectiveStatus(tender);
                 
                 let displayStatus = effectiveStatus;
@@ -1135,6 +1242,23 @@ export const Tenders: React.FC<TendersProps> = ({
                             {(tender.success_score || 0) > 0 && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100 uppercase tracking-tight">Probabilité: {tender.success_score}%</span>}
                             {jeSuisPorteur ? (
                                 <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{myRoleBadge}</span>
+                            ) : dossierCollegue ? (
+                                /* Dossier de l'entreprise, porté par quelqu'un d'autre.
+                                   Le badge « Partenaire » ci-dessous serait faux : il
+                                   n'y a pas de groupement, c'est la maison. */
+                                <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-tight flex items-center gap-1 ${
+                                        lectureSeuleTender
+                                            ? 'bg-gray-100 text-gray-500 border-gray-200'
+                                            : 'bg-[#EFF4F8] text-[#0B1F38]/70 border-[#00A3E0]/20'
+                                    }`}
+                                    title={lectureSeuleTender
+                                        ? `Dossier porté par ${porteurNom || 'un collègue'}. Vous en voyez l'existence, pas le contenu.`
+                                        : `Dossier porté par ${porteurNom || 'un collègue'} de votre entreprise.`}
+                                >
+                                    {lectureSeuleTender ? <Lock size={10} /> : <Users size={10} />}
+                                    {lectureSeuleTender ? 'Équipe · lecture seule' : `Équipe · ${myRoleBadge}`}
+                                </span>
                             ) : (
                                 /* Le partenaire est signalé explicitement : sans repère,
                                    on croit piloter un dossier que l'on a seulement rejoint. */
@@ -1205,9 +1329,18 @@ export const Tenders: React.FC<TendersProps> = ({
                                 sont déjà visibles sur la carte, les dupliquer
                                 allongeait le menu sans rien apporter. */}
                             <button onClick={(e) => { e.stopPropagation(); handleOpenTender(tender.statut, tender.id); setActiveActionMenu(null); }} className="w-full text-left px-5 py-3 text-xs font-bold text-[#0B1F38] hover:bg-[#00A3E0]/10 flex items-center gap-3 transition-colors"><Eye size={16} className="text-[#00A3E0]" /> Voir le dossier</button>
+                            {/* Modifier : le créateur, et l'administrateur de
+                                l'entreprise porteuse (migration 093) — sans quoi
+                                le droit accordé côté serveur resterait sans
+                                aucun accès dans l'interface.
+                                Supprimer reste au seul créateur, comme la RLS :
+                                proposer un bouton que la base refuse serait pire
+                                que de ne pas le proposer. */}
+                            {(tender.createur_id === userId || (dossierCollegue && estAdmin)) && (
+                              <button onClick={(e) => handleEditTender(e, tender)} className="w-full text-left px-5 py-3 text-xs font-bold text-[#0B1F38] hover:bg-[#00A3E0]/10 flex items-center gap-3 transition-colors"><Pencil size={16} className="text-amber-500" /> Modifier</button>
+                            )}
                             {tender.createur_id === userId && (
                               <>
-                                <button onClick={(e) => handleEditTender(e, tender)} className="w-full text-left px-5 py-3 text-xs font-bold text-[#0B1F38] hover:bg-[#00A3E0]/10 flex items-center gap-3 transition-colors"><Pencil size={16} className="text-amber-500" /> Modifier</button>
                                 <div className="h-px bg-gray-100 my-1"></div>
                                 <button onClick={(e) => { e.stopPropagation(); setSelectedTenderId(tender.id); setIsDeleteModalOpen(true); setActiveActionMenu(null); }} className="w-full text-left px-5 py-3 text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"><Trash2 size={16} /> Supprimer</button>
                               </>

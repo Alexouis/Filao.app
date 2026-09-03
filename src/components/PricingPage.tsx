@@ -90,8 +90,25 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
                 // ensuite l'utilisateur via ses URLs de retour.
                 window.location.href = response.data.url;
             } else {
+                // Remonter le message de la fonction plutôt qu'un texte
+                // générique. Les refus légitimes — rôle insuffisant, abonnement
+                // déjà actif — arrivent en 403/409 avec une explication
+                // exploitable ; « Erreur configuration » envoyait l'utilisateur
+                // vers le support pour rien.
+                //
+                // `functions.invoke` place le corps de la réponse dans
+                // `error.context`, non consommé : il faut le lire pour y accéder.
+                let message: string | null = null;
+                try {
+                    const corps = await (response.error as any)?.context?.json?.();
+                    message = corps?.error || null;
+                } catch { /* corps illisible : on garde le message générique */ }
+
                 console.error('Checkout error:', response.error || response.data?.error);
-                setErrorMessage("Impossible d'initialiser le paiement. Veuillez contacter le support. (Erreur configuration)");
+                setErrorMessage(
+                    message
+                    || "Impossible d'initialiser le paiement. Veuillez contacter le support. (Erreur configuration)"
+                );
             }
         } catch (err) {
             console.error('Checkout error:', err);
