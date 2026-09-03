@@ -869,3 +869,43 @@ export const getFormeJuridiqueLabel = (valeur?: string | null): string => {
   const cle = String(valeur).trim();
   return CATEGORIES_JURIDIQUES_INSEE[cle] || cle;
 };
+
+/**
+ * Convertit un code géographique en libellé de département tel qu'il figure
+ * dans `DEPARTEMENTS`, c'est-à-dire tel que le select l'attend.
+ *
+ * Deux sources alimentaient `lieu_execution` sans passer par ce filtre :
+ *   - la recherche SIRET, qui poussait `siege.commune` — le code INSEE de la
+ *     commune, cinq caractères. L'utilisateur voyait donc « 20000 » figé dans
+ *     la liste, valeur qu'aucune option ne pouvait remplacer ni corriger ;
+ *   - l'import BOAMP, qui lisait `DEPARTEMENTS_OBJ` sans vérifier que le
+ *     libellé obtenu existe bien dans `DEPARTEMENTS`, et retombait sinon sur le
+ *     code brut.
+ *
+ * Les deux listes divergent sur la ponctuation — « Alpes-de-Haute-Provence »
+ * d'un côté, « Alpes de Haute Provence » de l'autre. La correspondance se fait
+ * donc sur une forme normalisée, sans accents ni séparateurs. Les 103 codes
+ * trouvent ainsi leur option.
+ *
+ * Renvoie `null` plutôt qu'une valeur approchée : mieux vaut un champ vide,
+ * que l'utilisateur complète, qu'une entrée qu'il ne peut ni comprendre ni
+ * retirer par la liste.
+ */
+const normaliserLibelle = (valeur: string): string =>
+  valeur.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+
+export const departementDepuisCode = (code?: string | number | null): string | null => {
+  const brut = String(code ?? '').trim().toUpperCase();
+  if (brut.length < 2) return null;
+
+  // Outre-mer : trois chiffres (971 à 976). Corse : 2A / 2B en code INSEE,
+  // que le découpage sur deux caractères retient tel quel.
+  const cle = /^9[78]/.test(brut) ? brut.slice(0, 3) : brut.slice(0, 2);
+
+  const libelle = (DEPARTEMENTS_OBJ as Record<string, string>)[cle];
+  if (!libelle) return null;
+
+  const cible = normaliserLibelle(libelle);
+  return DEPARTEMENTS.find(d => normaliserLibelle(d) === cible) ?? null;
+};

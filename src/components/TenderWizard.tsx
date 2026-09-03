@@ -55,7 +55,7 @@ import {
 } from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
 import { supabase } from '../lib/supabaseClient';
-import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
+import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, departementDepuisCode, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useAuth } from '../context/AuthContext';
@@ -1726,7 +1726,20 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // 3. Map to UIGroupementMember format
             const allCollabs: UIGroupementMember[] = companies.map(company => {
                 const referent = company.created_by ? referentsMap.get(company.created_by) : null;
-                const email = referent?.email || `${company.id}@placeholder`;
+                // Pas d'adresse fabriquée.
+                //
+                // `${company.id}@placeholder` était affiché tel quel dans la
+                // fiche du partenaire, et surtout transmis à `send-invitation`.
+                // Or cette fonction ne résout l'adresse réelle depuis
+                // `entrepriseId` que si `email` est ABSENT : l'adresse factice
+                // court-circuitait la résolution, échouait la validation
+                // (`@placeholder` n'a pas de point) et la fonction répondait 400.
+                // Le `catch` appelant se contentant d'un `console.error`, le
+                // partenaire n'était jamais notifié, sans le moindre signe.
+                //
+                // Vide, l'invitation est résolue côté serveur, en service role,
+                // à partir de l'entreprise — ce que la fonction sait déjà faire.
+                const email = referent?.email || '';
 
                 return {
                     id: referent?.id || '',
@@ -2099,9 +2112,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const membersToSave = updatedMembers || groupementMembers;
 
             // Validate
-            const invalid = membersToSave.find(c => !c.deleted && (!c.email?.trim() || !c.role?.trim()));
+            //
+            // Un membre rattaché à une ENTREPRISE connue n'a pas besoin d'une
+            // adresse : l'invitation part vers son référent, résolu côté serveur.
+            // L'adresse reste exigée pour une invitation nominative, seul cas où
+            // rien d'autre ne permet de joindre la personne.
+            const invalid = membersToSave.find(c => !c.deleted && (
+                !c.role?.trim() || (!c.entreprise_id && !c.email?.trim())
+            ));
             if (invalid) {
-                showToast('Veuillez remplir email et rôle pour tous les membres.', 'warning');
+                showToast(
+                    invalid.role?.trim()
+                        ? "Renseignez une adresse e-mail pour chaque partenaire invité nominativement."
+                        : 'Veuillez remplir email et rôle pour tous les membres.',
+                    'warning'
+                );
                 setLoading(false); return;
             }
 
@@ -2232,7 +2257,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 },
                                 body: JSON.stringify({
                                     tenderId,
-                                    email: invitee.email,
+                                    // `undefined` et non `''` : la fonction teste
+                                    // `!email` pour décider de résoudre le
+                                    // référent depuis l'entreprise.
+                                    email: invitee.email?.trim() || undefined,
                                     entrepriseId: invitee.entreprise_id,
                                     tenderTitle: formData.titre,
                                     senderName: inviterName,
@@ -2587,12 +2615,32 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
             if (data.results && data.results.length > 0) {
                 const company = data.results[0];
+                // `siege.commune` est le CODE INSEE de la commune, pas son nom :
+                // il atterrissait tel quel dans `lieu_execution`, à côté d'un
+                // select qui ne propose que des départements. L'utilisateur se
+                // retrouvait avec « 20000 » qu'aucune option ne pouvait
+                // remplacer, puisque la liste ne le contient pas.
+                //
+                // On en déduit le département, sous le libellé exact du select.
+                // Le code postal ferait un moins bon point de départ : en Corse,
+                // « 20 » ne distingue pas les deux départements, là où l'INSEE
+                // donne « 2A » ou « 2B ».
+                const departement = departementDepuisCode(company.siege?.commune);
                 setFormData(prev => ({
                     ...prev,
                     organisme_acheteur: company.nom_complet || company.nom_raison_sociale || prev.organisme_acheteur,
-                    lieu_execution: company.siege?.commune ? [company.siege.commune] : prev.lieu_execution
+                    // Ajout, et non remplacement : un marché peut porter sur
+                    // plusieurs départements déjà saisis.
+                    lieu_execution: departement && !prev.lieu_execution.includes(departement)
+                        ? [...prev.lieu_execution, departement]
+                        : prev.lieu_execution
                 }));
-                showToast("Coordonnées de l'acheteur récupérées avec succès", 'success');
+                showToast(
+                    departement
+                        ? "Coordonnées de l'acheteur récupérées avec succès"
+                        : "Acheteur récupéré. Le département n'a pas pu être déduit, à sélectionner dans la liste.",
+                    departement ? 'success' : 'info'
+                );
             } else {
                 setSiretError("Aucune entreprise trouvée pour ce SIRET/Nom");
             }
@@ -2701,9 +2749,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         let departments = [];
         const depts = Array.isArray(tender.code_departement) ? tender.code_departement : [tender.code_departement];
         for (let d of depts) {
-            // Map code to Name if possible, e.g. "75" -> "Paris"
-            const name = DEPARTEMENTS_OBJ[String(d).padStart(2, '0')] || d;
-            departments.push(name);
+            // Le libellé doit exister dans `DEPARTEMENTS`, sinon il s'affiche
+            // comme une entrée que le select ne peut pas reproduire. L'ancienne
+            // version lisait `DEPARTEMENTS_OBJ` sans le vérifier — les deux
+            // listes divergent sur la ponctuation — et retombait sur le code
+            // brut quand le département était inconnu.
+            const name = departementDepuisCode(String(d).padStart(2, '0'));
+            if (name) departments.push(name);
         }
 
         // Les CPV, critères et référence vivent dans `tender.donnees`, une chaîne
