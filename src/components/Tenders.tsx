@@ -343,6 +343,33 @@ export const Tenders: React.FC<TendersProps> = ({
         return dateA - dateB;
       });
 
+      // Profils des porteurs.
+      //
+      // La requête ci-dessus imbrique `createur:utilisateurs!createur_id`, mais
+      // depuis la migration 070 `utilisateurs` n'est lisible que par soi-même :
+      // la jointure ne renvoie donc quelque chose QUE sur ses propres dossiers.
+      // Sur ceux d'un partenaire ou d'un collègue, `createur` est null, et la
+      // carte perdait l'avatar du porteur sans que rien ne le signale.
+      //
+      // `utilisateurs_publics` est le canal prévu pour les profils d'autrui
+      // (migration 070). C'est une VUE : PostgREST ne sait pas l'imbriquer faute
+      // de clé étrangère détectable, on la charge donc à part et on fusionne —
+      // même motif que `CompanyTab`.
+      const idsPorteurs = Array.from(new Set(
+        validTenders.map((t: any) => t.createur_id).filter(Boolean)
+      ));
+      if (idsPorteurs.length > 0) {
+        const { data: porteurs } = await supabase
+          .from('utilisateurs_publics')
+          .select('id, prenom, nom, photo_url, email')
+          .in('id', idsPorteurs);
+
+        const parId = new Map((porteurs || []).map((p: any) => [p.id, p]));
+        validTenders.forEach((t: any) => {
+          if (!t.createur) t.createur = parId.get(t.createur_id) || null;
+        });
+      }
+
       // Keep all non-refused tenders (both accepted and pending)
       const visibleTenders = validTenders.filter(t => {
         const myGroupement = t.groupements?.find((g: any) => 
@@ -1172,18 +1199,53 @@ export const Tenders: React.FC<TendersProps> = ({
                 const groupementsArr: any[] = (tender as any).groupements || [];
                 const invitationsArr: any[] = (tender as any).invitations || [];
                 const creator = (tender as any).createur;
-                const uniqueTeam = new Map<string, { photo?: string; name?: string; email: string; isPending?: boolean }>();
+                // Clé = identifiant stable, et non l'e-mail.
+                //
+                // `utilisateurs_publics` renvoie `email = NULL` hors partenaires
+                // d'un dossier commun (migration 070) : indexer par e-mail
+                // faisait collapser tous ces profils sur une même clé `null`, et
+                // un seul avatar survivait.
+                const uniqueTeam = new Map<string, { photo?: string; name?: string; email?: string; isPending?: boolean }>();
 
-                // Team avatars logic
-                if (creator) uniqueTeam.set(creator.email, { photo: creator.photo_url, name: `${creator.prenom || ''} ${creator.nom || ''}`.trim() || creator.email, email: creator.email });
-                else if (tender.createur_id === userId && userProfile) uniqueTeam.set(userProfile.email, { photo: userProfile.photo_url, name: `${userProfile.prenom || ''} ${userProfile.nom || ''}`.trim(), email: userProfile.email });
-                groupementsArr?.filter((g: any) => g.statut === 'accepte').forEach((g: any) => {
-                  const ref = g.entreprise?.membres?.[0];
-                  if (ref && !uniqueTeam.has(ref.email)) uniqueTeam.set(ref.email, { photo: ref.photo_url, name: `${ref.prenom || ''} ${ref.nom || ''}`.trim() || g.entreprise?.nom || ref.email, email: ref.email });
-                });
-                invitationsArr?.filter((i: any) => i.status === 'pending').forEach((i: any) => { if (!uniqueTeam.has(i.email)) uniqueTeam.set(i.email, { email: i.email, isPending: true }); });
+                // Le porteur, puis UNE entrée par entreprise du groupement.
+                //
+                // L'ancienne version prenait `g.entreprise.membres[0]`, un
+                // salarié quelconque de l'entreprise partenaire. Depuis la
+                // migration 070 cette jointure revient systématiquement vide :
+                // aucun cotraitant n'apparaissait, seul le porteur restait.
+                //
+                // On représente désormais chaque partenaire par SON ENTREPRISE —
+                // logo, ou initiales de sa raison sociale. C'est aussi plus
+                // juste : un groupement est composé d'entreprises, pas de
+                // personnes, et le salarié affiché n'était de toute façon pas
+                // celui qui travaillait sur le dossier.
+                if (creator) uniqueTeam.set(`u:${creator.id || creator.email}`, { photo: creator.photo_url, name: `${creator.prenom || ''} ${creator.nom || ''}`.trim() || creator.email, email: creator.email });
+                else if (tender.createur_id === userId && userProfile) uniqueTeam.set(`u:${userProfile.id}`, { photo: userProfile.photo_url, name: `${userProfile.prenom || ''} ${userProfile.nom || ''}`.trim(), email: userProfile.email });
 
-                const teamAvatars = Array.from(uniqueTeam.values()).map(m => m.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.name || m.email || 'U')}&background=${m.isPending ? 'F06A50' : '0B1F38'}&color=fff`).slice(0, 3);
+                groupementsArr
+                  ?.filter((g: any) => g.statut === 'accepte')
+                  // La ligne du mandataire porte l'entreprise du porteur, déjà
+                  // représenté ci-dessus : l'inclure le compterait deux fois.
+                  .filter((g: any) => (g.role_groupement || '') !== 'Mandataire')
+                  .forEach((g: any) => {
+                    const cle = `e:${g.entreprise_id}`;
+                    if (!g.entreprise_id || uniqueTeam.has(cle)) return;
+                    uniqueTeam.set(cle, {
+                      photo: g.entreprise?.logo_url || undefined,
+                      name: g.entreprise?.nom || 'Partenaire',
+                    });
+                  });
+
+                invitationsArr?.filter((i: any) => i.status === 'pending').forEach((i: any) => { const cle = `i:${i.email}`; if (!uniqueTeam.has(cle)) uniqueTeam.set(cle, { email: i.email, isPending: true }); });
+
+                const membresEquipe = Array.from(uniqueTeam.values());
+                const teamAvatars = membresEquipe.map(m => ({
+                  src: m.photo || `https://ui-avatars.com/api/?name=${encodeURIComponent(m.name || m.email || 'U')}&background=${m.isPending ? 'F06A50' : '0B1F38'}&color=fff`,
+                  // Sans infobulle, un logo d'entreprise inconnu n'apprend rien.
+                  libelle: m.isPending
+                    ? `${m.email} — invitation en attente`
+                    : (m.name || m.email || 'Membre'),
+                })).slice(0, 3);
                 const totalTeamSize = uniqueTeam.size;
                 const myGroupement = groupementsArr.find((g: any) => 
                   (userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id) ||
@@ -1285,7 +1347,7 @@ export const Tenders: React.FC<TendersProps> = ({
                         <div className="flex items-center gap-4 mt-3">
                            <div className="flex items-center gap-2">
                              <div className="flex -space-x-2" onClick={(e) => handleOpenTeam(e, tender)}>
-                               {teamAvatars.length > 0 ? teamAvatars.map((img, i) => <img key={i} src={img} className="w-7 h-7 rounded-full border-2 border-white object-cover shadow-sm transition-transform group-hover:scale-110" style={{ transitionDelay: `${i * 50}ms` }} />) : <div className="w-7 h-7 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center"><Users size={12} /></div>}
+                               {teamAvatars.length > 0 ? teamAvatars.map((a, i) => <img key={i} src={a.src} alt={a.libelle} title={a.libelle} className="w-7 h-7 rounded-full border-2 border-white object-cover shadow-sm transition-transform group-hover:scale-110 bg-white" style={{ transitionDelay: `${i * 50}ms` }} />) : <div className="w-7 h-7 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center"><Users size={12} /></div>}
                                {totalTeamSize > 3 && <div className="w-7 h-7 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center text-[10px] font-bold">+{totalTeamSize - 3}</div>}
                              </div>
                              <span className="text-[10px] font-bold text-[#0B1F38]/30 uppercase tracking-widest">Équipe</span>
