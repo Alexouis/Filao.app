@@ -1919,15 +1919,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
                 // 5b. Référent de chaque entreprise du groupement.
                 //
-                // La requête ci-dessus imbrique `membres:utilisateurs!...`, mais
-                // depuis la migration 070 `utilisateurs` n'est lisible que par
-                // soi-même : cette jointure revient TOUJOURS vide. L'écran Équipe
-                // retombait donc sur le nom de l'entreprise, sans contact ni
-                // e-mail, et `hasAccount` valait false pour tout le monde — y
-                // compris pour des partenaires parfaitement inscrits.
+                // La requête ci-dessus imbrique `membres:utilisateurs!...`, dont
+                // le contenu dépend de la policy de `utilisateurs` (075) :
+                // collègues et cotraitants acceptés seulement. Pour un partenaire
+                // invité non encore accepté, l'écran Équipe retombait sur le nom
+                // de l'entreprise, sans contact, et `hasAccount` valait false.
                 //
-                // `utilisateurs_publics` est le canal prévu (migration 070). Vue
-                // non imbriquable par PostgREST : chargée à part, fusionnée ici.
+                // `utilisateurs_publics` est le canal prévu par la 075 pour les
+                // profils d'autrui. Vue non imbriquable : chargée à part.
                 const referentsParEntreprise: Record<string, any> = {};
                 if (companyIds.length > 0) {
                     const { data: profils } = await supabase

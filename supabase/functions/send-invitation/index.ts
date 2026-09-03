@@ -69,7 +69,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: InvitationRequest = await req.json();
-    const { tenderId, tenderTitle, role, message, senderName, accessCode, senderUserId, nomInvite } = body;
+    const { tenderId, tenderTitle, role, message, senderName, accessCode, nomInvite } = body;
     let { email, entrepriseId } = body;
 
     if (!tenderId || !role) {
@@ -107,6 +107,52 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_ANON_KEY") ?? "",
       { global: { headers: { Authorization: authHeader } } }
     );
+
+    // L'appelant doit PORTER le dossier qu'il ouvre à un tiers.
+    //
+    // Sans ce contrôle, tout compte authentifié pouvait inviter l'adresse de
+    // son choix — la sienne, par exemple — sur N'IMPORTE QUEL dossier : il
+    // recevait un jeton valide, et `guest-files` lui servait les pièces. Un
+    // accès à des dossiers d'autres entreprises, obtenu en une requête.
+    //
+    // `senderUserId`, jusqu'ici lu dans le corps, désignait le créateur de
+    // l'invitation : on le remplace par l'identité réelle de l'appelant.
+    const { data: { user: appelant }, error: erreurAppelant } = await authedClient.auth.getUser();
+    if (erreurAppelant || !appelant) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: dossier } = await adminClient
+      .from("reponses_ao")
+      .select("id, createur_id, entreprise_id")
+      .eq("id", tenderId)
+      .maybeSingle();
+    if (!dossier) {
+      return new Response(JSON.stringify({ error: "Dossier introuvable." }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    let porteOuAdministre = dossier.createur_id === appelant.id;
+    if (!porteOuAdministre && dossier.entreprise_id) {
+      // Administrateur de l'entreprise porteuse : même droit que sur le dossier
+      // (migration 093).
+      const { data: profil } = await adminClient
+        .from("utilisateurs")
+        .select("entreprise_id, roles(name)")
+        .eq("id", appelant.id)
+        .maybeSingle();
+      porteOuAdministre = !!profil
+        && profil.entreprise_id === dossier.entreprise_id
+        && (profil.roles as { name?: string } | null)?.name === "admin";
+    }
+    if (!porteOuAdministre) {
+      return new Response(
+        JSON.stringify({ error: "Seul le porteur du dossier, ou un administrateur de son entreprise, peut inviter." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const senderUserId = appelant.id;
 
     let recipientId: string | undefined;
 

@@ -415,12 +415,12 @@ export const Tenders: React.FC<TendersProps> = ({
       // Référents des entreprises partenaires.
       //
       // Cette liste alimente la page Réseau. Elle se construisait sur
-      // `g.entreprise.membres[0]`, jointure vide depuis la migration 070
-      // (`utilisateurs` refermé sur son propre compte) : le réseau était donc
-      // systématiquement vide, sans erreur ni message.
+      // `g.entreprise.membres[0]`, dont le contenu dépend de la policy de
+      // `utilisateurs` (075) : collègues et cotraitants acceptés, rien d'autre.
+      // Un partenaire invité mais pas encore accepté n'y figurait pas.
       //
-      // `utilisateurs_publics` est le canal prévu. Une seule requête pour
-      // toutes les entreprises rencontrées, plutôt qu'une par dossier.
+      // `utilisateurs_publics` est le canal prévu par la 075 pour les profils
+      // d'autrui. Une seule requête pour toutes les entreprises rencontrées.
       const idsEntreprises = Array.from(new Set(
         tendersData.flatMap((t: any) =>
           Array.isArray(t.groupements)
@@ -1251,9 +1251,10 @@ export const Tenders: React.FC<TendersProps> = ({
                 // Le porteur, puis UNE entrée par entreprise du groupement.
                 //
                 // L'ancienne version prenait `g.entreprise.membres[0]`, un
-                // salarié quelconque de l'entreprise partenaire. Depuis la
-                // migration 070 cette jointure revient systématiquement vide :
-                // aucun cotraitant n'apparaissait, seul le porteur restait.
+                // salarié quelconque de l'entreprise partenaire — quand la
+                // policy de `utilisateurs` (075) le laissait voir, ce qui
+                // exclut les partenaires pas encore acceptés et les entreprises
+                // sans compte rattaché.
                 //
                 // On représente désormais chaque partenaire par SON ENTREPRISE —
                 // logo, ou initiales de sa raison sociale. C'est aussi plus

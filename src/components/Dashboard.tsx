@@ -169,10 +169,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (cachedTenders) {
       // Filter out refused tenders even from cache
       const visible = cachedTenders.filter(t => {
-        // La clause `entreprise.membres` a été retirée : cette jointure revient
-        // toujours vide depuis la migration 070 (`utilisateurs` n'est lisible
-        // que par soi-même). Elle laissait croire à un second chemin de
-        // détection alors que seule la comparaison d'entreprise opère.
+        // La clause `entreprise.membres` a été retirée : elle ne détectait que
+        // les membres que la policy `utilisateurs` (075) laisse voir, et
+        // doublonnait la comparaison d'entreprise, seule condition fiable.
         const myGroupement = t.groupements?.find((g: any) =>
           userProfile.entreprise_id && g.entreprise_id === userProfile.entreprise_id
         );

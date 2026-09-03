@@ -84,12 +84,13 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
     try {
       // 1. Fetch from groupements (structured team)
       //
-      // On lit `entreprise_id`, pas les membres. La jointure imbriquée
-      // `membres:utilisateurs (id)` revenait TOUJOURS vide depuis la migration
-      // 070, qui a refermé `utilisateurs` sur son propre compte : la liste des
-      // destinataires ne contenait donc jamais les salariés des entreprises
-      // cotraitantes. Concrètement, un partenaire accepté n'était pas notifié
-      // des nouveaux commentaires du dossier.
+      // On lit `entreprise_id`, pas les membres, et on résout les profils par
+      // `utilisateurs_publics` — le canal que la migration 075 désigne pour
+      // les profils d'autrui, une vue ne pouvant pas s'imbriquer dans une
+      // requête PostgREST. La jointure `membres:utilisateurs (id)` fonctionnait
+      // pour les collègues et les cotraitants ACCEPTÉS (policy 075), mais pas
+      // au-delà ; la vue couvre tous les cas sans dépendre de la policy de la
+      // table, dont le périmètre est appelé à se resserrer.
       const { data: grpData } = await supabase
         .from('groupements')
         .select('entreprise_id')
