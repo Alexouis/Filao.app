@@ -21,9 +21,6 @@ export const SkillInput = ({
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Debug
-  console.log("SkillInput Render:", { availableSkills, selectedSkills, inputValue, showSuggestions });
-
   // Filter options: if input is empty, show all available (that aren't selected)
   const filteredOptions = availableSkills.filter(
     skill =>
