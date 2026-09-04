@@ -46,7 +46,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ReminderRequest = await req.json();
-    const { tenderId, tenderTitle, email, senderName, senderUserId, milestoneLabel, milestoneDate } = body;
+    const { tenderId, tenderTitle, email, senderName, milestoneLabel, milestoneDate } = body;
 
     // Un même envoi sert deux usages : le gabarit et le libellé de la
     // notification en dépendent entièrement.
@@ -64,6 +64,84 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
+
+    // 0. Identité et droits de l'appelant.
+    //
+    // Jusqu'ici la fonction ne testait que la PRÉSENCE de l'en-tête
+    // Authorization, jamais sa validité, puis envoyait à l'adresse du corps
+    // sous le `senderName` du corps, depuis l'expéditeur Brevo de Filao. Tout
+    // compte pouvait donc écrire à n'importe qui, sous n'importe quel nom, avec
+    // l'apparence d'un e-mail de l'application.
+    //
+    // Désormais : l'appelant est authentifié, et doit être lié au dossier —
+    // porteur, membre d'une entreprise acceptée au groupement, ou
+    // administrateur de l'entreprise porteuse. Le destinataire doit lui aussi
+    // être lié au dossier : un rappel ne se destine pas à un inconnu.
+    // `senderUserId` n'est plus lu dans le corps : c'est l'appelant.
+    const { data: { user: appelant } } = await createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      { global: { headers: { Authorization: authHeader } } },
+    ).auth.getUser();
+    if (!appelant) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const senderUserId = appelant.id;
+
+    const { data: dossier } = await adminClient
+      .from("reponses_ao").select("id, createur_id, entreprise_id").eq("id", tenderId).maybeSingle();
+    if (!dossier) {
+      return new Response(JSON.stringify({ error: "Dossier introuvable." }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: profilAppelant } = await adminClient
+      .from("utilisateurs").select("entreprise_id, roles(name)").eq("id", appelant.id).maybeSingle();
+    const entrepriseAppelant = profilAppelant?.entreprise_id ?? null;
+    const estAdminPorteuse = !!entrepriseAppelant
+      && entrepriseAppelant === dossier.entreprise_id
+      && (profilAppelant?.roles as { name?: string } | null)?.name === "admin";
+
+    // Entreprises acceptées au groupement — sert pour l'appelant ET le
+    // destinataire.
+    const { data: groupement } = await adminClient
+      .from("groupements").select("entreprise_id").eq("projet_id", tenderId).eq("statut", "accepte");
+    const entreprisesDuDossier = new Set<string>(
+      (groupement ?? []).map((g: { entreprise_id: string }) => g.entreprise_id).filter(Boolean)
+    );
+    if (dossier.entreprise_id) entreprisesDuDossier.add(dossier.entreprise_id);
+
+    const appelantLie = dossier.createur_id === appelant.id
+      || estAdminPorteuse
+      || (!!entrepriseAppelant && entreprisesDuDossier.has(entrepriseAppelant));
+    if (!appelantLie) {
+      return new Response(
+        JSON.stringify({ error: "Vous n'êtes pas lié à ce dossier." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Le destinataire : membre d'une entreprise du dossier, ou invité par
+    // e-mail (partenaire sans compte, qui existe légitimement dans
+    // `invitations`).
+    const { data: destinataireProfil } = await adminClient
+      .from("utilisateurs").select("entreprise_id").ilike("email", email.trim()).maybeSingle();
+    let destinataireLie = !!destinataireProfil?.entreprise_id
+      && entreprisesDuDossier.has(destinataireProfil.entreprise_id);
+    if (!destinataireLie) {
+      const { data: inv } = await adminClient
+        .from("invitations").select("id").eq("tender_id", tenderId).ilike("email", email.trim()).maybeSingle();
+      destinataireLie = !!inv;
+    }
+    if (!destinataireLie) {
+      return new Response(
+        JSON.stringify({ error: "Ce destinataire n'est pas lié au dossier." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // 1. Resolve Recipient ID (if they have an account)
     const { data: recipient } = await adminClient

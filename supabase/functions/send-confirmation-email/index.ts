@@ -27,6 +27,34 @@ Deno.serve(async (req: Request) => {
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
         );
 
+        // Limitation de débit.
+        //
+        // Cette fonction est appelée AVANT connexion — à l'inscription — et ne
+        // peut donc exiger aucune identité. Sans garde-fou, n'importe qui
+        // pouvait la faire tourner en boucle sur une adresse : bombardement
+        // d'e-mails, et surtout, `generateLink` invalidant à chaque appel le
+        // jeton précédent, un inscrit légitime ne parvenait plus à confirmer
+        // son compte tant que l'attaque durait.
+        //
+        // On réutilise `consommer_quota_invite` (migration 044), un compteur
+        // générique par clé et fenêtre. La clé est préfixée pour ne pas
+        // entrer en collision avec les jetons d'invitation qu'il sert déjà.
+        const adresseNormalisee = String(email).trim().toLowerCase();
+        const ip = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim()
+            || req.headers.get("cf-connecting-ip") || "inconnue";
+        const [parEmail, parIp] = await Promise.all([
+            supabaseAdmin.rpc("consommer_quota_invite", { p_cle: `confirmation:${adresseNormalisee}`, p_portee: "ip_heure", p_limite: 3 }),
+            supabaseAdmin.rpc("consommer_quota_invite", { p_cle: `confirmation-ip:${ip}`, p_portee: "ip_heure", p_limite: 20 }),
+        ]);
+        if (parEmail.data?.[0]?.autorise === false || parIp.data?.[0]?.autorise === false) {
+            // Même réponse dans les deux cas : ne pas révéler laquelle des deux
+            // limites a été atteinte, ni si l'adresse est connue.
+            return new Response(JSON.stringify({ error: "Trop de demandes. Réessayez dans une heure." }), {
+                status: 429,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
         // Generate the signup confirmation link
         //
         // ⚠️ CONFLIT AVEC L'E-MAIL NATIF DE SUPABASE
