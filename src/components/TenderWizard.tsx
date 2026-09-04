@@ -1560,9 +1560,16 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
 
     // SMART SKILLS: Generate required skills based on tender data
+    //
+    // PERFORMANCE : ce calcul balaie tout le texte du titre et de la description
+    // contre une longue table de mots-clés. Le lancer à CHAQUE frappe rendait la
+    // saisie saccadée. On le débounce : il ne s'exécute que ~400 ms après la
+    // dernière frappe. La saisie reste fluide (les champs restent contrôlés),
+    // seul le recalcul des compétences attend une pause.
     useEffect(() => {
         if (!formData.titre && !formData.description) return;
 
+        const minuteur = setTimeout(() => {
         const txt = `${formData.titre} ${formData.description} ${formData.secteur_activite}`.toLowerCase();
         const newRequired: string[] = [];
 
@@ -1649,6 +1656,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         // Default if absolute none found
         if (newRequired.length === 0) newRequired.push("Gestion de projet");
         setRequiredSkills(Array.from(new Set(newRequired)));
+        }, 400);
+
+        // Frappe suivante (ou démontage) : on annule le calcul en attente.
+        return () => clearTimeout(minuteur);
     }, [formData.titre, formData.description]);
 
     const fetchUserProfile = async (): Promise<any> => {
@@ -5302,11 +5313,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </div>
 
                                 <div>
-                                    <label className={labelStyle}>Lien de dépôt</label>
+                                    <div className="flex items-baseline justify-between gap-2">
+                                        <label htmlFor="tender-lien-depot" className={labelStyle}>Lien de dépôt</label>
+                                        {formData.lien_depot && (
+                                            <a
+                                                href={lienExterne(formData.lien_depot)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[10px] font-bold text-[#00A3E0] hover:underline shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
+                                            >
+                                                Ouvrir →
+                                            </a>
+                                        )}
+                                    </div>
                                     <div className="relative">
                                         <UploadCloud size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
                                         <input
-                                            type="text"
+                                            id="tender-lien-depot"
+                                            type="url"
+                                            inputMode="url"
                                             value={formData.lien_depot}
                                             onChange={(e) => setFormData({ ...formData, lien_depot: e.target.value })}
                                             placeholder="https://..."
