@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: userError } = await userClient.auth.getUser()
     if (userError || !user) throw new Error('Non autorisé')
 
-    const { action, tenderId, upsertGroupements, upsertInvitations, insertInvitations, deletions, invitationDeletions, purgeNotificationsEmails } = await req.json()
+    const { action, tenderId, upsertGroupements, upsertInvitations, insertInvitations, deletions, invitationDeletions, purgeNotificationsTargets } = await req.json()
     console.log(`[Edge] Received manage-team request for tender: ${tenderId}`)
     console.log(`[Edge] Payloads - groupements: ${upsertGroupements?.length || 0}, invitations: ${upsertInvitations?.length || 0}`)
 
@@ -73,34 +73,50 @@ Deno.serve(async (req) => {
     // par le client : côté interface, l'« id » d'un partenaire invité est
     // souvent celui de la ligne d'invitation ou du groupement, pas celui de
     // l'utilisateur.
-    if (purgeNotificationsEmails && purgeNotificationsEmails.length > 0) {
-      console.log(`Purging invite notifications for ${purgeNotificationsEmails.length} email(s)...`)
-      for (const email of purgeNotificationsEmails) {
-        if (!email) continue
+    if (purgeNotificationsTargets && purgeNotificationsTargets.length > 0) {
+      console.log(`Purging invite notifications for ${purgeNotificationsTargets.length} target(s)...`)
+      for (const cible of purgeNotificationsTargets) {
+        if (!cible) continue
         try {
-          const { data: cible } = await supabaseClient
-            .from('utilisateurs')
-            .select('id, notifications')
-            .ilike('email', String(email).trim())
-            .maybeSingle()
+          // Destinataires possibles. L'e-mail est le chemin direct, mais il peut
+          // manquer côté interface : la vue `utilisateurs_publics` ne l'expose
+          // qu'entre partenaires d'un dossier (migration 070), et il ressort
+          // vide sinon. On retombe alors sur les comptes de l'entreprise
+          // partenaire, qui sont les destinataires de l'invitation.
+          let destinataires: any[] = []
 
-          // Sans compte, aucune notification n'a été créée : rien à purger.
-          if (!cible) continue
-
-          const actuelles = cible.notifications || []
-          const restantes = actuelles.filter((n: any) => !(
-            n.type === 'collaborator_invited' && n.related_tender_id === tenderId
-          ))
-
-          if (restantes.length !== actuelles.length) {
-            await supabaseClient
+          if (cible.email) {
+            const { data } = await supabaseClient
               .from('utilisateurs')
-              .update({ notifications: restantes })
-              .eq('id', cible.id)
+              .select('id, notifications')
+              .ilike('email', String(cible.email).trim())
+            destinataires = data || []
+          }
+
+          if (destinataires.length === 0 && cible.entreprise_id) {
+            const { data } = await supabaseClient
+              .from('utilisateurs')
+              .select('id, notifications')
+              .eq('entreprise_id', cible.entreprise_id)
+            destinataires = data || []
+          }
+
+          for (const destinataire of destinataires) {
+            const actuelles = destinataire.notifications || []
+            const restantes = actuelles.filter((n: any) => !(
+              n.type === 'collaborator_invited' && n.related_tender_id === tenderId
+            ))
+
+            if (restantes.length !== actuelles.length) {
+              await supabaseClient
+                .from('utilisateurs')
+                .update({ notifications: restantes })
+                .eq('id', destinataire.id)
+            }
           }
         } catch (err) {
           // Une purge ratée ne doit pas faire échouer le retrait lui-même.
-          console.error(`Notification purge failed for ${email}:`, err)
+          console.error('Notification purge failed:', err)
         }
       }
     }

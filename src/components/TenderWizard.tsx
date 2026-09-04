@@ -2180,12 +2180,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const deletions = membersToSave.filter(m => m.deleted && m.groupement_id).map(m => m.groupement_id);
             const invitationDeletions = membersToSave.filter(m => m.deleted && !m.groupement_id && m.email).map(m => m.email);
             const upsertGroupements: any[] = [];
-            // E-mails des membres retirés : `manage-team` purge leurs
-            // notifications d'invitation avec la même clé service-role qui
-            // supprime le groupement, en une seule fois.
-            const purgeNotificationsEmails = membersToSave
-                .filter(m => m.deleted && m.email)
-                .map(m => m.email);
+            // Membres retirés : `manage-team` purge leurs notifications
+            // d'invitation avec la même clé service-role qui supprime le
+            // groupement, en une seule fois. On transmet l'e-mail ET
+            // l'entreprise : l'e-mail peut être masqué par la vue de profils
+            // (migration 070), l'entreprise sert alors de repli.
+            const purgeNotificationsTargets = membersToSave
+                .filter(m => m.deleted)
+                .map(m => ({ email: m.email || null, entreprise_id: m.entreprise_id || null }))
+                .filter(t => t.email || t.entreprise_id);
             const insertInvitations: any[] = []; // Explicitly empty, send-invitation handles insertions to avoid duplicates
             const newInvitationsNotify: UIGroupementMember[] = [];
 
@@ -2256,7 +2259,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     insertInvitations,
                     deletions,
                     invitationDeletions,
-                    purgeNotificationsEmails
+                    purgeNotificationsTargets
                 }),
             });
 
