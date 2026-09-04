@@ -46,12 +46,28 @@ export const joursAvantEcheance = (tender: Tender): number => {
  * tableau de bord et Mes AO. Critère : dossier encore EN COURS (un déposé n'a
  * plus d'action liée à l'échéance, un clôturé non plus) dont l'échéance tombe
  * dans les 7 prochains jours, échéance passée exclue (0 à 7 jours inclus).
+ *
+ * ⚠️ On ne se sert PAS de `joursAvantEcheance` ici. Cette fonction cale
+ * l'échéance à 23:59:59 puis arrondit au plafond : une échéance à N jours
+ * calendaires y compte N+1. La réutiliser rétrécissait la fenêtre d'un jour —
+ * une échéance à exactement 7 jours renvoyait 8 et n'était plus « urgente ».
+ * On compare donc directement des jours calendaires, de minuit à minuit.
  */
 export const URGENCE_SEUIL_JOURS = 7;
 export const isUrgent = (tender: Tender): boolean => {
     if (getEffectiveStatus(tender) !== STATUSES.on) return false;
-    const j = joursAvantEcheance(tender);
-    return !Number.isNaN(j) && j >= 0 && j <= URGENCE_SEUIL_JOURS;
+    if (!tender.date_limite) return false;
+
+    // Minuit local des deux bornes : on raisonne en jours pleins, sans dérive
+    // horaire ni demi-journée résiduelle.
+    const MS_JOUR = 1000 * 60 * 60 * 24;
+    const echeance = new Date(tender.date_limite);
+    const echeanceMinuit = new Date(echeance.getFullYear(), echeance.getMonth(), echeance.getDate());
+    const maintenant = new Date();
+    const aujourdhuiMinuit = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate());
+
+    const jours = Math.round((echeanceMinuit.getTime() - aujourdhuiMinuit.getTime()) / MS_JOUR);
+    return jours >= 0 && jours <= URGENCE_SEUIL_JOURS;
 };
 
 /**
