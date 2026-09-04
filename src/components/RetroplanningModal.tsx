@@ -4,6 +4,7 @@ import {
     Pencil, ShieldAlert, Trash2, Plus,
 } from 'lucide-react';
 import { estEnRetard } from '../helpers/jalonHelpers';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 
 /**
  * Modale « Rétroplanning » — jalons et échéances clés du dossier.
@@ -69,6 +70,10 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
     const [editingJalon, setEditingJalon] = useState<Partial<Jalon> | null>(null);
     const [showAddJalonForm, setShowAddJalonForm] = useState(false);
     const [newJalon, setNewJalon] = useState<{ label: string; date: string }>({ label: '', date: '' });
+    // Jalon en attente de confirmation de suppression. Remplace le `confirm()`
+    // natif du navigateur (« localhost:3000 indique… »), incohérent avec le
+    // reste de l'app et bloquant. `null` = aucune demande en cours.
+    const [jalonASupprimer, setJalonASupprimer] = useState<Jalon | null>(null);
 
     // Repart d'un état vierge à chaque ouverture : sans cela, un formulaire
     // d'ajout laissé ouvert réapparaissait à la visite suivante.
@@ -78,6 +83,7 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
             setEditingJalon(null);
             setShowAddJalonForm(false);
             setNewJalon({ label: '', date: '' });
+            setJalonASupprimer(null);
         }
     }, [ouvert]);
 
@@ -291,10 +297,7 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                                                             </span>
                                                         ) : (
                                                             <button
-                                                                onClick={() => {
-                                                                    if (!confirm("Supprimer ce jalon ?")) return;
-                                                                    onJalonsChange(jalons.filter((j: any) => !(j.label === jalon.label && j.date === jalon.date)));
-                                                                }}
+                                                                onClick={() => setJalonASupprimer(jalon)}
                                                                 className="p-2 text-[#0B1F38]/30 hover:text-red-500 hover:bg-white rounded-lg transition-all"
                                                             >
                                                                 <Trash2 size={14} />
@@ -383,6 +386,19 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                     </button>
                 </div>
             </div>
+
+            {/* Confirmation de suppression — composant partagé, même
+                présentation que le retrait d'un membre. */}
+            <ConfirmDialog
+                ouvert={!!jalonASupprimer}
+                titre="Supprimer ce jalon ?"
+                message={`« ${jalonASupprimer?.label} » sera retiré du rétroplanning. Cette action est irréversible.`}
+                onConfirmer={() => {
+                    onJalonsChange(jalons.filter((j: any) => !(j.label === jalonASupprimer!.label && j.date === jalonASupprimer!.date)));
+                    setJalonASupprimer(null);
+                }}
+                onAnnuler={() => setJalonASupprimer(null)}
+            />
         </div>
     );
 };

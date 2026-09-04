@@ -4,7 +4,6 @@ import { CollaboratorPicker } from './ui/CollaboratorPicker';
 import { EmailLogPanel } from './EmailLogPanel';
 
 import { LimitReachedModal } from './LimitReachedModal';
-import { SkillInput } from './ui/SkillInput';
 import {
     Calendar as CalendarIcon, MapPin, Briefcase, Link, Users, UploadCloud,
     CheckCircle, FileText, X, Search, ArrowRight, ArrowLeft, ChevronDown,
@@ -23,6 +22,7 @@ import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
 import { lienExterne } from '../helpers/textHelpers';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ContextEditModal } from './ContextEditModal';
 import { SkillsModal } from './SkillsModal';
 import { RetroplanningModal } from './RetroplanningModal';
@@ -34,7 +34,7 @@ import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } 
 import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
-import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
+import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, deleteInvitationNotification } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
     extractCriteresAttribution,
@@ -169,7 +169,7 @@ const isValidUUID = (id: any): id is string => {
 import { TenderCreationWizard } from './TenderCreationWizard';
 
 // --- SUB-COMPONENTS ---
-const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills, emailsDejaInvites = [] }: { onClose: () => void, onAdd: (data: any) => void, requiredSkills: string[], emailsDejaInvites?: string[] }) => {
+const AddManualPartnerModal = ({ onClose, onAdd, emailsDejaInvites = [] }: { onClose: () => void, onAdd: (data: any) => void, emailsDejaInvites?: string[] }) => {
     const [newCollaborator, setNewCollaborator] = useState({
         name: '',
         role: 'Co-traitant' as 'Mandataire' | 'Co-traitant' | 'Sous-traitant',
@@ -253,18 +253,14 @@ const AddManualPartnerModal = ({ onClose, onAdd, requiredSkills, emailsDejaInvit
                         )}
                     </div>
 
-                    {/* Skills */}
-                    <div>
-                        <label className="block text-xs font-bold text-[#0B1F38]/60 mb-2 uppercase">Compétences</label>
-                        <SkillInput
-                            selectedSkills={newCollaborator.skills}
-                            availableSkills={requiredSkills}
-                            isAdmin={true}
-                            variant="light"
-                            onAdd={(skill) => setNewCollaborator(prev => ({ ...prev, skills: [...prev.skills, skill] }))}
-                            onRemove={(skill) => setNewCollaborator(prev => ({ ...prev, skills: prev.skills.filter(s => s !== skill) }))}
-                        />
-                    </div>
+                    {/* Compétences : champ retiré volontairement.
+                        Il demandait au mandataire de DÉCLARER les compétences d'un
+                        partenaire qui n'avait pas encore accepté, alors que la source
+                        de vérité — les spécialités de la fiche entreprise du partenaire
+                        — est chargée dès l'acceptation. Deux déclarations concurrentes
+                        pour la même information, dont une saisie par quelqu'un qui n'est
+                        pas concerné : la couverture s'appuie désormais uniquement sur la
+                        fiche entreprise. */}
                 </div>
 
                 <div className="p-4 bg-[#f4f6f9] flex justify-end gap-3 rounded-b-2xl">
@@ -402,6 +398,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const [refDomains, setRefDomains] = useState<any[]>([]);
     const [refSpecialties, setRefSpecialties] = useState<any[]>([]);
     const [loadingRef, setLoadingRef] = useState(false);
+    /** Document DCE en attente de confirmation de suppression. */
+    const [docDCEASupprimer, setDocDCEASupprimer] = useState<any | null>(null);
+    /** Changement de rôle risquant de masquer des pièces, en attente de confirmation. */
+    const [changementRoleAConfirmer, setChangementRoleAConfirmer] =
+        useState<{ role: string; appliquer: () => Promise<void> } | null>(null);
 
     // Retroplanning inline edit state
     const [carouselIndex, setCarouselIndex] = useState(0);
@@ -561,11 +562,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             });
         });
 
-        const competencesCouvertes = Array.from(
-            new Set(groupementMembers.filter(m => !m.deleted).flatMap(m => m.skills || []))
+        // Couverture des compétences.
+        //
+        // On compare des IDENTIFIANTS de spécialité, plus des libellés saisis à
+        // la main : le champ « Compétences » de l'invitation a été retiré, car
+        // il faisait déclarer par le mandataire les compétences d'un partenaire
+        // qui n'avait pas encore accepté. La source de vérité est la fiche
+        // entreprise du partenaire (`specialty_ids`), chargée à l'acceptation.
+        //
+        // Conséquence assumée : un partenaire qui n'a pas encore accepté ne
+        // couvre rien tant qu'il n'a pas rejoint le dossier. C'est la réalité —
+        // avant, une déclaration optimiste masquait le manque.
+        const specialitesCouvertes = new Set(
+            groupementMembers.filter(m => !m.deleted).flatMap(m => m.specialty_ids || [])
         );
-        const competencesNonCouvertes = (formData.required_skills || [])
-            .filter((s: string) => !competencesCouvertes.includes(s));
+        const libelleSpecialite = (id: string) =>
+            refSpecialties.find(s => s.id === id)?.label || id;
+        const competencesNonCouvertes = (formData.required_specialty_ids || [])
+            .filter((id: string) => !specialitesCouvertes.has(id))
+            .map(libelleSpecialite);
 
         const dossierIncomplet = piecesManquantes.length > 0 || competencesNonCouvertes.length > 0;
 
@@ -658,7 +673,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const { data, error } = await supabase
                 .from('invitations')
                 .select('*')
-                .eq('tender_id', tenderId);
+                .eq('tender_id', tenderId)
+                // Une invitation révoquée n'existe plus pour l'écran Équipe.
+                // Sans ce filtre, retirer un partenaire le faisait réapparaître
+                // au rechargement : `revoquer_invitation` pose `revoked_at`,
+                // mais la lecture ramenait la ligne malgré tout.
+                .is('revoked_at', null);
 
             if (error) throw error;
             setInvitations(data || []);
@@ -1313,9 +1333,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
-    const handleDCEFileDelete = async (doc: any) => {
+    /** Demande de suppression : ouvre la confirmation (voir `ConfirmDialog`). */
+    const handleDCEFileDelete = (doc: any) => {
         if (!tenderId) return;
-        if (!confirm(`Supprimer "${doc.name}" ? Cette action est irréversible.`)) return;
+        setDocDCEASupprimer(doc);
+    };
+
+    /** Suppression effective, une fois confirmée. */
+    const supprimerDocumentDCE = async (doc: any) => {
+        if (!tenderId) return;
         try {
             await supabase.storage.from('documents').remove([doc.path]);
             const updatedDocs = (formData.dce_documents || []).filter((d: any) => d.id !== doc.id);
@@ -1885,7 +1911,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 const { data: invData, error: invErr } = await supabase
                     .from('invitations')
                     .select('*')
-                    .eq('tender_id', id);
+                    .eq('tender_id', id)
+                    // Idem `fetchInvitations` : les invitations révoquées ne
+                    // doivent pas repeupler le groupement au rechargement.
+                    .is('revoked_at', null);
                 if (invErr) console.error('Invitations fetch error:', invErr);
 
                 const groupementsData = grpData || [];
@@ -2157,7 +2186,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // Get existing state to avoid duplicates
             const { data: existingGroups } = await supabase.from('groupements').select('entreprise_id').eq('projet_id', tenderId);
             const existingCompanyIds = new Set(existingGroups?.map(g => g.entreprise_id) || []);
-            const { data: existingInvs } = await supabase.from('invitations').select('email').eq('tender_id', tenderId);
+            const { data: existingInvs } = await supabase.from('invitations').select('email').eq('tender_id', tenderId).is('revoked_at', null);
             const existingEmails = new Set(existingInvs?.map(i => i.email) || []);
 
             const upsertInvitations: any[] = [];
@@ -3049,8 +3078,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // finalisation — `pieces_manquantes > 0` est le signal que le
             // garde-fou de finalisation manque (suivi explicitement demandé).
             {
-                const covered = Array.from(new Set(groupementMembers.flatMap(c => c.skills || [])));
-                const competencesNonCouvertes = (formData.required_skills || []).filter(s => !covered.includes(s)).length;
+                // Même règle que le garde-fou de finalisation : couverture
+                // calculée sur les spécialités de la fiche entreprise.
+                const couvertes = new Set(groupementMembers.flatMap(c => c.specialty_ids || []));
+                const competencesNonCouvertes = (formData.required_specialty_ids || []).filter(id => !couvertes.has(id)).length;
                 const piecesAttendues = getRequiredDocuments().length;
                 const piecesDeposees = formData.dce_documents?.length ?? 0;
                 track('dossier_finalise', {
@@ -3263,6 +3294,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 // pendant les trente jours de validité du jeton. Le retrait et
                 // la révocation vont ensemble : c'est la même intention.
                 await revoquerInvitationDe(member.email);
+                // La notification « Invitation à collaborer » survivait au
+                // retrait : l'invité la voyait encore et, en cliquant, tombait
+                // sur un dossier vide. On la retire avec l'invitation.
+                // `member.id` n'existe que si l'invité a un compte — sans
+                // compte, aucune notification n'a été créée.
+                if (member.id) {
+                    await deleteInvitationNotification(member.id, tenderId);
+                }
                 showToast('Membre retiré du groupement.', 'success');
                 if (onTenderUpdate) onTenderUpdate();
             } catch (err) {
@@ -5557,9 +5596,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                                             showToast(`Rôle mis à jour : ${newRole}`, 'success');
                                                         };
                                                         if (uploadedCount > 0 && reqDocs.length < requiredDocs.length) {
-                                                            if (confirm(`Changer le rôle en "${newRole}" pourrait masquer certains documents déjà importés. Confirmer le changement ?`)) {
-                                                                await doSave();
-                                                            }
+                                                            // Confirmation via la boîte de l'app : on mémorise l'action
+                                                            // à rejouer, `doSave` étant asynchrone.
+                                                            setChangementRoleAConfirmer({ role: newRole, appliquer: doSave });
                                                         } else {
                                                             await doSave();
                                                         }
@@ -5680,7 +5719,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             <AddManualPartnerModal
                 onClose={() => setShowAddManualModal(false)}
                 onAdd={addCollaborator}
-                requiredSkills={REQUIRED_SKILLS}
                 // E-mails déjà sur le dossier (membres et invitations en cours),
                 // pour refuser une seconde invitation vers le même destinataire.
                 emailsDejaInvites={groupementMembers
@@ -6352,6 +6390,30 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 {renderMemberDetailModal()}
                 {renderGroupementTypeModal()}
                 {renderAddManualModal()}
+                <ConfirmDialog
+                    ouvert={!!changementRoleAConfirmer}
+                    titre="Changer le rôle ?"
+                    message={`Passer en « ${changementRoleAConfirmer?.role} » pourrait masquer certains documents déjà importés.`}
+                    libelleConfirmer="Changer le rôle"
+                    destructif={false}
+                    onConfirmer={() => {
+                        const demande = changementRoleAConfirmer;
+                        setChangementRoleAConfirmer(null);
+                        if (demande) demande.appliquer();
+                    }}
+                    onAnnuler={() => setChangementRoleAConfirmer(null)}
+                />
+                <ConfirmDialog
+                    ouvert={!!docDCEASupprimer}
+                    titre="Supprimer ce document ?"
+                    message={`« ${docDCEASupprimer?.name} » sera définitivement retiré du dossier. Cette action est irréversible.`}
+                    onConfirmer={() => {
+                        const doc = docDCEASupprimer;
+                        setDocDCEASupprimer(null);
+                        if (doc) supprimerDocumentDCE(doc);
+                    }}
+                    onAnnuler={() => setDocDCEASupprimer(null)}
+                />
                 <ContextEditModal
                     ouvert={showContextEditModal}
                     valeurs={formData}

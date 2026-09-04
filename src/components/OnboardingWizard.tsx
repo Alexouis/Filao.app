@@ -5,6 +5,7 @@ import {
     LayoutDashboard, Sparkles, LogOut,
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS, getFormeJuridiqueLabel } from '../config';
 import { track } from '../helpers/analytics';
 
@@ -278,6 +279,34 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const [refGeoZones, setRefGeoZones] = useState<RefGeoZone[]>([]);
 
     const [selectedNatures, setSelectedNatures] = useState<string[]>([]);
+    /**
+     * Retrait de nature en attente de confirmation : décocher une catégorie
+     * fait perdre les domaines qui n'en dépendent plus, et leurs spécialités.
+     */
+    const [retraitNatureAConfirmer, setRetraitNatureAConfirmer] =
+        useState<{ naturesRestantes: string[]; domainesPerdus: string[] } | null>(null);
+
+    /**
+     * Applique le retrait d'une nature : retire les domaines qui n'en dépendent
+     * plus, puis les spécialités de ces domaines. Extrait du gestionnaire de
+     * clic pour pouvoir être rejoué après confirmation.
+     */
+    const appliquerRetraitNature = (naturesRestantes: string[], domainesPerdus: string[]) => {
+        setSelectedDomains(currentDoms =>
+            currentDoms.filter(did => {
+                const d = refDomains.find(rd => rd.id === did);
+                return d?.natures.some(rn => naturesRestantes.includes(rn));
+            })
+        );
+        // Les spécialités des domaines retirés partent avec eux.
+        setSelectedSpecialties(currentSpecs =>
+            currentSpecs.filter(sp => {
+                const s = refSpecialties.find(rs => rs.id === sp.specialty_id);
+                return s && !domainesPerdus.includes(s.domain_id);
+            })
+        );
+        setSelectedNatures(naturesRestantes);
+    };
     const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
     const [selectedSpecialties, setSelectedSpecialties] = useState<SelectedSpecialty[]>([]);
     // Domaines dont la liste complète de spécialités est dépliée.
@@ -1350,27 +1379,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                                                                     return !d?.natures.some(rn => naturesRestantes.includes(rn));
                                                                 });
 
+                                                                // Perte de saisie : on demande confirmation via la
+                                                                // boîte de l'application (le `window.confirm` natif
+                                                                // était bloquant et hors charte).
                                                                 if (domainesPerdus.length > 0) {
-                                                                    const ok = window.confirm(
-                                                                        `Vous avez ${domainesPerdus.length} domaine${domainesPerdus.length > 1 ? 's' : ''} sélectionné${domainesPerdus.length > 1 ? 's' : ''} dans cette catégorie. Voulez-vous les retirer ?`
-                                                                    );
-                                                                    if (!ok) return;
+                                                                    setRetraitNatureAConfirmer({ naturesRestantes, domainesPerdus });
+                                                                    return;
                                                                 }
 
-                                                                setSelectedDomains(currentDoms =>
-                                                                    currentDoms.filter(did => {
-                                                                        const d = refDomains.find(rd => rd.id === did);
-                                                                        return d?.natures.some(rn => naturesRestantes.includes(rn));
-                                                                    })
-                                                                );
-                                                                // Les spécialités des domaines retirés partent avec eux.
-                                                                setSelectedSpecialties(currentSpecs =>
-                                                                    currentSpecs.filter(sp => {
-                                                                        const s = refSpecialties.find(rs => rs.id === sp.specialty_id);
-                                                                        return s && !domainesPerdus.includes(s.domain_id);
-                                                                    })
-                                                                );
-                                                                setSelectedNatures(naturesRestantes);
+                                                                appliquerRetraitNature(naturesRestantes, domainesPerdus);
                                                                 return;
                                                             }
                                                             setSelectedNatures(prev => [...prev, n.id]);
@@ -1780,6 +1797,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
                 </div>
             </div>
+
+            <ConfirmDialog
+                ouvert={!!retraitNatureAConfirmer}
+                titre="Retirer cette catégorie ?"
+                message={`Vous avez ${retraitNatureAConfirmer?.domainesPerdus.length ?? 0} domaine${(retraitNatureAConfirmer?.domainesPerdus.length ?? 0) > 1 ? 's' : ''} sélectionné${(retraitNatureAConfirmer?.domainesPerdus.length ?? 0) > 1 ? 's' : ''} dans cette catégorie. Ils seront retirés, ainsi que leurs spécialités.`}
+                libelleConfirmer="Retirer"
+                onConfirmer={() => {
+                    const demande = retraitNatureAConfirmer;
+                    setRetraitNatureAConfirmer(null);
+                    if (demande) appliquerRetraitNature(demande.naturesRestantes, demande.domainesPerdus);
+                }}
+                onAnnuler={() => setRetraitNatureAConfirmer(null)}
+            />
         </div>
     );
 };

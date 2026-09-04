@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { notifyCommentAdded } from '../../helpers/notificationHelpers';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface Comment {
   id: string;
@@ -36,6 +37,8 @@ interface CommentsViewProps {
 export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose }) => {
   const { showToast } = useToast();
   const [comments, setComments] = useState<Comment[]>([]);
+  /** Commentaire en attente de confirmation de suppression. */
+  const [commentaireASupprimer, setCommentaireASupprimer] = useState<string | null>(null);
   const [replies, setReplies] = useState<{ [key: string]: Comment[] }>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -277,8 +280,6 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!confirm('Êtes-vous sûr de vouloir supprimer ce commentaire ?')) return;
-
     try {
       const { error } = await supabase
         .from('comments')
@@ -417,7 +418,7 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
                         Modifier
                       </button>
                       <button
-                        onClick={() => handleDeleteComment(comment.id)}
+                        onClick={() => setCommentaireASupprimer(comment.id)}
                         className="flex items-center gap-1.5 hover:text-red-400 transition-colors"
                       >
                         <Trash2 size={14} />
@@ -568,6 +569,18 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        ouvert={!!commentaireASupprimer}
+        titre="Supprimer ce commentaire ?"
+        message="Ce commentaire sera définitivement retiré de la discussion."
+        onConfirmer={() => {
+          const id = commentaireASupprimer;
+          setCommentaireASupprimer(null);
+          if (id) handleDeleteComment(id);
+        }}
+        onAnnuler={() => setCommentaireASupprimer(null)}
+      />
     </div>
   );
 }; 

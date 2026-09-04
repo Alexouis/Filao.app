@@ -36,6 +36,7 @@ import { LoadingState, ErrorState, EmptyState } from './ui/StateViews';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { lienExterne } from '../helpers/textHelpers';
+import { ConfirmDialog } from './ui/ConfirmDialog';
 import { notifyNetworkInviteAccepted } from '../helpers/notificationHelpers';
 
 // --- INTERFACES ---
@@ -74,6 +75,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const { showToast } = useToast();
     // --- STATE: DATA ---
     const [myNetwork, setMyNetwork] = useState<NetworkCompany[]>([]);
+    /** Entreprise en attente de confirmation de retrait du réseau. */
+    const [entrepriseARetirer, setEntrepriseARetirer] = useState<NetworkCompany | null>(null);
     const [filaoNetwork, setFilaoNetwork] = useState<NetworkCompany[]>([]);
     const [pendingInvites, setPendingInvites] = useState<PendingNetworkInvite[]>([]);
     const [loading, setLoading] = useState(true);
@@ -418,9 +421,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
         }
     };
 
+    /** Entreprise en attente de confirmation de retrait du réseau. */
     const handleDelete = async (company: NetworkCompany) => {
-        if (!confirm("Voulez-vous retirer cette entreprise de votre réseau ?")) return;
-
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
@@ -1068,7 +1070,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                                                         )}
                                                                         {activeTab === 'network' && (
                                                                             <>
-                                                                                <button onClick={(e) => { e.stopPropagation(); handleDelete(company); }} className="p-1 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Retirer">
+                                                                                <button onClick={(e) => { e.stopPropagation(); setEntrepriseARetirer(company); }} className="p-1 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100" title="Retirer">
                                                                                     <Trash2 size={11} />
                                                                                 </button>
                                                                             </>
@@ -1199,6 +1201,19 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                     </div>
                 </div>
             )}
+
+            <ConfirmDialog
+                ouvert={!!entrepriseARetirer}
+                titre="Retirer cette entreprise ?"
+                message={`« ${entrepriseARetirer?.nom ?? 'Cette entreprise'} » sera retirée de votre réseau. Vous pourrez l'inviter à nouveau plus tard.`}
+                libelleConfirmer="Retirer"
+                onConfirmer={() => {
+                    const cible = entrepriseARetirer;
+                    setEntrepriseARetirer(null);
+                    if (cible) handleDelete(cible);
+                }}
+                onAnnuler={() => setEntrepriseARetirer(null)}
+            />
         </div>
     );
 };
