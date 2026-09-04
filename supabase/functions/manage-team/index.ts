@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: userError } = await userClient.auth.getUser()
     if (userError || !user) throw new Error('Non autorisé')
 
-    const { action, tenderId, upsertGroupements, upsertInvitations, insertInvitations, deletions, invitationDeletions } = await req.json()
+    const { action, tenderId, upsertGroupements, upsertInvitations, insertInvitations, deletions, invitationDeletions, purgeNotificationsEmails } = await req.json()
     console.log(`[Edge] Received manage-team request for tender: ${tenderId}`)
     console.log(`[Edge] Payloads - groupements: ${upsertGroupements?.length || 0}, invitations: ${upsertInvitations?.length || 0}`)
 
@@ -57,6 +57,52 @@ Deno.serve(async (req) => {
     if (invitationDeletions && invitationDeletions.length > 0) {
       console.log(`Deleting ${invitationDeletions.length} invitation records...`)
       await supabaseClient.from('invitations').delete().eq('tender_id', tenderId).in('email', invitationDeletions)
+    }
+
+    // 2c. Purge des notifications d'invitation devenues caduques.
+    //
+    // POURQUOI ICI
+    // Retirer quelqu'un du dossier laissait sa notification « Invitation à
+    // collaborer » : en cliquant, il tombait sur un dossier vide. La purge doit
+    // se faire au même endroit que la suppression pour rester cohérente, et
+    // côté serveur car écrire dans la ligne `utilisateurs` d'AUTRUI exige la
+    // clé service-role (la table est strictement personnelle depuis la
+    // migration 070).
+    //
+    // On résout le destinataire par son E-MAIL et non par un identifiant fourni
+    // par le client : côté interface, l'« id » d'un partenaire invité est
+    // souvent celui de la ligne d'invitation ou du groupement, pas celui de
+    // l'utilisateur.
+    if (purgeNotificationsEmails && purgeNotificationsEmails.length > 0) {
+      console.log(`Purging invite notifications for ${purgeNotificationsEmails.length} email(s)...`)
+      for (const email of purgeNotificationsEmails) {
+        if (!email) continue
+        try {
+          const { data: cible } = await supabaseClient
+            .from('utilisateurs')
+            .select('id, notifications')
+            .ilike('email', String(email).trim())
+            .maybeSingle()
+
+          // Sans compte, aucune notification n'a été créée : rien à purger.
+          if (!cible) continue
+
+          const actuelles = cible.notifications || []
+          const restantes = actuelles.filter((n: any) => !(
+            n.type === 'collaborator_invited' && n.related_tender_id === tenderId
+          ))
+
+          if (restantes.length !== actuelles.length) {
+            await supabaseClient
+              .from('utilisateurs')
+              .update({ notifications: restantes })
+              .eq('id', cible.id)
+          }
+        } catch (err) {
+          // Une purge ratée ne doit pas faire échouer le retrait lui-même.
+          console.error(`Notification purge failed for ${email}:`, err)
+        }
+      }
     }
 
     // 3. Perform UPSERTs for groupements

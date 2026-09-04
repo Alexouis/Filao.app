@@ -350,7 +350,7 @@ export const deleteInvitationNotification = async (
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     if (!session || !supabaseUrl) return;
 
-    await fetch(`${supabaseUrl}/functions/v1/notify-user`, {
+    const reponse = await fetch(`${supabaseUrl}/functions/v1/notify-user`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -362,6 +362,18 @@ export const deleteInvitationNotification = async (
         deleteFilter: { type: 'collaborator_invited', related_tender_id: tenderId },
       }),
     });
+
+    // `fetch` ne lève pas d'exception sur un statut d'erreur : sans ce
+    // contrôle, un 404 « Target user not found » passait inaperçu et donnait
+    // l'illusion d'une suppression réussie. On remonte le motif exact.
+    if (!reponse.ok) {
+      const motif = await reponse.text().catch(() => '');
+      console.error(
+        `Suppression de notification refusée (${reponse.status}) pour userId=${userId} : ${motif}`
+      );
+      return false;
+    }
+    return true;
   } catch (error) {
     console.error('Error removing notification:', error);
   }

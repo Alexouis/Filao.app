@@ -34,7 +34,7 @@ import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } 
 import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
-import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, deleteInvitationNotification } from '../helpers/notificationHelpers';
+import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
     extractCriteresAttribution,
@@ -2180,6 +2180,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const deletions = membersToSave.filter(m => m.deleted && m.groupement_id).map(m => m.groupement_id);
             const invitationDeletions = membersToSave.filter(m => m.deleted && !m.groupement_id && m.email).map(m => m.email);
             const upsertGroupements: any[] = [];
+            // E-mails des membres retirés : `manage-team` purge leurs
+            // notifications d'invitation avec la même clé service-role qui
+            // supprime le groupement, en une seule fois.
+            const purgeNotificationsEmails = membersToSave
+                .filter(m => m.deleted && m.email)
+                .map(m => m.email);
             const insertInvitations: any[] = []; // Explicitly empty, send-invitation handles insertions to avoid duplicates
             const newInvitationsNotify: UIGroupementMember[] = [];
 
@@ -2249,7 +2255,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     upsertInvitations,
                     insertInvitations,
                     deletions,
-                    invitationDeletions
+                    invitationDeletions,
+                    purgeNotificationsEmails
                 }),
             });
 
@@ -3288,20 +3295,21 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         // 2. Persist to DB using manage-team edge function
         if (isOwner) {
             try {
+                // `saveCollaboratorsAndInvite` transmet l'e-mail des membres
+                // retirés à `manage-team`, qui supprime le groupement, révoque
+                // l'invitation ET purge la notification « Invitation à
+                // collaborer » dans le même appel, côté serveur.
+                //
+                // La purge ne passe plus par `notify-user` : celle-ci attend un
+                // `utilisateurs.id`, alors que l'« id » d'un partenaire invité
+                // désigne côté interface la ligne d'invitation ou le groupement
+                // — d'où les 404 « Target user not found ».
                 await saveCollaboratorsAndInvite(updated);
                 // Retirer quelqu'un du groupement sans couper son lien le
                 // laissait consulter le dossier et y déposer des fichiers
                 // pendant les trente jours de validité du jeton. Le retrait et
                 // la révocation vont ensemble : c'est la même intention.
                 await revoquerInvitationDe(member.email);
-                // La notification « Invitation à collaborer » survivait au
-                // retrait : l'invité la voyait encore et, en cliquant, tombait
-                // sur un dossier vide. On la retire avec l'invitation.
-                // `member.id` n'existe que si l'invité a un compte — sans
-                // compte, aucune notification n'a été créée.
-                if (member.id) {
-                    await deleteInvitationNotification(member.id, tenderId);
-                }
                 showToast('Membre retiré du groupement.', 'success');
                 if (onTenderUpdate) onTenderUpdate();
             } catch (err) {
