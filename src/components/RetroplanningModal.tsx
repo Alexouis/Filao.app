@@ -41,6 +41,10 @@ interface MembreGroupement {
     email: string;
     name?: string;
     deleted?: boolean;
+    /** Statut dans le groupement : seul « accepte » peut porter un jalon. */
+    status?: string;
+    /** Le porteur du dossier n'a pas d'invitation à accepter. */
+    is_owner?: boolean;
 }
 
 export interface RetroplanningModalProps {
@@ -78,6 +82,13 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
     }, [ouvert]);
 
     if (!ouvert) return null;
+
+    // Membres pouvant porter un jalon : présents ET ayant accepté l'invitation.
+    // Le porteur du dossier (`is_owner`) est inclus : il n'a pas d'invitation à
+    // accepter, son statut peut donc être vide.
+    const membresAttribuables = (groupementMembers || []).filter(
+        m => !m.deleted && (m.is_owner || m.status === 'accepte')
+    );
 
     const sortedJalons = [...(jalons || [])].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
@@ -168,9 +179,22 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                                                                 className="w-full px-3 py-1.5 rounded-lg border border-[#00A3E0]/30 text-sm font-medium text-[#0B1F38] bg-white"
                                                             >
                                                                 <option value="">Responsable — non attribué</option>
-                                                                {groupementMembers.filter(m => !m.deleted).map(m => (
+                                                                {/* Seuls les membres ayant ACCEPTÉ peuvent porter un jalon :
+                                                                    attribuer une échéance à quelqu'un qui n'a pas encore
+                                                                    rejoint le groupement (ou l'a refusé) crée une
+                                                                    responsabilité que personne n'assume. */}
+                                                                {membresAttribuables.map(m => (
                                                                     <option key={m.email} value={m.email}>{m.name || m.email}</option>
                                                                 ))}
+                                                                {/* Un responsable désigné avant son retrait doit rester
+                                                                    visible, sinon le <select> afficherait « non attribué »
+                                                                    et l'effacerait au premier enregistrement. */}
+                                                                {editingJalon?.responsable
+                                                                    && !membresAttribuables.some(m => m.email === editingJalon.responsable) && (
+                                                                    <option value={editingJalon.responsable}>
+                                                                        {editingJalon.responsable} (n'est plus membre)
+                                                                    </option>
+                                                                )}
                                                             </select>
                                                             <select
                                                                 value={editingJalon?.statut || 'a_faire'}
@@ -237,7 +261,18 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                                                         <button
                                                             onClick={() => {
                                                                 setEditingJalonIndex(idx);
-                                                                setEditingJalon({ label: jalon.label, date: jalon.date });
+                                                                // On amorce le brouillon avec TOUS les champs éditables.
+                                                                // Sans `statut` ni `responsable`, le <select> affichait
+                                                                // « À faire » alors que le jalon était « Fait » : choisir
+                                                                // « À faire » ne déclenchait donc aucun onChange, et la
+                                                                // fusion `{...jalon, ...editingJalon}` restituait l'ancien
+                                                                // statut. D'où l'impossibilité de repasser un jalon à faire.
+                                                                setEditingJalon({
+                                                                    label: jalon.label,
+                                                                    date: jalon.date,
+                                                                    statut: jalon.statut || 'a_faire',
+                                                                    responsable: jalon.responsable || '',
+                                                                });
                                                             }}
                                                             className="p-2 text-[#0B1F38]/30 hover:text-[#00A3E0] hover:bg-white rounded-lg transition-all"
                                                         >

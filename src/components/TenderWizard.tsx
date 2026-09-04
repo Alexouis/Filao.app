@@ -4041,14 +4041,30 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }, 0);
 
         // Retroplanning milestones (derived from jalons or fallback to dates)
+        //
+        // Deux correctifs ici :
+        //  1. TRI PAR DATE. La liste était affichée dans l'ordre du tableau, et
+        //     la carte n'en montre que les 3 premiers. Un jalon ajouté à la main
+        //     étant ajouté EN FIN de tableau, il n'apparaissait jamais — d'où
+        //     l'impression d'une carte figée sur des libellés « mockés ».
+        //     La modale, elle, triait déjà : les deux écrans divergeaient.
+        //  2. STATUT RÉEL. « Fait » se déduisait de la date passée. Un jalon en
+        //     retard s'affichait donc en vert, et un jalon coché « fait » mais
+        //     daté du futur restait gris.
         const milestones = formData.jalons && formData.jalons.length > 0
-            ? formData.jalons.map((j: any) => ({
-                label: j.label,
-                date: j.date,
-                status: new Date(j.date) < new Date() ? 'done' :
-                    Math.ceil((new Date(j.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) <= 3 ? 'danger' :
-                        Math.ceil((new Date(j.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) <= 7 ? 'warning' : 'upcoming'
-            }))
+            ? [...formData.jalons]
+                .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                .map((j: any) => {
+                    const joursRestants = Math.ceil((new Date(j.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                    return {
+                        label: j.label,
+                        date: j.date,
+                        status: j.statut === 'fait' ? 'done'
+                            : new Date(j.date) < new Date() ? 'danger'   // échéance dépassée, non faite
+                                : joursRestants <= 3 ? 'danger'
+                                    : joursRestants <= 7 ? 'warning' : 'upcoming'
+                    };
+                })
             : [
                 formData.date_publication ? { label: 'Retrait DCE', date: formData.date_publication, status: new Date(formData.date_publication) < new Date() ? 'done' : 'upcoming' } : null,
                 formData.date_depot_souhaitee ? { label: 'Dépôt souhaité', date: formData.date_depot_souhaitee, status: new Date(formData.date_depot_souhaitee) < new Date() ? 'done' : daysLeft !== null && daysLeft <= 7 ? 'warning' : 'upcoming' } : null,
