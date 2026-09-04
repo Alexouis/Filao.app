@@ -22,6 +22,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
+import { lienExterne } from '../helpers/textHelpers';
 import { track } from '../helpers/analytics';
 import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
@@ -4791,7 +4792,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                             </div>
                                         )}
                                         {formData.lien_telechargement ? (
-                                            <a href={formData.lien_telechargement} target="_blank" rel="noopener noreferrer" title={formData.lien_telechargement} className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded">
+                                            <a href={lienExterne(formData.lien_telechargement)} target="_blank" rel="noopener noreferrer" title={formData.lien_telechargement} className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded">
                                                 <Link size={12} /> Lien vers l'appel d'offres →
                                             </a>
                                         ) : (
@@ -5128,7 +5129,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             <div className="mb-6 flex items-center gap-2 text-[13px]">
                                 <Link size={14} className="text-[#00A3E0] shrink-0" />
                                 <a
-                                    href={formData.lien_telechargement}
+                                    href={lienExterne(formData.lien_telechargement)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-[#00A3E0] font-bold hover:underline truncate focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
@@ -5277,7 +5278,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                         <label htmlFor="tender-lien-telechargement" className={labelStyle}>Lien vers l'appel d'offres</label>
                                         {formData.lien_telechargement && (
                                             <a
-                                                href={formData.lien_telechargement}
+                                                href={lienExterne(formData.lien_telechargement)}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="text-[10px] font-bold text-[#00A3E0] hover:underline shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"

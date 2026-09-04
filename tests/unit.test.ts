@@ -38,6 +38,8 @@ import {
   genererCodeAcces, masquerJeton, masquerJetonDansTexte, genererTokenInvitation,
 } from '../src/helpers/inviteCodeHelpers.ts';
 
+import { lienExterne } from '../src/helpers/textHelpers.ts';
+
 import { STATUSES } from '../src/config.ts';
 
 // ---------------------------------------------------------------------------
@@ -351,4 +353,31 @@ test('masquerJetonDansTexte : retire le jeton d’une URL d’invitation', () =>
   const txt = 'Erreur sur https://filao.app/invitation/abcdef0123456789abcdef pendant le rendu';
   assert.match(masquerJetonDansTexte(txt), /\/invitation\/…/);
   assert.doesNotMatch(masquerJetonDansTexte(txt), /abcdef0123456789/);
+});
+
+// ===========================================================================
+// 11. LIENS EXTERNES — normalisation du href (bug localhost/www.google.fr)
+// ===========================================================================
+test('lienExterne : préfixe https quand le schéma manque', () => {
+  assert.equal(lienExterne('www.google.fr'), 'https://www.google.fr');
+  assert.equal(lienExterne('exemple.fr/avis/123'), 'https://exemple.fr/avis/123');
+  assert.equal(lienExterne('  boamp.fr  '), 'https://boamp.fr');
+});
+test('lienExterne : conserve http et https existants', () => {
+  assert.equal(lienExterne('http://exemple.fr'), 'http://exemple.fr');
+  assert.equal(lienExterne('https://exemple.fr/x'), 'https://exemple.fr/x');
+  assert.equal(lienExterne('HTTPS://EXEMPLE.FR'), 'HTTPS://EXEMPLE.FR');
+});
+test('lienExterne : valeur vide → chaîne vide (pas de lien affiché)', () => {
+  assert.equal(lienExterne(''), '');
+  assert.equal(lienExterne('   '), '');
+  assert.equal(lienExterne(null), '');
+  assert.equal(lienExterne(undefined), '');
+});
+test('lienExterne : ne propage pas un schéma dangereux', () => {
+  // javascript: / data: ne doivent jamais ressortir comme lien actif.
+  assert.doesNotMatch(lienExterne('javascript:alert(1)'), /^javascript:/i);
+  assert.doesNotMatch(lienExterne('data:text/html,<script>'), /^data:/i);
+  // On repasse par https sur la partie lisible.
+  assert.match(lienExterne('javascript:alert(1)'), /^https:\/\//);
 });

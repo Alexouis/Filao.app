@@ -35,6 +35,7 @@ import { useToast } from './ui/Toast';
 import { LoadingState, ErrorState, EmptyState } from './ui/StateViews';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
+import { lienExterne } from '../helpers/textHelpers';
 import { notifyNetworkInviteAccepted } from '../helpers/notificationHelpers';
 
 // --- INTERFACES ---
@@ -644,7 +645,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                     <div><p className="text-[10px] uppercase font-bold text-[#0B1F38]/40">SIRET</p><p className="text-sm font-bold text-[#0B1F38]">{company.siret || '-'}</p></div>
                                     <div><p className="text-[10px] uppercase font-bold text-[#0B1F38]/40">Adresse</p><p className="text-sm font-bold text-[#0B1F38]">{company.adresse || '-'}</p></div>
                                     <div><p className="text-[10px] uppercase font-bold text-[#0B1F38]/40">Site Web</p>
-                                        {company.site_web ? <a href={company.site_web} target="_blank" rel="noreferrer" className="text-sm font-bold text-[#00A3E0] hover:underline truncate block">{company.site_web}</a> : <span className="text-sm font-bold text-[#0B1F38]">-</span>}
+                                        {company.site_web ? <a href={lienExterne(company.site_web)} target="_blank" rel="noreferrer" className="text-sm font-bold text-[#00A3E0] hover:underline truncate block">{company.site_web}</a> : <span className="text-sm font-bold text-[#0B1F38]">-</span>}
                                     </div>
                                 </div>
                             </div>
