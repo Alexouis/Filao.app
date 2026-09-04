@@ -9,16 +9,47 @@ import { useEffect, useRef, useCallback } from 'react';
  * toute la hiérarchie de composants, tout en gardant un point de contrôle
  * unique et explicite.
  */
-const gardes = new Set<() => boolean>();
+type Garde = { estModifie: () => boolean; message: string };
+const gardes = new Set<Garde>();
+
+/**
+ * Boîte de confirmation branchée par l'application (voir
+ * `UnsavedChangesGuard`). Elle est asynchrone : une modale React ne peut pas
+ * répondre dans le même tour d'exécution, contrairement à `window.confirm`.
+ */
+let demanderConfirmation: ((message: string) => Promise<boolean>) | null = null;
+
+/**
+ * Branche la boîte de confirmation. Retourne la fonction de débranchement.
+ * Appelé par `UnsavedChangesGuard` à son montage.
+ */
+export const enregistrerBoiteConfirmation = (
+  fn: (message: string) => Promise<boolean>
+): (() => void) => {
+  demanderConfirmation = fn;
+  return () => { if (demanderConfirmation === fn) demanderConfirmation = null; };
+};
 
 /**
  * Consulte toutes les gardes enregistrées. Renvoie `true` si la navigation peut
- * se poursuivre, `false` si un écran a demandé à rester (l'utilisateur a
- * annulé). À appeler depuis la fonction de navigation de l'application.
+ * se poursuivre, `false` si l'utilisateur a choisi de rester.
+ *
+ * ASYNCHRONE À DESSEIN
+ * La confirmation passe désormais par une modale de l'application et non par
+ * `window.confirm` : il faut donc attendre la réponse. Les appelants doivent
+ * utiliser `await`.
  */
-export const peutQuitter = (): boolean => {
+export const peutQuitter = async (): Promise<boolean> => {
   for (const garde of gardes) {
-    if (!garde()) return false;
+    if (!garde.estModifie()) continue;
+
+    if (demanderConfirmation) {
+      if (!(await demanderConfirmation(garde.message))) return false;
+    } else {
+      // Filet de sécurité : si la boîte n'est pas montée, mieux vaut la
+      // question native que la perte silencieuse d'une saisie.
+      if (!window.confirm(garde.message)) return false;
+    }
   }
   return true;
 };
@@ -71,17 +102,20 @@ export function useUnsavedChanges(
   }, []);
 
   // Mécanisme 2 : navigation interne. À appeler explicitement avant de quitter.
-  const confirmerSortie = useCallback((): boolean => {
+  // Asynchrone : la confirmation est une modale de l'application.
+  const confirmerSortie = useCallback(async (): Promise<boolean> => {
     if (!estModifieRef.current) return true;
+    if (demanderConfirmation) return demanderConfirmation(message);
     return window.confirm(message);
   }, [message]);
 
   // Inscription au registre global tant que l'écran est monté : la navigation
   // interne de l'application consultera cette garde automatiquement.
   useEffect(() => {
-    gardes.add(confirmerSortie);
-    return () => { gardes.delete(confirmerSortie); };
-  }, [confirmerSortie]);
+    const garde: Garde = { estModifie: () => estModifieRef.current, message };
+    gardes.add(garde);
+    return () => { gardes.delete(garde); };
+  }, [message]);
 
   return { confirmerSortie };
 }
