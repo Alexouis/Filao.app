@@ -28,10 +28,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
+    // Droit d'écriture : créateur du dossier OU membre d'un groupement accepté.
+    // C'est exactement le périmètre de la policy INSERT sur `chat_messages` :
+    // l'administrateur superviseur (migration 094) LIT la conversation mais n'y
+    // écrit pas. `null` = pas encore déterminé, on n'affiche donc rien de
+    // trompeur pendant le chargement.
+    const [peutEcrire, setPeutEcrire] = useState<boolean | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         fetchMessages();
+        verifierDroitEcriture();
         markAsRead(tenderId);
 
         // Subscribe to NEW messages
@@ -77,6 +84,39 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         };
     }, [tenderId]);
 
+    /**
+     * Détermine si l'utilisateur courant peut écrire dans ce chat.
+     *
+     * Reproduit le verdict de la policy INSERT `chat_messages` sans appeler la
+     * fonction SQL `peut_ecrire_dossier` (non exposée au front) : peut écrire =
+     * créateur du dossier OU membre d'un groupement au statut « accepte ». Même
+     * critère que le calcul d'accès de `ChatContext`. Un administrateur qui
+     * supervise sans participer (migration 094) tombe donc en lecture seule.
+     */
+    const verifierDroitEcriture = async () => {
+        if (!user) { setPeutEcrire(false); return; }
+        try {
+            const { data, error } = await supabase
+                .from('reponses_ao')
+                .select('createur_id, groupements (entreprise_id, statut)')
+                .eq('id', tenderId)
+                .single();
+
+            if (error) throw error;
+
+            const estCreateur = data?.createur_id === user.id;
+            const estMembre = (data?.groupements as any[])?.some(
+                g => g.statut === 'accepte' && g.entreprise_id === userProfile?.entreprise_id
+            ) ?? false;
+            setPeutEcrire(estCreateur || estMembre);
+        } catch (err) {
+            // En cas de doute, on ferme l'écriture : mieux vaut une barre masquée
+            // à tort qu'un message tapé puis rejeté par la base sans explication.
+            console.error('Droit d’écriture du chat indéterminé, lecture seule par défaut', err);
+            setPeutEcrire(false);
+        }
+    };
+
     const fetchMessages = async () => {
         setLoading(true);
         try {
@@ -110,6 +150,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newMessage.trim() || !user || sending) return;
+        // Garde-fou : même si la barre est masquée, on ne tente pas un INSERT
+        // voué au refus RLS pour un superviseur en lecture seule.
+        if (peutEcrire === false) return;
 
         setSending(true);
         const text = newMessage.trim();
@@ -225,48 +268,62 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 )}
             </div>
 
-            {/* Input Area */}
-            <div className="p-4 border-t border-[#0B1F38]/5 shrink-0">
-                <form 
-                    onSubmit={handleSendMessage}
-                    className="relative flex items-end gap-3"
-                >
-                    <div className={`flex-1 relative ${GLASS_TILE_STYLE} !bg-white/40 !rounded-2xl border-white/60 p-1`}>
-                        <textarea
-                            value={newMessage}
-                            onChange={(e) => setNewMessage(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSendMessage(e);
-                                }
-                            }}
-                            placeholder="Écrivez votre message..."
-                            className="w-full bg-transparent border-none focus:ring-0 text-sm text-[#0B1F38] placeholder-[#0B1F38]/40 py-3 pl-3 pr-12 resize-none custom-scrollbar max-h-32"
-                            rows={1}
-                        />
-                        <button 
-                            type="button"
-                            className="absolute right-3 bottom-3 p-1.5 text-[#0B1F38]/40 hover:text-[#00A3E0] transition-colors"
-                        >
-                            <Paperclip size={18} />
-                        </button>
+            {/* Zone de saisie — masquée pour un superviseur en lecture seule.
+                Tant que le droit n'est pas connu (null), on n'affiche rien pour
+                éviter un clignotement barre → bandeau. */}
+            {peutEcrire === false ? (
+                <div className="p-4 border-t border-[#0B1F38]/5 shrink-0">
+                    <div className="flex items-start gap-2.5 rounded-2xl bg-[#0B1F38]/[0.04] px-4 py-3 text-sm text-[#0B1F38]/60">
+                        <MessageSquare size={16} className="mt-0.5 shrink-0" />
+                        <p>
+                            Vous consultez cette conversation en lecture seule. Seuls les
+                            participants au groupement peuvent y écrire.
+                        </p>
                     </div>
-
-                    <button
-                        type="submit"
-                        disabled={!newMessage.trim() || sending}
-                        className={`
-                            shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-lg
-                            ${newMessage.trim() && !sending 
-                                ? 'bg-[#00A3E0] text-white hover:scale-105 active:scale-95' 
-                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'}
-                        `}
+                </div>
+            ) : peutEcrire === true ? (
+                <div className="p-4 border-t border-[#0B1F38]/5 shrink-0">
+                    <form
+                        onSubmit={handleSendMessage}
+                        className="relative flex items-end gap-3"
                     >
-                        {sending ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
-                    </button>
-                </form>
-            </div>
+                        <div className={`flex-1 relative ${GLASS_TILE_STYLE} !bg-white/40 !rounded-2xl border-white/60 p-1`}>
+                            <textarea
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSendMessage(e);
+                                    }
+                                }}
+                                placeholder="Écrivez votre message..."
+                                className="w-full bg-transparent border-none focus:ring-0 text-sm text-[#0B1F38] placeholder-[#0B1F38]/40 py-3 pl-3 pr-12 resize-none custom-scrollbar max-h-32"
+                                rows={1}
+                            />
+                            <button
+                                type="button"
+                                className="absolute right-3 bottom-3 p-1.5 text-[#0B1F38]/40 hover:text-[#00A3E0] transition-colors"
+                            >
+                                <Paperclip size={18} />
+                            </button>
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={!newMessage.trim() || sending}
+                            className={`
+                                shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-lg
+                                ${newMessage.trim() && !sending
+                                    ? 'bg-[#00A3E0] text-white hover:scale-105 active:scale-95'
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'}
+                            `}
+                        >
+                            {sending ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+                        </button>
+                    </form>
+                </div>
+            ) : null}
         </div>
     );
 };
