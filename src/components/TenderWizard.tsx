@@ -23,6 +23,7 @@ import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
 import { lienExterne } from '../helpers/textHelpers';
+import { ContextEditModal } from './ContextEditModal';
 import { track } from '../helpers/analytics';
 import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
@@ -5090,351 +5091,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         );
     };
 
-    const renderContextEditModal = () => {
-        if (!showContextEditModal) return null;
-
-        return (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowContextEditModal(false)}></div>
-                <div className="relative bg-white rounded-3xl w-full max-w-4xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
-
-                    {/* Header */}
-                    <div className="p-6 border-b border-[#0B1F38]/5 flex justify-between items-center bg-[#0B1F38]/2 shrink-0">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-[#00A3E0]/10 flex items-center justify-center text-[#00A3E0]">
-                                <FileText size={20} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-[#0B1F38]">Détails de l'appel d'offres</h3>
-                                <p className="text-xs text-[#0B1F38]/50">Configurez l'ensemble des informations du marché</p>
-                            </div>
-                        </div>
-                        <button onClick={() => setShowContextEditModal(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors">
-                            <X size={20} className="text-[#0B1F38]/40" />
-                        </button>
-                    </div>
-
-                    {/* Form Content */}
-                    <div className="p-8 overflow-y-auto custom-scrollbar-dark flex-1">
-
-                        {/* Lecture seule : le fieldset ci-dessous est désactivé, ce qui rendait la
-                            modale muette (frappe ignorée, pas de bouton de validation). On explicite
-                            la raison au lieu de laisser l'utilisateur croire à un bug de saisie. */}
-                        {(!isOwner || isLocked) && (
-                            <div role="status" className="mb-6 flex items-start gap-3 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
-                                <ShieldAlert size={18} className="text-[#0B1F38]/50 shrink-0 mt-0.5" />
-                                <div className="text-[13px] leading-relaxed">
-                                    <p className="font-bold text-[#0B1F38]">Consultation seule</p>
-                                    <p className="text-[#0B1F38]/60">
-                                        {isLocked
-                                            ? "Ce dossier a été finalisé : ses informations sont verrouillées et ne peuvent plus être modifiées."
-                                            : "Seul le créateur de l'appel d'offres peut modifier ces informations."}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Le champ ci-dessous étant désactivé en lecture seule, on expose le lien
-                            sous forme d'ancre pour qu'il reste cliquable "dans tous les cas". */}
-                        {(!isOwner || isLocked) && formData.lien_telechargement && (
-                            <div className="mb-6 flex items-center gap-2 text-[13px]">
-                                <Link size={14} className="text-[#00A3E0] shrink-0" />
-                                <a
-                                    href={lienExterne(formData.lien_telechargement)}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[#00A3E0] font-bold hover:underline truncate focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
-                                >
-                                    Ouvrir l'appel d'offres
-                                </a>
-                            </div>
-                        )}
-
-                        <fieldset disabled={!isOwner || isLocked} className="grid grid-cols-1 md:grid-cols-2 gap-6 border-0 p-0 m-0 min-w-0">
-                            <div className="md:col-span-2">
-                                <label className={labelStyle}>Nom de l'appel d'offres *</label>
-                                <input
-                                    type="text"
-                                    value={formData.titre}
-                                    onChange={(e) => setFormData({ ...formData, titre: e.target.value })}
-                                    className={`${inputGlass} font-bold text-[#0B1F38] bg-[#F8FAFC]`}
-                                />
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className={labelStyle}>Nom de l'organisme acheteur *</label>
-                                <input
-                                    type="text"
-                                    value={formData.organisme_acheteur}
-                                    onChange={(e) => setFormData({ ...formData, organisme_acheteur: e.target.value })}
-                                    className={`${inputGlass} font-bold text-[#0B1F38] bg-[#F8FAFC]`}
-                                />
-                            </div>
-
-                            <div>
-                                <label className={labelStyle}>Lieu d'exécution *</label>
-                                <div className="relative">
-                                    <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none z-10" />
-                                    <select
-                                        value=""
-                                        onChange={(e) => {
-                                            if (e.target.value && !formData.lieu_execution.includes(e.target.value)) {
-                                                setFormData({ ...formData, lieu_execution: [...formData.lieu_execution, e.target.value] });
-                                            }
-                                        }}
-                                        className={`${inputGlass} appearance-none cursor-pointer bg-[#F8FAFC]`}
-                                    >
-                                        <option value="">Ajouter une région...</option>
-                                        {DEPARTEMENTS.map(d => (
-                                            <option key={d} value={d} disabled={formData.lieu_execution.includes(d)}>{d}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
-                                </div>
-                                {formData.lieu_execution.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-3">
-                                        {formData.lieu_execution.map(lieu => (
-                                            <span key={lieu} className="bg-[#E8F4FD] text-[#0078B8] text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 border border-[#00A3E0]/10">
-                                                {lieu}
-                                                {(isOwner && !isLocked) && <X size={12} className="cursor-pointer" onClick={() => setFormData({ ...formData, lieu_execution: formData.lieu_execution.filter(l => l !== lieu) })} />}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className={labelStyle}>Type de marché *</label>
-                                <div className="relative">
-                                    <Briefcase size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none z-10" />
-                                    <select
-                                        value=""
-                                        onChange={(e) => {
-                                            if (e.target.value && !formData.type_marche.includes(e.target.value)) {
-                                                setFormData({ ...formData, type_marche: [...formData.type_marche, e.target.value] });
-                                            }
-                                        }}
-                                        className={`${inputGlass} appearance-none cursor-pointer bg-[#F8FAFC]`}
-                                    >
-                                        <option value="">Sélectionnez les types...</option>
-                                        {Object.entries(MARKET_TYPES_LABELS).map(([value, label]) => (
-                                            <option key={value} value={value} disabled={formData.type_marche.includes(value)}>{label}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
-                                </div>
-                                {formData.type_marche.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-3">
-                                        {formData.type_marche.map(type => (
-                                            <span key={type} className="bg-[#F3E8FD] text-[#8B5CF6] text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 border border-[#8B5CF6]/10">
-                                                {(MARKET_TYPES_LABELS as any)[type] || type}
-                                                {(isOwner && !isLocked) && <X size={12} className="cursor-pointer" onClick={() => setFormData({ ...formData, type_marche: formData.type_marche.filter(t => t !== type) })} />}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className={labelStyle}>Secteur d'activité *</label>
-                                <select
-                                    value={formData.secteur_activite || 'Autres'}
-                                    onChange={(e) => setFormData({ ...formData, secteur_activite: e.target.value })}
-                                    className={`${inputGlass} font-bold text-[#0B1F38] cursor-pointer bg-[#F8FAFC]`}
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {Object.keys(SECTORS_LABELS).map(k => <option key={k} value={k}>{(SECTORS_LABELS as any)[k]}</option>)}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className={labelStyle}>Mode de passation *</label>
-                                <select
-                                    value={formData.mode_passation || ''}
-                                    onChange={(e) => setFormData({ ...formData, mode_passation: e.target.value })}
-                                    className={`${inputGlass} font-bold text-[#0B1F38] cursor-pointer bg-[#F8FAFC]`}
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {Object.entries(HANDOVER_TYPES_LABELS).map(([value, label]) => (
-                                        <option key={value} value={value}>{label}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-4 md:col-span-2">
-                                <div>
-                                    <label className={labelStyle}>Date publication</label>
-                                    <input type="date" value={formData.date_publication} onChange={(e) => setFormData({ ...formData, date_publication: e.target.value })} className={`${inputGlassPlain} w-full`} />
-                                </div>
-                                <div>
-                                    <label className={labelStyle}>Date limite *</label>
-                                    <input type="date" value={formData.date_limite} onChange={(e) => setFormData({ ...formData, date_limite: e.target.value })} className={`${inputGlass} border-red-200 bg-red-50 text-red-600 font-bold`} />
-                                </div>
-                                <div>
-                                    <label className={labelStyle}>Dépôt souhaité *</label>
-                                    <input type="date" value={formData.date_depot_souhaitee} onChange={(e) => setFormData({ ...formData, date_depot_souhaitee: e.target.value })} className={`${inputGlass} border-[#00A3E0]/20 bg-[#00A3E0]/5 text-[#00A3E0] font-bold`} />
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className={labelStyle}>Montant estimé</label>
-                                <div className="relative">
-                                    <Euro size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40" />
-                                    <input type="number" value={formData.montant_estime} onChange={(e) => setFormData({ ...formData, montant_estime: parseFloat(e.target.value) || 0 })} className={`${inputGlass} bg-[#F8FAFC]`} />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 md:col-span-2">
-                                <div>
-                                    <div className="flex items-baseline justify-between gap-2">
-                                        <label htmlFor="tender-lien-telechargement" className={labelStyle}>Lien vers l'appel d'offres</label>
-                                        {formData.lien_telechargement && (
-                                            <a
-                                                href={lienExterne(formData.lien_telechargement)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-[10px] font-bold text-[#00A3E0] hover:underline shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
-                                            >
-                                                Ouvrir →
-                                            </a>
-                                        )}
-                                    </div>
-                                    <div className="relative">
-                                        <Globe size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
-                                        <input
-                                            id="tender-lien-telechargement"
-                                            type="url"
-                                            inputMode="url"
-                                            value={formData.lien_telechargement}
-                                            onChange={(e) => setFormData({ ...formData, lien_telechargement: e.target.value })}
-                                            placeholder="https://..."
-                                            className={inputGlass}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div className="flex items-baseline justify-between gap-2">
-                                        <label htmlFor="tender-lien-depot" className={labelStyle}>Lien de dépôt</label>
-                                        {formData.lien_depot && (
-                                            <a
-                                                href={lienExterne(formData.lien_depot)}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-[10px] font-bold text-[#00A3E0] hover:underline shrink-0 focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded"
-                                            >
-                                                Ouvrir →
-                                            </a>
-                                        )}
-                                    </div>
-                                    <div className="relative">
-                                        <UploadCloud size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
-                                        <input
-                                            id="tender-lien-depot"
-                                            type="url"
-                                            inputMode="url"
-                                            value={formData.lien_depot}
-                                            onChange={(e) => setFormData({ ...formData, lien_depot: e.target.value })}
-                                            placeholder="https://..."
-                                            className={inputGlass}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-
-                            <div className="grid grid-cols-2 gap-4 md:col-span-2">
-                                <div>
-                                    <label htmlFor="tender-reference-marche" className={labelStyle}>Référence du marché</label>
-                                    <input
-                                        id="tender-reference-marche"
-                                        type="text"
-                                        value={formData.reference_marche || ''}
-                                        onChange={(e) => setFormData({ ...formData, reference_marche: e.target.value })}
-                                        placeholder="ex. AOO 25-02"
-                                        className={`${inputGlassPlain} w-full`}
-                                    />
-                                    <p className="text-[10px] text-[#0B1F38]/40 mt-1">Référence attribuée par l'acheteur.</p>
-                                </div>
-
-                                <div>
-                                    <label htmlFor="tender-cpv" className={labelStyle}>Codes CPV</label>
-                                    <input
-                                        id="tender-cpv"
-                                        type="text"
-                                        inputMode="numeric"
-                                        defaultValue={(formData.cpv_codes || []).join(', ')}
-                                        // onBlur plutôt que onChange : la saisie passe par une chaîne
-                                        // libre, la découper à chaque frappe rendrait le champ
-                                        // inutilisable dès qu'on tape une virgule.
-                                        onBlur={(e) => {
-                                            const saisis = e.target.value
-                                                .split(/[\s,;]+/)
-                                                .map(c => c.trim())
-                                                .filter(c => c.length > 0);
-                                            const valides = Array.from(new Set(saisis.filter(c => /^\d{8}$/.test(c))));
-                                            const rejetes = saisis.filter(c => !/^\d{8}$/.test(c));
-                                            setFormData({ ...formData, cpv_codes: valides });
-                                            // Sans ce retour, une faute de frappe faisait disparaître le
-                                            // code sans que l'utilisateur comprenne pourquoi.
-                                            if (rejetes.length > 0) {
-                                                showToast(
-                                                    `Code CPV ignoré (8 chiffres attendus) : ${rejetes.join(', ')}`,
-                                                    'warning'
-                                                );
-                                            }
-                                            // Reflète la valeur nettoyée dans le champ.
-                                            e.target.value = valides.join(', ');
-                                        }}
-                                        placeholder="45213000, 71000000"
-                                        className={`${inputGlassPlain} w-full`}
-                                    />
-                                    <p className="text-[10px] text-[#0B1F38]/40 mt-1">
-                                        Un code = 8 chiffres. Séparez-en plusieurs par une virgule, un point-virgule ou un espace.
-                                    </p>
-                                    {/* Retour immédiat sur ce que représentent les codes saisis :
-                                        sans lui, on ne sait pas si l'on s'est trompé de chiffre. */}
-                                    {(formData.cpv_codes || []).length > 0 && (
-                                        <ul className="mt-2 space-y-0.5">
-                                            {formData.cpv_codes.map(code => (
-                                                <li key={code} className="text-[10px] text-[#0B1F38]/50 flex gap-1.5">
-                                                    <span className="font-mono font-bold text-[#0B1F38]/70 shrink-0">{formatCpv(code)}</span>
-                                                    <span className="truncate">{libelleCpv(code) ?? 'Division inconnue'}</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="md:col-span-2">
-                                <label className={labelStyle}>Description / Objet du marché</label>
-                                <textarea
-                                    rows={4}
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className={`${inputGlass} text-[#0B1F38]/80 italic resize-none bg-[#F8FAFC]`}
-                                />
-                            </div>
-                        </fieldset>
-                    </div>
-
-                    {/* Footer - Only visible if owner can edit */}
-                    {(isOwner && !isLocked) && (
-                        <div className="p-6 border-t border-[#0B1F38]/5 bg-[#F8FAFC] flex justify-end shrink-0">
-                            <button
-                                onClick={async () => {
-                                    setShowContextEditModal(false);
-                                    if (tenderId) await saveTenderContext();
-                                }}
-                                className="px-8 py-3 bg-[#0B1F38] text-white font-bold rounded-xl hover:bg-[#00A3E0] transition-all shadow-lg"
-                            >
-                                {loading ? <Loader2 size={20} className="animate-spin" /> : "Valider les modifications"}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
+    /**
+     * Validation de la modale « Détails de l'appel d'offres ».
+     *
+     * Le brouillon est appliqué au formulaire ET passé en `overrides` à la
+     * sauvegarde : sans cela, `saveTenderContext` lirait un `formData` pas
+     * encore rafraîchi par React et enregistrerait les valeurs précédentes.
+     */
+    const validerContexte = async (brouillon: TenderFormData) => {
+        setFormData(brouillon);
+        setShowContextEditModal(false);
+        if (tenderId) await saveTenderContext(brouillon);
     };
 
     const renderSkillsModal = () => {
@@ -7166,7 +6833,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 {renderMemberDetailModal()}
                 {renderGroupementTypeModal()}
                 {renderAddManualModal()}
-                {renderContextEditModal()}
+                <ContextEditModal
+                    ouvert={showContextEditModal}
+                    valeurs={formData}
+                    isOwner={isOwner}
+                    isLocked={isLocked}
+                    loading={loading}
+                    inputGlass={inputGlass}
+                    inputGlassPlain={inputGlassPlain}
+                    labelStyle={labelStyle}
+                    onFermer={() => setShowContextEditModal(false)}
+                    onValider={validerContexte}
+                    showToast={showToast}
+                />
                 {renderCriteresModal()}
                 {renderRetroplanningModal()}
                 {renderDCEPiecesModal()}
