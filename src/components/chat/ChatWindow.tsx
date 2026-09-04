@@ -301,9 +301,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                                 className="w-full bg-transparent border-none focus:ring-0 text-sm text-[#0B1F38] placeholder-[#0B1F38]/40 py-3 pl-3 pr-12 resize-none custom-scrollbar max-h-32"
                                 rows={1}
                             />
+                            {/* Pièces jointes : pas encore actif. On garde l'icône visible pour
+                                annoncer la fonctionnalité, avec un tooltip « bientôt » et un curseur
+                                explicite, plutôt que de laisser un bouton muet. */}
                             <button
                                 type="button"
-                                className="absolute right-3 bottom-3 p-1.5 text-[#0B1F38]/40 hover:text-[#00A3E0] transition-colors"
+                                title="Pièces jointes — bientôt"
+                                aria-label="Pièces jointes — bientôt"
+                                className="absolute right-3 bottom-3 p-1.5 text-[#0B1F38]/30 cursor-not-allowed"
                             >
                                 <Paperclip size={18} />
                             </button>

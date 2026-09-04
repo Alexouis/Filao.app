@@ -54,6 +54,7 @@ import {
     messageErreurBase
 } from '../helpers/tenderEnums';
 import { CommentsView } from './ui/CommentsView';
+import { BadgeAVenir } from './ui/BadgeAVenir';
 import { supabase } from '../lib/supabaseClient';
 import { forfait } from '../helpers/planLimits';
 import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, departementDepuisCode, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
@@ -6987,18 +6988,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                                 </div>
                                 {/* IMPORT & MANUAL */}
                                 <div className="flex flex-col gap-6">
-                                    <div className="bg-white/40 border border-white/50 rounded-3xl p-8 flex flex-col hover:bg-white/60 transition-all group flex-1">
+                                    {/* Import de dossier : fonctionnalité pas encore active. La carte
+                                        reste visible pour annoncer la promesse, mais l'affordance de dépôt
+                                        est neutralisée (ni curseur main, ni hover d'interaction) et
+                                        signalée « Bientôt » afin qu'un testeur ne la prenne pas pour un bug. */}
+                                    <div className="bg-white/40 border border-white/50 rounded-3xl p-8 flex flex-col flex-1 opacity-80" title="L'import automatique de dossier arrive bientôt.">
                                         <div className="flex items-center gap-4 mb-6">
-                                            <div className="w-12 h-12 rounded-2xl bg-[#0B1F38]/5 flex items-center justify-center shrink-0 group-hover:bg-[#00A3E0]/10 transition-colors">
-                                                <UploadCloud size={24} className="text-[#0B1F38]/60 group-hover:text-[#00A3E0]" />
+                                            <div className="w-12 h-12 rounded-2xl bg-[#0B1F38]/5 flex items-center justify-center shrink-0">
+                                                <UploadCloud size={24} className="text-[#0B1F38]/60" />
                                             </div>
                                             <div>
-                                                <h3 className="text-xl font-bold text-[#0B1F38]">Importer un dossier</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-xl font-bold text-[#0B1F38]">Importer un dossier</h3>
+                                                    <BadgeAVenir />
+                                                </div>
                                                 <p className="text-sm text-[#0B1F38]/60">Depuis un fichier DCE ou un lien direct</p>
                                             </div>
                                         </div>
-                                        <div className="border-2 border-dashed border-[#0B1F38]/10 group-hover:border-[#00A3E0]/30 rounded-xl p-6 bg-white/30 hover:bg-white/60 transition-all cursor-pointer text-center h-32 flex flex-col items-center justify-center">
-                                            <div className="flex flex-col items-center gap-2 text-[#0B1F38]/50 group-hover:text-[#00A3E0]">
+                                        <div className="border-2 border-dashed border-[#0B1F38]/10 rounded-xl p-6 bg-white/30 text-center h-32 flex flex-col items-center justify-center cursor-not-allowed">
+                                            <div className="flex flex-col items-center gap-2 text-[#0B1F38]/40">
                                                 <FileInput size={24} />
                                                 <span className="font-medium text-sm">Glisser-déposer un fichier (PDF, Zip)</span>
                                             </div>
