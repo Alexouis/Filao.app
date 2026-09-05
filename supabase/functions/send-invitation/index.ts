@@ -186,13 +186,60 @@ Deno.serve(async (req: Request) => {
     }
 
     // If we have an email but not yet a recipientId, check if user exists
+    let recipientEntrepriseId: string | undefined;
     if (!recipientId) {
       const { data: existingUser } = await adminClient
         .from("utilisateurs")
-        .select("id")
+        .select("id, entreprise_id")
         .ilike("email", email!.trim())
         .maybeSingle();
       recipientId = existingUser?.id;
+      recipientEntrepriseId = existingUser?.entreprise_id ?? undefined;
+    }
+
+    // ── Accès au dossier avant acceptation ──
+    //
+    // POURQUOI
+    // Depuis la migration 034, la lecture d'un dossier passe UNIQUEMENT par
+    // `groupements` (statuts « accepte » et « invite », cf. 074) : la table
+    // `invitations` n'ouvre plus aucun accès. Une invitation d'ENTREPRISE crée
+    // bien une ligne de groupement, donc l'invité voit le dossier tout de
+    // suite ; une invitation NOMINATIVE n'en créait pas, et l'invité tombait
+    // sur un dossier vide (erreur 406) en cliquant sa notification.
+    //
+    // Dès lors que l'adresse correspond à un compte rattaché à une entreprise,
+    // on aligne les deux parcours en créant le même groupement « invite ».
+    // C'est le sens de la 074 : « un invité doit voir le dossier POUR POUVOIR
+    // DÉCIDER de l'accepter ».
+    //
+    // Sans compte (ou sans entreprise), rien n'est créé : la personne passe par
+    // le parcours externe avec son lien d'invitation, qui créera le groupement
+    // à l'acceptation.
+    const entrepriseInvitee = entrepriseId || recipientEntrepriseId;
+    if (entrepriseInvitee && entrepriseInvitee !== dossier.entreprise_id) {
+      const { data: groupementExistant } = await adminClient
+        .from("groupements")
+        .select("id, statut")
+        .eq("projet_id", tenderId)
+        .eq("entreprise_id", entrepriseInvitee)
+        .maybeSingle();
+
+      // On ne recrée pas un groupement existant, et on ne rétrograde jamais un
+      // statut déjà « accepte » vers « invite ».
+      if (!groupementExistant) {
+        const { error: erreurGroupement } = await adminClient
+          .from("groupements")
+          .insert({
+            projet_id: tenderId,
+            entreprise_id: entrepriseInvitee,
+            role_groupement: role,
+            statut: "invite",
+          });
+        if (erreurGroupement) {
+          // L'invitation reste valable : l'acceptation créera le groupement.
+          console.error("Could not pre-create groupement for invitee:", erreurGroupement);
+        }
+      }
     }
 
     // ── In-app notification ──

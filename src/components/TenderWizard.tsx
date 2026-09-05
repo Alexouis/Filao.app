@@ -34,7 +34,7 @@ import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } 
 import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
-import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted } from '../helpers/notificationHelpers';
+import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
     extractCriteresAttribution,
@@ -400,6 +400,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const [loadingRef, setLoadingRef] = useState(false);
     /** Document DCE en attente de confirmation de suppression. */
     const [docDCEASupprimer, setDocDCEASupprimer] = useState<any | null>(null);
+    /** Le dossier demandé n'est pas lisible (droits insuffisants ou supprimé). */
+    const [accesRefuse, setAccesRefuse] = useState(false);
     /** Changement de rôle risquant de masquer des pièces, en attente de confirmation. */
     const [changementRoleAConfirmer, setChangementRoleAConfirmer] =
         useState<{ role: string; appliquer: () => Promise<void> } | null>(null);
@@ -1323,6 +1325,42 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (dbError) throw dbError;
 
             setFormData(prev => ({ ...prev, dce_documents: updatedDocs }));
+
+            // Prévenir les partenaires : une pièce du marché est le document
+            // sur lequel ils travaillent, l'ignorer leur coûte du temps.
+            // Jusqu'ici, seul un dépôt fait depuis l'espace collaborateur
+            // notifiait — un ajout depuis l'interface principale ne prévenait
+            // personne.
+            //
+            // Destinataires : les membres ACCEPTÉS disposant d'un compte, hors
+            // l'auteur du dépôt. Un invité qui n'a pas encore rejoint n'a pas à
+            // être tenu au courant de la vie du dossier.
+            //
+            // Le volume est maîtrisé par la préférence « nouveau_document »,
+            // que `notify-user` respecte : qui ne veut pas de ces alertes les
+            // coupe dans ses paramètres.
+            const destinataires = groupementMembers
+                .filter(m => !m.deleted
+                    && m.status === 'accepte'
+                    && m.hasAccount !== false
+                    && m.id
+                    && m.id !== userProfile?.id)
+                .map(m => m.id as string);
+
+            if (destinataires.length > 0) {
+                const auteur = userProfile
+                    ? [userProfile.prenom, userProfile.nom].filter(Boolean).join(' ') || userProfile.email
+                    : 'Un membre';
+                await notifyDocumentAdded(
+                    destinataires,
+                    auteur,
+                    userProfile?.photo_url || '',
+                    tenderId,
+                    formData.titre,
+                    fileName
+                );
+            }
+
             showToast('Document ajouté avec succès', 'success');
         } catch (error) {
             console.error('Error uploading DCE document:', error);
@@ -1832,6 +1870,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const fetchTenderFromDB = async (id: string, profileOverride?: any) => {
         chrono.demarrer(`chargement du dossier ${id.slice(0, 8)}`);
         if (!id || id === 'null' || id === 'undefined' || id === '') return;
+        // Nouvelle tentative : on repart d'un état non refusé.
+        setAccesRefuse(false);
         setLoading(true);
         try {
             const { data, error } = await supabase
@@ -2125,6 +2165,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             chrono.terminer();
         } catch (err) {
             console.error('Error in fetchTenderFromDB:', err);
+            // Le dossier n'a pas pu être lu (RLS : 406 « aucune ligne »). Sans
+            // ce drapeau, `formData` restait aux valeurs par défaut et l'écran
+            // affichait un appel d'offres VIDE, indiscernable d'un dossier
+            // neuf — l'utilisateur croyait à une perte de données.
+            setAccesRefuse(true);
             chrono.terminer();
         } finally {
             setLoading(false);
@@ -2599,30 +2644,22 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .eq('tender_id', tenderId)
                 .eq('email', userProfile.email);
 
-            // 3. Notify mandataire via notify-user edge function (bypasses RLS)
+            // 3. Prévenir le mandataire.
+            //
+            // Passe par le helper plutôt que par un `fetch` direct : celui-ci
+            // n'envoyait aucun `prefKey`, donc la notification ignorait les
+            // préférences de l'utilisateur. Le helper dérive la préférence du
+            // type via le registre central.
             const mandataire = groupementMembers.find(m => m.is_owner);
-            if (mandataire?.id) {
+            if (mandataire?.id && mandataire.hasAccount !== false) {
                 const collaboratorName = [userProfile.prenom, userProfile.nom].filter(Boolean).join(' ') || userProfile.email;
-                const collaboratorAvatar = userProfile.photo_url || '';
-                fetch(`${supabaseUrl}/functions/v1/notify-user`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                        userId: mandataire.id,
-                        notification: {
-                            type: 'collaboration_left',
-                            titre: 'Départ du groupement',
-                            message: 'a quitté le groupement pour',
-                            sender_name: collaboratorName,
-                            sender_avatar: collaboratorAvatar,
-                            related_tender_id: tenderId,
-                            related_tender_titre: formData.titre,
-                        },
-                    }),
-                }).catch(console.error);
+                await notifyCollaborationLeft(
+                    mandataire.id,
+                    collaboratorName,
+                    userProfile.photo_url || '',
+                    tenderId,
+                    formData.titre
+                );
             }
 
             showToast('Vous avez quitté le groupement.', 'success');
@@ -6099,6 +6136,40 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 </div>
             </div>
 
+        );
+    }
+
+    // Dossier illisible : droits insuffisants, ou dossier supprimé. On le dit
+    // explicitement plutôt que d'afficher un formulaire vide qui ressemble à un
+    // appel d'offres neuf. Cas le plus fréquent : une invitation nominative pas
+    // encore acceptée, dont l'accès n'est ouvert qu'après passage par le lien
+    // d'invitation.
+    if (accesRefuse) {
+        return (
+            <div className="w-full p-4 mx-auto h-full flex flex-col gap-6">
+                <div className={`flex-1 ${GLASS_MODAL_STYLE} flex items-center justify-center overflow-hidden w-full h-full`}>
+                    <div className="flex flex-col items-center gap-4 text-center max-w-md px-6">
+                        <div className="w-14 h-14 rounded-2xl bg-[#0B1F38]/5 flex items-center justify-center text-[#0B1F38]/40">
+                            <ShieldAlert size={28} />
+                        </div>
+                        <h2 className="text-xl font-bold text-[#0B1F38]">Ce dossier n'est pas accessible</h2>
+                        <p className="text-sm text-[#0B1F38]/60 leading-relaxed">
+                            Vous n'avez pas accès à cet appel d'offres. S'il s'agit d'une invitation,
+                            ouvrez le lien reçu par e-mail pour l'accepter : l'accès au dossier sera
+                            alors débloqué. Le dossier peut aussi avoir été supprimé, ou votre accès
+                            retiré.
+                        </p>
+                        {onCancel && (
+                            <button
+                                onClick={onCancel}
+                                className="mt-2 px-6 py-2.5 bg-[#0B1F38] text-white text-sm font-bold rounded-xl hover:bg-[#00A3E0] transition-all"
+                            >
+                                Retour à mes appels d'offres
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
         );
     }
 
