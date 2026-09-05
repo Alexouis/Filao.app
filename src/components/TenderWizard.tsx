@@ -2639,35 +2639,30 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
             if (!session || !supabaseUrl) throw new Error('Session expirée');
 
-            const myEntry = groupementMembers.find(m => m.id === userProfile.id || m.email === userProfile.email);
-
-            // 1. Delete groupements row (member can delete their own entry)
+            // 1 & 2. Départ effectif, côté serveur et en une seule opération.
             //
-            // On demande les lignes supprimées (`select`) au lieu de se
-            // contenter de l'absence d'erreur : une suppression refusée par la
-            // RLS ne lève RIEN, elle supprime zéro ligne. Sans ce contrôle,
-            // l'app annonçait un départ qui n'avait pas eu lieu, et le membre
-            // réapparaissait au rechargement (cf. migration 101).
-            if (myEntry?.groupement_id) {
-                const { data: lignesSupprimees, error: grpErr } = await supabase
-                    .from('groupements')
-                    .delete()
-                    .eq('id', myEntry.groupement_id)
-                    .select('id');
-                if (grpErr) throw grpErr;
-                if (!lignesSupprimees || lignesSupprimees.length === 0) {
-                    throw new Error(
-                        "Votre départ n'a pas pu être enregistré. Vos droits sur ce dossier ne permettent pas cette action."
-                    );
-                }
-            }
+            // Un partenaire arrivé par invitation possède DEUX lignes : une
+            // dans `groupements`, une dans `invitations`. L'écran Équipe
+            // fusionne les deux — ne traiter que la première le faisait
+            // réapparaître chez le mandataire au rechargement. Or il ne pouvait
+            // pas traiter la seconde : l'UPDATE sur `invitations` lui est
+            // refusé (034) et `revoquer_invitation` est réservée au créateur
+            // du dossier (043).
+            //
+            // `quitter_groupement` (migration 102) fait les deux, ancrée sur
+            // `auth.uid()`, et révoque au passage le lien d'accès.
+            const { data: bilanDepart, error: departErr } = await supabase
+                .rpc('quitter_groupement', { p_tender_id: tenderId });
+            if (departErr) throw departErr;
 
-            // 2. Mark any invitation as refused (best-effort, may not exist)
-            await supabase
-                .from('invitations')
-                .update({ status: 'refused', refused_at: new Date().toISOString() })
-                .eq('tender_id', tenderId)
-                .eq('email', userProfile.email);
+            // La fonction renvoie ce qu'elle a réellement modifié : si rien n'a
+            // bougé, mieux vaut le dire que d'annoncer un départ imaginaire.
+            const bilan = Array.isArray(bilanDepart) ? bilanDepart[0] : bilanDepart;
+            const riensSupprime = !bilan
+                || ((bilan.groupements_supprimes ?? 0) === 0 && (bilan.invitations_revoquees ?? 0) === 0);
+            if (riensSupprime) {
+                throw new Error("Votre départ n'a pas pu être enregistré. Rechargez la page et réessayez.");
+            }
 
             // 3. Prévenir le mandataire.
             //
@@ -2691,7 +2686,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             onCancel(); // Use the existing prop to redirect back to the tenders list / search
             setInvitationStatus('refused');
             setGroupementMembers(prev => prev.filter(m => m.id !== userProfile.id && m.email !== userProfile.email));
-            await fetchTenderFromDB(tenderId);
+            // Pas de rechargement du dossier ici : on vient d'en perdre l'accès,
+            // la requête repartirait en 406 « aucune ligne » et polluerait la
+            // console d'une erreur attendue. L'utilisateur est redirigé.
         } catch (error) {
             console.error('Quit groupement error:', error);
             // Le motif précis vaut mieux qu'un libellé générique : il dit à
@@ -3465,6 +3462,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 dossier: folderPath as string,
                 point: 'candidature',
                 upsert: true,
+                // Nom imposé, comme dans l'espace collaborateur. Sans lui, le
+                // serveur nomme le fichier d'après son nom d'origine : il
+                // arrivait bien dans le bucket, mais `loadUploadedFiles` cherche
+                // les pièces sous la forme `type-collabId-tenderId` et ne les
+                // retrouvait pas — l'emplacement revenait « vide » au
+                // rechargement, alors que le fichier existait.
+                //
+                // C'est aussi ce qui rend `upsert` efficace : il ne peut
+                // écraser que le même nom, sinon chaque envoi empilait un objet
+                // de plus et faussait le décompte de stockage.
+                nom: fileName,
             });
             if (erreurDepot) throw new Error(erreurDepot);
 
