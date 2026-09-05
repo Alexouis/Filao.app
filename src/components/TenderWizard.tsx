@@ -3482,6 +3482,36 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 setUserProfile((prev: any) => ({ ...prev, storage_used: (prev?.storage_used || 0) + delta }));
             }
 
+            // Trace le dépôt pour le récapitulatif quotidien de 18h.
+            //
+            // Ce suivi n'existait que dans l'espace collaborateur : une pièce
+            // déposée depuis l'interface principale n'apparaissait donc dans
+            // AUCUN récapitulatif — `recap-depots` agrège cette table, et elle
+            // restait vide.
+            //
+            // On n'enregistre que le dépôt fait par QUELQU'UN D'AUTRE que le
+            // porteur : le destinataire du récap est le créateur du dossier,
+            // l'avertir de son propre dépôt n'aurait pas de sens.
+            //
+            // Best-effort : un échec de suivi ne doit jamais faire échouer le
+            // dépôt lui-même.
+            if (formData.createur_id && formData.createur_id !== user.id) {
+                try {
+                    await supabase.from('depots_pieces').insert({
+                        tender_id: tenderId,
+                        destinataire_id: formData.createur_id,
+                        auteur_id: user.id,
+                        auteur_libelle: [userProfile?.prenom, userProfile?.nom].filter(Boolean).join(' ')
+                            || userProfile?.email
+                            || 'Un partenaire',
+                        type_piece: docType,
+                        nom_piece: fileName,
+                    });
+                } catch (e) {
+                    console.error('Suivi dépôt (depots_pieces) échoué:', e);
+                }
+            }
+
             const isNewFile = oldFileSize === 0;
             setUploadedFiles(prev => ({ ...prev, [key]: file }));
             setUploadProgress(prev => ({ ...prev, [key]: 100 }));
