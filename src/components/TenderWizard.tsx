@@ -2629,12 +2629,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const myEntry = groupementMembers.find(m => m.id === userProfile.id || m.email === userProfile.email);
 
             // 1. Delete groupements row (member can delete their own entry)
+            //
+            // On demande les lignes supprimées (`select`) au lieu de se
+            // contenter de l'absence d'erreur : une suppression refusée par la
+            // RLS ne lève RIEN, elle supprime zéro ligne. Sans ce contrôle,
+            // l'app annonçait un départ qui n'avait pas eu lieu, et le membre
+            // réapparaissait au rechargement (cf. migration 101).
             if (myEntry?.groupement_id) {
-                const { error: grpErr } = await supabase
+                const { data: lignesSupprimees, error: grpErr } = await supabase
                     .from('groupements')
                     .delete()
-                    .eq('id', myEntry.groupement_id);
+                    .eq('id', myEntry.groupement_id)
+                    .select('id');
                 if (grpErr) throw grpErr;
+                if (!lignesSupprimees || lignesSupprimees.length === 0) {
+                    throw new Error(
+                        "Votre départ n'a pas pu être enregistré. Vos droits sur ce dossier ne permettent pas cette action."
+                    );
+                }
             }
 
             // 2. Mark any invitation as refused (best-effort, may not exist)
@@ -2669,7 +2681,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             await fetchTenderFromDB(tenderId);
         } catch (error) {
             console.error('Quit groupement error:', error);
-            showToast("Erreur lors de la sortie du groupement.", 'error');
+            // Le motif précis vaut mieux qu'un libellé générique : il dit à
+            // l'utilisateur si c'est un droit qui manque ou un incident réseau.
+            showToast(
+                (error as Error)?.message || "Erreur lors de la sortie du groupement.",
+                'error'
+            );
         } finally {
             setLoading(false);
         }
