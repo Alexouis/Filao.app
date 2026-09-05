@@ -3512,6 +3512,42 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
             }
 
+            // Notification immédiate aux autres membres. Le récapitulatif de
+            // 18h ne remplace pas l'alerte in-app : l'un groupe pour l'e-mail,
+            // l'autre prévient tout de suite dans l'application.
+            //
+            // La préférence « nouveau_document » est respectée : le helper la
+            // transmet à `notify-user`, qui n'écrit pas si l'utilisateur a
+            // désactivé cette famille.
+            //
+            // Isolé : prévenir est un à-côté du dépôt, jamais une condition de
+            // son succès.
+            try {
+                const destinataires = groupementMembers
+                    .filter(m => !m.deleted
+                        && m.status === 'accepte'
+                        && m.hasAccount !== false
+                        && m.id
+                        && m.id !== user.id)
+                    .map(m => m.id as string);
+
+                if (destinataires.length > 0) {
+                    const auteur = [userProfile?.prenom, userProfile?.nom].filter(Boolean).join(' ')
+                        || userProfile?.email
+                        || 'Un membre';
+                    await notifyDocumentAdded(
+                        destinataires,
+                        auteur,
+                        userProfile?.photo_url || '',
+                        tenderId,
+                        formData.titre,
+                        docType
+                    );
+                }
+            } catch (errNotif) {
+                console.error('Notification « document ajouté » non envoyée :', errNotif);
+            }
+
             const isNewFile = oldFileSize === 0;
             setUploadedFiles(prev => ({ ...prev, [key]: file }));
             setUploadProgress(prev => ({ ...prev, [key]: 100 }));

@@ -740,7 +740,7 @@ export interface SidebarProps {
 
 export interface Notifications {
   id: string;
-  type: 'collaboration_accepted' | 'collaboration_rejected' | 'collaboration_left' | 'document_added' | 'tender_won' | 'tender_lost' | 'deadline_reminder' | 'comment_added' | 'collaborator_invited' | 'document_reminder' | 'network_invite' | 'network_invite_accepted';
+  type: 'collaboration_accepted' | 'collaboration_rejected' | 'collaboration_left' | 'document_added' | 'tender_won' | 'tender_lost' | 'deadline_reminder' | 'comment_added' | 'collaborator_invited' | 'document_reminder' | 'network_invite' | 'network_invite_accepted' | 'chat_message';
   titre: string;
   message: string;
   sender_id?: string;

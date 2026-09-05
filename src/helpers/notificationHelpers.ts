@@ -383,6 +383,38 @@ export const deleteInvitationNotification = async (
  * Notify when a user accepts a network invitation.
  * Sent to the original inviter.
  */
+/**
+ * Notify participants of a new chat message on a tender
+ * prefKey: messages_feed
+ *
+ * La messagerie ne prévenait personne : un partenaire pouvait écrire sans que
+ * quiconque le voie, ce qui vidait le fil de son intérêt. Le message n'est pas
+ * repris en entier — un extrait suffit à décider d'aller lire.
+ */
+export const notifyChatMessage = async (
+  recipientIds: string[],
+  senderName: string,
+  senderAvatar: string,
+  tenderId: string,
+  tenderTitle: string,
+  extrait: string
+) => {
+  const apercu = extrait.length > 80 ? `${extrait.slice(0, 80)}…` : extrait;
+  const promises = recipientIds.map(userId =>
+    addNotification(userId, {
+      type: 'chat_message',
+      titre: 'Nouveau message',
+      message: `a écrit « ${apercu} » sur`,
+      sender_name: senderName,
+      sender_avatar: senderAvatar,
+      related_tender_id: tenderId,
+      related_tender_titre: tenderTitle
+    }, 'messages_feed')
+  );
+
+  return Promise.all(promises);
+};
+
 export const notifyNetworkInviteAccepted = async (
   recipientId: string,
   accepterName: string,

@@ -27,11 +27,18 @@ const DEFAULT_PREFS = {
 type NotifEvent = keyof typeof DEFAULT_PREFS;
 type NotifChannel = 'app' | 'email';
 
-const NOTIF_EVENTS: { key: NotifEvent; label: string; description: string }[] = [
+/**
+ * `emailIndisponible` : la case e-mail est affichée mais inactive, parce
+ * qu'aucun envoi n'existe encore pour cette famille. La file `emails_a_envoyer`
+ * ne connaît que les types de son catalogue ; sans type ni gabarit, activer la
+ * case ne déclencherait rien. Mieux vaut une case grisée et annoncée qu'un
+ * interrupteur qui promet un e-mail jamais envoyé.
+ */
+const NOTIF_EVENTS: { key: NotifEvent; label: string; description: string; emailIndisponible?: boolean }[] = [
     { key: 'nouveau_document', label: 'Nouveau document', description: 'Un partenaire dépose une pièce sur un AO' },
     { key: 'rappels', label: 'Rappels', description: 'Échéances et dates limites à venir' },
-    { key: 'messages_feed', label: 'Messages', description: 'Nouveau message dans le fil d\'un AO' },
-    { key: 'communications', label: 'Actualités Filao', description: 'Conseils, mises à jour et offres' },
+    { key: 'messages_feed', label: 'Messages', description: 'Nouveau message dans le fil d\'un AO', emailIndisponible: true },
+    { key: 'communications', label: 'Actualités Filao', description: 'Conseils, mises à jour et offres', emailIndisponible: true },
 ];
 
 export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate }) => {
@@ -287,7 +294,7 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
 
                     {/* Rows */}
                     <div className="divide-y divide-gray-100">
-                        {NOTIF_EVENTS.map(({ key, label, description }) => (
+                        {NOTIF_EVENTS.map(({ key, label, description, emailIndisponible }) => (
                             <div key={key} className="grid grid-cols-[1fr_56px_56px] items-center gap-x-2 py-2.5 px-1">
                                 <div>
                                     <p className="text-sm text-gray-700 font-medium">{label}</p>
@@ -300,10 +307,19 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
                                     />
                                 </div>
                                 <div className="flex justify-center">
-                                    <Toggle
-                                        enabled={notifPrefs[key]?.email ?? false}
-                                        onToggle={() => toggleNotifPref(key, 'email')}
-                                    />
+                                    {emailIndisponible ? (
+                                        <span
+                                            title="L'envoi par e-mail pour cette catégorie n'est pas encore disponible."
+                                            className="text-[9px] font-bold px-2 py-1 rounded-full bg-[#0B1F38]/5 text-[#0B1F38]/40 whitespace-nowrap"
+                                        >
+                                            Bientôt
+                                        </span>
+                                    ) : (
+                                        <Toggle
+                                            enabled={notifPrefs[key]?.email ?? false}
+                                            onToggle={() => toggleNotifPref(key, 'email')}
+                                        />
+                                    )}
                                 </div>
                             </div>
                         ))}

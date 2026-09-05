@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Paperclip, MoreVertical, X, ArrowUpRight, Loader2, MessageSquare } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { notifyChatMessage } from '../../helpers/notificationHelpers';
 import { ChatMessage } from '../../types';
 import { MessageItem } from './MessageItem';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +35,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     // écrit pas. `null` = pas encore déterminé, on n'affiche donc rien de
     // trompeur pendant le chargement.
     const [peutEcrire, setPeutEcrire] = useState<boolean | null>(null);
+    // Participants à prévenir d'un nouveau message : créateur du dossier et
+    // membres des entreprises ayant accepté. Résolus en même temps que le droit
+    // d'écriture, pour ne pas multiplier les requêtes.
+    const [destinataires, setDestinataires] = useState<string[]>([]);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -105,10 +110,33 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             if (error) throw error;
 
             const estCreateur = data?.createur_id === user.id;
-            const estMembre = (data?.groupements as any[])?.some(
+            const groupements = (data?.groupements as any[]) ?? [];
+            const estMembre = groupements.some(
                 g => g.statut === 'accepte' && g.entreprise_id === userProfile?.entreprise_id
             ) ?? false;
             setPeutEcrire(estCreateur || estMembre);
+
+            // Destinataires des notifications : le créateur, plus les comptes
+            // des entreprises acceptées. On passe par `utilisateurs_publics`,
+            // la vue prévue pour lire le profil d'autrui (migration 070).
+            const entreprises = groupements
+                .filter(g => g.statut === 'accepte' && g.entreprise_id)
+                .map(g => g.entreprise_id);
+
+            const ids = new Set<string>();
+            if (data?.createur_id) ids.add(data.createur_id);
+
+            if (entreprises.length > 0) {
+                const { data: profils } = await supabase
+                    .from('utilisateurs_publics')
+                    .select('id')
+                    .in('entreprise_id', entreprises);
+                (profils ?? []).forEach(p => p.id && ids.add(p.id));
+            }
+
+            // On ne se notifie jamais soi-même.
+            ids.delete(user.id);
+            setDestinataires([...ids]);
         } catch (err) {
             // En cas de doute, on ferme l'écriture : mieux vaut une barre masquée
             // à tort qu'un message tapé puis rejeté par la base sans explication.
@@ -183,6 +211,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     return [...prev, data];
                 });
                 setTimeout(scrollToBottom, 50);
+            }
+
+            // Prévenir les participants. La messagerie ne notifiait personne :
+            // on pouvait écrire sans que quiconque le voie.
+            //
+            // La préférence « Messages » est respectée — le helper la transmet
+            // à `notify-user`, qui n'écrit pas si l'utilisateur l'a coupée.
+            //
+            // Isolé : un échec de notification ne doit pas faire croire que le
+            // message n'est pas parti, alors qu'il est enregistré.
+            if (destinataires.length > 0) {
+                try {
+                    const auteur = [userProfile?.prenom, userProfile?.nom].filter(Boolean).join(' ')
+                        || userProfile?.email
+                        || 'Un participant';
+                    await notifyChatMessage(
+                        destinataires,
+                        auteur,
+                        userProfile?.photo_url || '',
+                        tenderId,
+                        tenderTitle,
+                        text
+                    );
+                } catch (errNotif) {
+                    console.error('Notification de message non envoyée :', errNotif);
+                }
             }
         } catch (err) {
             console.error('Error sending message:', err);

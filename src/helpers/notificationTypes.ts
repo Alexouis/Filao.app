@@ -54,6 +54,9 @@ export const NOTIFICATION_TYPES: (NotifTypeDef & { categoriesExtra?: NotifCatego
   { type: 'tender_won',                categorie: 'results',     prefKey: null },
   { type: 'tender_lost',               categorie: 'results',     prefKey: null },
   { type: 'comment_added',             categorie: 'comments',    prefKey: 'messages_feed' },
+  // Messagerie d'un dossier. Même famille de préférence que les commentaires :
+  // pour l'utilisateur, « Messages » couvre les deux fils de discussion.
+  { type: 'chat_message',              categorie: 'comments',    prefKey: 'messages_feed' },
 ];
 
 /** Index type → définition, pour les recherches ponctuelles. */
