@@ -1347,18 +1347,26 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     && m.id !== userProfile?.id)
                 .map(m => m.id as string);
 
+            // Isolé du reste : prévenir les partenaires est un à-côté du dépôt.
+            // Sans ce try/catch, un incident de notification aurait fait
+            // afficher « Erreur lors du téléchargement » pour un document
+            // pourtant bien enregistré.
             if (destinataires.length > 0) {
-                const auteur = userProfile
-                    ? [userProfile.prenom, userProfile.nom].filter(Boolean).join(' ') || userProfile.email
-                    : 'Un membre';
-                await notifyDocumentAdded(
-                    destinataires,
-                    auteur,
-                    userProfile?.photo_url || '',
-                    tenderId,
-                    formData.titre,
-                    fileName
-                );
+                try {
+                    const auteur = userProfile
+                        ? [userProfile.prenom, userProfile.nom].filter(Boolean).join(' ') || userProfile.email
+                        : 'Un membre';
+                    await notifyDocumentAdded(
+                        destinataires,
+                        auteur,
+                        userProfile?.photo_url || '',
+                        tenderId,
+                        formData.titre,
+                        fileName
+                    );
+                } catch (errNotif) {
+                    console.error('Notification « document ajouté » non envoyée :', errNotif);
+                }
             }
 
             showToast('Document ajouté avec succès', 'success');
@@ -1886,7 +1894,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .single();
 
 
-            if (error) throw error;
+            if (error) {
+                // Refus limité à la LECTURE DU DOSSIER (RLS : 406 « aucune
+                // ligne »). C'est le seul cas où l'utilisateur n'a rien à voir.
+                setAccesRefuse(true);
+                throw error;
+            }
             chrono.etape('reponses_ao (dossier + jointures)');
 
             if (data) {
@@ -2165,11 +2178,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             chrono.terminer();
         } catch (err) {
             console.error('Error in fetchTenderFromDB:', err);
-            // Le dossier n'a pas pu être lu (RLS : 406 « aucune ligne »). Sans
-            // ce drapeau, `formData` restait aux valeurs par défaut et l'écran
-            // affichait un appel d'offres VIDE, indiscernable d'un dossier
-            // neuf — l'utilisateur croyait à une perte de données.
-            setAccesRefuse(true);
+            // On ne condamne PAS l'écran ici : ce catch couvre aussi les étapes
+            // secondaires (groupements, spécialités, référents, fichiers). Une
+            // erreur passagère sur l'une d'elles ne signifie pas que le dossier
+            // est inaccessible — le drapeau est posé plus haut, au seul endroit
+            // qui le prouve : l'échec de lecture de `reponses_ao`.
             chrono.terminer();
         } finally {
             setLoading(false);
