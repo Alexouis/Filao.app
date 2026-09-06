@@ -357,13 +357,23 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     const adresseDejaUtilisee = Array.isArray(authData.user.identities)
                         && authData.user.identities.length === 0;
 
-                    if (!adresseDejaUtilisee) {
-                        // Send branded confirmation email via Brevo
-                        // (fire-and-forget — Supabase email is fallback)
-                        supabase.functions.invoke('send-confirmation-email', {
-                            body: { email },
-                        }).catch((e) => console.warn('send-confirmation-email failed:', e));
-                    }
+                    // ── E-mail de confirmation : UN SEUL générateur ──
+                    //
+                    // On ne déclenche plus `send-confirmation-email` ici.
+                    //
+                    // Cette fonction appelait `generateLink`, qui produit un
+                    // nouveau jeton et INVALIDE celui que `signUp` vient
+                    // d'émettre avec l'e-mail natif. Résultat observé en test :
+                    // l'inscrit reçoit l'e-mail natif (jeton A), clique, et
+                    // obtient « Lien invalide » — parce qu'un jeton B l'a
+                    // remplacé une seconde plus tard. Le renvoi depuis la page
+                    // d'erreur, lui, fonctionnait : il passe par `auth.resend`,
+                    // sans second générateur derrière.
+                    //
+                    // Le template natif du projet pointe déjà vers `/confirmer`
+                    // avec `{{ .TokenHash }}` — la page qui exige un clic, donc
+                    // protégée des analyseurs de liens. C'est le seul chemin
+                    // conservé, identique à celui du renvoi.
 
                     setRegisteredEmail(email);
                     if (!adresseDejaUtilisee) track('inscription_terminee', {});
