@@ -52,19 +52,26 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
      * en un seul appel. Extrait dans sa propre fonction : les dossiers
      * arrivent par deux chemins — le cache, synchrone, et la requête réseau.
      */
-    const chargerAvancement = async (liste: Tender[]) => {
-        try {
-            const ids = liste.map(t => t.id).filter(Boolean);
-            const { data: avancements, error } = ids.length > 0
-                ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
-                : { data: [], error: null };
-            if (error) throw error;
-            setProgressionDossiers(progressionParDossier(avancements as any));
-        } catch (error) {
-            console.warn('Avancement des dossiers indisponible :', error);
-            setProgressionDossiers({});
-        }
-    };
+    // Piloté par la liste, et non par la requête réseau : les dossiers
+    // arrivent aussi par le cache, auquel cas la requête n'est pas rejouée et
+    // l'avancement n'aurait jamais été demandé.
+    useEffect(() => {
+        let annule = false;
+        (async () => {
+            try {
+                const ids = tenders.map(t => t.id).filter(Boolean);
+                const { data, error } = ids.length > 0
+                    ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
+                    : { data: [], error: null };
+                if (error) throw error;
+                if (!annule) setProgressionDossiers(progressionParDossier(data as any));
+            } catch (error) {
+                console.warn('Avancement des dossiers indisponible :', error);
+                if (!annule) setProgressionDossiers({});
+            }
+        })();
+        return () => { annule = true; };
+    }, [tenders.map(t => t.id).join(',')]);
     const [loading, setLoading] = useState(!cachedTenders);
     // Échec du chargement : évite d'afficher un calendrier vide trompeur.
     const [loadError, setLoadError] = useState(false);
@@ -147,8 +154,33 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             });
 
             if (error) {
-                // Supabase invoke returns function errors (like 400) in the error object
-                const errorMsg = typeof error === 'string' ? error : (error.message || "Erreur de synchronisation");
+                // Le message utile est dans le CORPS de la réponse, pas dans
+                // `error.message` : `functions.invoke` renvoie un
+                // `FunctionsHttpError` au message générique (« Edge Function
+                // returned a non-2xx status code »). Sans cette lecture, aucun
+                // des tests ci-dessous ne pouvait matcher, et une situation
+                // normale — pas d'intégration Google, session expirée —
+                // finissait dans la branche « Erreur de synchronisation »,
+                // avec une trace alarmante en console.
+                let errorMsg = typeof error === 'string' ? error : (error.message || "Erreur de synchronisation");
+                const reponse = (error as any)?.context;
+                if (reponse && typeof reponse.json === 'function') {
+                    try {
+                        const corps = await reponse.json();
+                        if (corps?.error) errorMsg = String(corps.error);
+                    } catch {
+                        // Corps illisible : on garde le message générique.
+                    }
+                }
+
+                // Absence d'intégration : ce n'est pas une panne, c'est un
+                // compte simplement non connecté à Google. On repasse l'état à
+                // « non connecté » sans rien journaliser.
+                if (errorMsg.includes('Intégration Google non trouvée')) {
+                    setHasGoogleCalendar(false);
+                    setGoogleSyncError(null);
+                    return;
+                }
                 if (errorMsg.includes("Permissions insuffisantes") || errorMsg.includes("scope")) {
                     setGoogleSyncError("Permissions insuffisantes pour l'agenda.");
                 } else if (errorMsg.includes("Session Google expirée") || errorMsg.includes("reconnexion requise")) {
@@ -231,7 +263,6 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             });
             setTenders(visible);
 
-            chargerAvancement(visible);
             setLoading(false);
         } else {
             fetchTenders();
@@ -287,7 +318,6 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             });
 
             setTenders(visibleTenders);
-            chargerAvancement(visibleTenders);
             if (onTendersLoad) {
                 onTendersLoad(visibleTenders);
             }

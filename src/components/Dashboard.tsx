@@ -274,20 +274,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       // qu'incrémenté — jamais décrémenté à la suppression, et incrémenté même
       // lors d'un remplacement — et affichait 100 % pour un dossier à 21 %.
       // Un seul appel pour toute la liste.
-      try {
-        const ids = visibleTenders.map(t => t.id).filter(Boolean);
-        const { data: avancements, error: errAvancement } = ids.length > 0
-          ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
-          : { data: [], error: null };
-        if (errAvancement) throw errAvancement;
-        setProgressionDossiers(progressionParDossier(avancements as any));
-      } catch (errAvancement) {
-        // On note l'échec sans retomber sur `nb_fichiers_recus` : ce compteur
-        // dérive vers le haut et affichait 100 % pour un dossier à 53 %.
-        // Mieux vaut une barre neutre qu'un chiffre faux.
-        console.warn('Avancement des dossiers indisponible :', errAvancement);
-        setProgressionDossiers({});
-      }
 
       if (onTendersLoad) {
         onTendersLoad(visibleTenders);
@@ -393,6 +379,38 @@ export const Dashboard: React.FC<DashboardProps> = ({
    * la policy de stockage limite au dossier de chacun.
    */
   const [progressionDossiers, setProgressionDossiers] = useState<Record<string, Progression> | null>(null);
+
+  /**
+   * Charge l'avancement dès que la liste des dossiers est connue.
+   *
+   * Piloté par `tenders` et non par la requête réseau : les dossiers arrivent
+   * par DEUX chemins — le cache (`cachedTenders`, synchrone) et la requête.
+   * En revenant sur le tableau de bord depuis un autre écran, seul le cache
+   * s'applique, `fetchTenders` n'est pas rejouée, et l'avancement n'était donc
+   * jamais demandé : aucun pourcentage ne s'affichait.
+   */
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      try {
+        const ids = tenders.map(t => t.id).filter(Boolean);
+        const { data, error } = ids.length > 0
+          ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
+          : { data: [], error: null };
+        if (error) throw error;
+        if (!annule) setProgressionDossiers(progressionParDossier(data as any));
+      } catch (error) {
+        // On n'utilise pas `nb_fichiers_recus` en repli : ce compteur dérive
+        // vers le haut et affichait 100 % pour un dossier à 53 %. Une barre
+        // neutre est préférable à un chiffre faux.
+        console.warn('Avancement des dossiers indisponible :', error);
+        if (!annule) setProgressionDossiers({});
+      }
+    })();
+    return () => { annule = true; };
+    // Sur les identifiants, pas sur les objets : `tenders` est recréé à chaque
+    // rendu et relancerait la requête en boucle.
+  }, [tenders.map(t => t.id).join(',')]);
 
   // --- PROGRESSION ---
   //
