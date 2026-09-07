@@ -120,3 +120,49 @@ export const progressionPertinente = (tender: Tender): boolean => {
   const s = getEffectiveStatus(tender);
   return s === STATUSES.on || s === STATUSES.draft;
 };
+
+/** Une ligne de `avancement_dossiers` : un membre d'un dossier. */
+export interface LigneAvancement {
+  tender_id: string;
+  cle_membre: string;
+  role_membre: string | null;
+  statut_membre: string | null;
+  pieces_recues: number;
+}
+
+/**
+ * Agrège les lignes de `avancement_dossiers` en une progression par dossier.
+ *
+ * Le serveur fournit QUI est membre et COMBIEN il a déposé ; la grille des
+ * pièces attendues reste ici, dans `REQUIRED_DOCS_BY_ROLE`. Les écrans de
+ * liste (tableau de bord, calendrier) partagent ainsi exactement la règle de
+ * l'écran du dossier — c'est ce qui manquait quand chacun calculait sa propre
+ * fraction.
+ *
+ * Le nombre reçu est borné au nombre d'emplacements attendus : un dépôt hors
+ * grille ne doit pas faire dépasser 100 %.
+ */
+export const progressionParDossier = (
+  lignes: LigneAvancement[] | null | undefined
+): Record<string, Progression> => {
+  const parDossier: Record<string, { recues: number; attendues: number }> = {};
+
+  (lignes || []).forEach(l => {
+    if (!l?.tender_id) return;
+    if (!membreComptabilise({ role: l.role_membre, statut: l.statut_membre })) return;
+
+    const attendues = piecesAttenduesPourRole(l.role_membre);
+    const recues = Math.min(Number(l.pieces_recues) || 0, attendues);
+
+    const acc = parDossier[l.tender_id] || { recues: 0, attendues: 0 };
+    acc.recues += recues;
+    acc.attendues += attendues;
+    parDossier[l.tender_id] = acc;
+  });
+
+  const resultat: Record<string, Progression> = {};
+  Object.entries(parDossier).forEach(([id, { recues, attendues }]) => {
+    resultat[id] = calculerProgression(recues, attendues);
+  });
+  return resultat;
+};

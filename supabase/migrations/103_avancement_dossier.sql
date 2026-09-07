@@ -91,24 +91,44 @@ REVOKE ALL ON FUNCTION public.avancement_dossier(UUID) FROM anon;
 GRANT EXECUTE ON FUNCTION public.avancement_dossier(UUID) TO authenticated;
 
 -- ---------------------------------------------------------------
--- Variante groupée, pour le tableau de bord
+-- Variante groupée : composition ET avancement, pour les listes
 -- ---------------------------------------------------------------
--- Le tableau de bord affiche plusieurs dossiers à la fois : un appel par
--- dossier ferait autant d'allers-retours. Cette variante renvoie le TOTAL de
--- pièces par dossier, pour une liste d'identifiants, en une seule requête.
+-- Le tableau de bord et le calendrier affichent plusieurs dossiers : un appel
+-- par dossier ferait autant d'allers-retours.
 --
--- Elle remplace la lecture de `nb_fichiers_recus`, un compteur dénormalisé qui
--- n'était qu'incrémenté — jamais décrémenté à la suppression, et incrémenté
--- même lors d'un remplacement. Il dérivait vers le haut, et le tableau de bord
--- affichait 100 % pour un dossier réellement à 21 %.
+-- Cette fonction ne renvoie pas qu'un total : elle renvoie la COMPOSITION de
+-- chaque groupement, une ligne par membre, avec ses pièces reçues. C'est
+-- nécessaire, car le dénominateur divergeait autant que le numérateur :
+--   - le tableau de bord ne lisait que `groupements` ;
+--   - l'écran du dossier fusionne `groupements` ET `invitations`.
+-- Un partenaire venu d'une invitation manquait donc au dénominateur du
+-- tableau de bord : 10/14 = 71 % au lieu de 10/19 = 53 %.
 --
--- Le filtrage d'accès est le même que ci-dessus, appliqué dossier par dossier :
--- un identifiant auquel l'appelant n'a pas droit est simplement absent du
--- résultat, sans erreur — la liste peut contenir des dossiers hétérogènes.
+-- Le nombre de pièces attendues par rôle n'est PAS calculé ici : il vit dans
+-- `REQUIRED_DOCS_BY_ROLE` côté application, et le dupliquer en SQL créerait
+-- exactement le genre de double source qu'on est en train de supprimer. Le
+-- serveur dit QUI est membre et COMBIEN il a déposé ; l'application applique
+-- la grille des pièces attendues.
+
+-- ⚠️ Suppression préalable indispensable.
+--
+-- Une première version de cette fonction renvoyait `(tender_id, pieces_recues)`
+-- — un simple total par dossier. Elle ne suffisait pas : le dénominateur
+-- divergeait autant que le numérateur, faute de connaître la composition du
+-- groupement. La nouvelle version renvoie une ligne PAR MEMBRE.
+--
+-- PostgreSQL refuse de changer le type de retour d'une fonction par
+-- `CREATE OR REPLACE` (« cannot change return type of existing function ») :
+-- il faut la supprimer d'abord. Sans ce DROP, la migration échoue sur les
+-- projets où la première version a déjà été déployée.
+DROP FUNCTION IF EXISTS public.avancement_dossiers(UUID[]);
 
 CREATE OR REPLACE FUNCTION public.avancement_dossiers(p_tender_ids UUID[])
 RETURNS TABLE (
   tender_id     UUID,
+  cle_membre    TEXT,
+  role_membre   TEXT,
+  statut_membre TEXT,
   pieces_recues INT
 )
 LANGUAGE plpgsql
@@ -124,7 +144,9 @@ BEGIN
 
   RETURN QUERY
   WITH autorises AS (
-    SELECT id
+    -- Un identifiant auquel l'appelant n'a pas droit est simplement absent du
+    -- résultat, sans erreur : la liste peut mêler des dossiers hétérogènes.
+    SELECT r.id
       FROM reponses_ao r
      WHERE r.id = ANY(p_tender_ids)
        AND (
@@ -132,20 +154,63 @@ BEGIN
          OR app.est_convie(r.id)
          OR app.peut_ecrire_dossier(r.id)
        )
+  ),
+  membres AS (
+    -- Membres par ENTREPRISE. Les pièces étant rangées par déposant, on
+    -- rattache à l'entreprise toutes les adresses de ses comptes.
+    SELECT a.id                                   AS tender_id,
+           'g:' || g.entreprise_id::text          AS cle_membre,
+           g.role_groupement                      AS role_membre,
+           g.statut                               AS statut_membre,
+           ARRAY(
+             SELECT lower(u.email) FROM utilisateurs u
+              WHERE u.entreprise_id = g.entreprise_id AND u.email IS NOT NULL
+           )                                      AS emails
+      FROM autorises a
+      JOIN groupements g ON g.projet_id = a.id
+
+    UNION ALL
+
+    -- Invitations nominatives sans groupement : le partenaire n'a pas encore
+    -- d'entreprise rattachée au dossier, mais il peut déjà déposer.
+    SELECT a.id,
+           'i:' || lower(i.email),
+           COALESCE(i.role, 'Co-traitant'),
+           CASE i.status
+             WHEN 'accepted' THEN 'accepte'
+             WHEN 'refused'  THEN 'refuse'
+             ELSE 'invite'
+           END,
+           ARRAY[lower(i.email)]
+      FROM autorises a
+      JOIN invitations i ON i.tender_id = a.id
+     WHERE i.revoked_at IS NULL
+       AND i.email IS NOT NULL
+       -- Pas de doublon avec la branche « entreprise » ci-dessus.
+       AND NOT EXISTS (
+         SELECT 1 FROM groupements g2
+          JOIN utilisateurs u2 ON u2.entreprise_id = g2.entreprise_id
+         WHERE g2.projet_id = a.id AND lower(u2.email) = lower(i.email)
+       )
   )
-  SELECT a.id,
-         count(o.name)::int
-    FROM autorises a
-    LEFT JOIN storage.objects o
-           ON o.bucket_id = 'documents'
-          AND array_length(storage.foldername(o.name), 1) = 1
-          AND o.name LIKE '%-' || a.id::text
-   GROUP BY a.id;
+  SELECT m.tender_id,
+         m.cle_membre,
+         m.role_membre,
+         m.statut_membre,
+         (
+           SELECT count(*)::int
+             FROM storage.objects o
+            WHERE o.bucket_id = 'documents'
+              AND array_length(storage.foldername(o.name), 1) = 1
+              AND lower((storage.foldername(o.name))[1]) = ANY(m.emails)
+              AND o.name LIKE '%-' || m.tender_id::text
+         ) AS pieces_recues
+    FROM membres m;
 END;
 $$;
 
 COMMENT ON FUNCTION public.avancement_dossiers(UUID[]) IS
-  'Total de pièces déposées par dossier, pour une liste d''identifiants. Même règle d''accès que avancement_dossier ; les dossiers non autorisés sont omis.';
+  'Composition et avancement de plusieurs dossiers : une ligne par membre, avec ses pièces déposées. Mêmes règles d''accès que avancement_dossier.';
 
 REVOKE ALL ON FUNCTION public.avancement_dossiers(UUID[]) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.avancement_dossiers(UUID[]) FROM anon;

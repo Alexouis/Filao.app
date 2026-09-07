@@ -11,7 +11,7 @@ import {
 import { chargerForfaits, forfait, illimite } from '@/helpers/planLimits';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
-import { progressionDossier } from '@/helpers/progressionHelpers';
+import { progressionParDossier, Progression } from '@/helpers/progressionHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { Plus, Clock, TrendingUp, TrendingDown, Minus, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -276,20 +276,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
       // Un seul appel pour toute la liste.
       try {
         const ids = visibleTenders.map(t => t.id).filter(Boolean);
-        if (ids.length > 0) {
-          const { data: avancements, error: errAvancement } = await supabase
-            .rpc('avancement_dossiers', { p_tender_ids: ids });
-          if (errAvancement) throw errAvancement;
-          const parDossier: Record<string, number> = {};
-          (avancements ?? []).forEach((l: any) => {
-            if (l?.tender_id) parDossier[l.tender_id] = Number(l.pieces_recues) || 0;
-          });
-          setPiecesParDossier(parDossier);
-        }
+        const { data: avancements, error: errAvancement } = ids.length > 0
+          ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
+          : { data: [], error: null };
+        if (errAvancement) throw errAvancement;
+        setProgressionDossiers(progressionParDossier(avancements as any));
       } catch (errAvancement) {
-        // Sans ces compteurs, la progression retombe sur l'ancien champ :
-        // imparfait, mais l'écran reste utilisable.
+        // On note l'échec sans retomber sur `nb_fichiers_recus` : ce compteur
+        // dérive vers le haut et affichait 100 % pour un dossier à 53 %.
+        // Mieux vaut une barre neutre qu'un chiffre faux.
         console.warn('Avancement des dossiers indisponible :', errAvancement);
+        setProgressionDossiers({});
       }
 
       if (onTendersLoad) {
@@ -395,7 +392,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
    * tous les membres d'un groupement, contrairement à un comptage local que
    * la policy de stockage limite au dossier de chacun.
    */
-  const [piecesParDossier, setPiecesParDossier] = useState<Record<string, number>>({});
+  const [progressionDossiers, setProgressionDossiers] = useState<Record<string, Progression> | null>(null);
 
   // --- PROGRESSION ---
   //
@@ -404,12 +401,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // dénormalisé `nb_fichiers_recus`, que l'écran du dossier resynchronise à
   // chaque ouverture avec le comptage réel. Le dénominateur, lui, obéit à la
   // même règle des deux côtés : porteur + membres acceptés.
-  const getProgress = (tender: Tender): number => {
-    const groupements: any[] = Array.isArray(tender.groupements) ? tender.groupements : [];
-    const porteurDansGroupements = groupements.some((g: any) => g.role_groupement === 'Mandataire');
-    // Compteur serveur si disponible, sinon l'ancien champ en repli.
-    const recues = piecesParDossier[tender.id] ?? ((tender as any).nb_fichiers_recus || 0);
-    return progressionDossier(groupements, recues, porteurDansGroupements).percent;
+  /**
+   * Progression d'un dossier, telle que le serveur la voit.
+   *
+   * `null` tant que les données ne sont pas revenues : l'écran affiche alors
+   * une barre neutre plutôt qu'un chiffre. C'est ce qui manquait — en
+   * l'absence de données on retombait sur `nb_fichiers_recus`, un compteur
+   * dénormalisé qui n'était jamais décrémenté, d'où le « 100 % » qui
+   * apparaissait en arrivant sur le tableau de bord sans recharger.
+   */
+  const getProgress = (tender: Tender): number | null => {
+    if (progressionDossiers === null) return null;
+    return progressionDossiers[tender.id]?.percent ?? 0;
   };
 
   // --- DYNAMIC DATA ---
@@ -581,14 +584,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             <div className="flex justify-between text-xs mb-2">
                               <span className="font-semibold text-[#00A3E0] uppercase tracking-wide">{getEffectiveStatus(tender)}</span>
                               <span className="font-bold text-[#0B1F38]">
-                                {/* Display percentage */}
-                                {progress}%
+                                {/* Tant que l'avancement n'est pas revenu du
+                                    serveur, on n'affiche AUCUN chiffre : une
+                                    valeur provisoire fausse est pire qu'une
+                                    absence de valeur. */}
+                                {progress === null ? '—' : `${progress}%`}
                               </span>
                             </div>
                             <div className="w-full bg-[#0B1F38]/10 rounded-full h-2.5 overflow-hidden">
                               <div
                                 className={`h-2.5 rounded-full transition-all duration-1000 shadow-sm ${progress === 100 ? 'bg-green-500' : 'bg-[#00A3E0]'}`}
-                                style={{ width: `${progress}%` }}
+                                style={{ width: `${progress ?? 0}%` }}
                               ></div>
                             </div>
                           </div>

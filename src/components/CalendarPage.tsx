@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
 import { ErrorState } from './ui/StateViews';
-import { PLANS_CONFIG, PLANS_TYPES, PlanType, REQUIRED_DOCS_BY_ROLE, UserProfile } from '../config';
+import { PLANS_CONFIG, PLANS_TYPES, PlanType, UserProfile } from '../config';
+import { progressionParDossier, Progression } from '../helpers/progressionHelpers';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { supabase } from '../lib/supabaseClient';
@@ -43,6 +44,27 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const [tenders, setTenders] = useState<Tender[]>(cachedTenders || []);
+    /** Avancement par dossier, vu du serveur. `null` = pas encore chargé. */
+    const [progressionDossiers, setProgressionDossiers] = useState<Record<string, Progression> | null>(null);
+
+    /**
+     * Charge l'avancement partagé (RPC `avancement_dossiers`, migration 103)
+     * en un seul appel. Extrait dans sa propre fonction : les dossiers
+     * arrivent par deux chemins — le cache, synchrone, et la requête réseau.
+     */
+    const chargerAvancement = async (liste: Tender[]) => {
+        try {
+            const ids = liste.map(t => t.id).filter(Boolean);
+            const { data: avancements, error } = ids.length > 0
+                ? await supabase.rpc('avancement_dossiers', { p_tender_ids: ids })
+                : { data: [], error: null };
+            if (error) throw error;
+            setProgressionDossiers(progressionParDossier(avancements as any));
+        } catch (error) {
+            console.warn('Avancement des dossiers indisponible :', error);
+            setProgressionDossiers({});
+        }
+    };
     const [loading, setLoading] = useState(!cachedTenders);
     // Échec du chargement : évite d'afficher un calendrier vide trompeur.
     const [loadError, setLoadError] = useState(false);
@@ -208,6 +230,8 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                 return true;
             });
             setTenders(visible);
+
+            chargerAvancement(visible);
             setLoading(false);
         } else {
             fetchTenders();
@@ -263,6 +287,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             });
 
             setTenders(visibleTenders);
+            chargerAvancement(visibleTenders);
             if (onTendersLoad) {
                 onTendersLoad(visibleTenders);
             }
@@ -275,28 +300,22 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     };
 
     // --- PROGRESS LOGIC ---
-    const getProgress = (tender: Tender) => {
-        const getCountForRole = (role: string) => (REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || []).length;
-
-        let collabsDocsCount = 0;
-
-        if (tender.groupements && Array.isArray(tender.groupements)) {
-            tender.groupements.forEach((g: any) => {
-                if (g.role_groupement) {
-                    collabsDocsCount += getCountForRole(g.role_groupement);
-                }
-            });
-        }
-
-        if (!tender.groupements || tender.groupements.length === 0) {
-            collabsDocsCount = getCountForRole("Mandataire");
-        }
-
-        const totalExpected = collabsDocsCount;
-        const totalReceived = tender.nb_fichiers_recus || 0;
-
-        if (totalExpected === 0) return 0;
-        return Math.min(100, Math.round((totalReceived / totalExpected) * 100));
+    /**
+     * Progression d'un dossier — MÊME RÈGLE que le tableau de bord et l'écran
+     * du dossier (`progressionHelpers`).
+     *
+     * Le calendrier portait une TROISIÈME copie du calcul, qui comptait les
+     * seules lignes `groupements` (sans tenir compte du statut) au
+     * dénominateur et le compteur dénormalisé `nb_fichiers_recus` au
+     * numérateur. Ce compteur n'étant jamais décrémenté, il affichait 100 %
+     * pour un dossier à moitié rempli.
+     *
+     * `null` tant que le serveur n'a pas répondu : on affiche alors une barre
+     * neutre plutôt qu'un chiffre provisoire faux.
+     */
+    const getProgress = (tender: Tender): number | null => {
+        if (progressionDossiers === null) return null;
+        return progressionDossiers[tender.id]?.percent ?? 0;
     };
 
     // --- NAVIGATION ---
@@ -517,12 +536,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                                 <span className={`truncate text-xs font-bold ${evt.type === 'google_event' ? 'text-[#00A3E0]' : 'text-[#0B1F38]'}`}>{evt.label}</span>
                                                 {/* Progress Number displayed as in dashboard */}
                                                 {evt.type !== 'google_event' && evt.type !== 'jalon' && (
-                                                    <span className="font-bold text-[#0B1F38] text-[9px] shrink-0">{evt.progress}%</span>
+                                                    <span className="font-bold text-[#0B1F38] text-[9px] shrink-0">{evt.progress === null ? '—' : `${evt.progress}%`}</span>
                                                 )}
                                             </div>
                                             {evt.type !== 'google_event' && evt.type !== 'jalon' && (
                                                 <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-0.5 overflow-hidden">
-                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress}%` }}></div>
+                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress ?? 0}%` }}></div>
                                                 </div>
                                             )}
                                         </div>
@@ -574,13 +593,13 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                         >
                                             <div className="flex justify-between items-start">
                                                 <span className="font-bold text-[#0B1F38] text-sm truncate leading-tight">{evt.label}</span>
-                                                {evt.type !== 'jalon' && <span className="font-bold text-[#0B1F38] text-xs shrink-0">{evt.progress}%</span>}
+                                                {evt.type !== 'jalon' && <span className="font-bold text-[#0B1F38] text-xs shrink-0">{evt.progress === null ? '—' : `${evt.progress}%`}</span>}
                                             </div>
                                             {/* Un jalon n'a pas d'avancement chiffré : la barre
                                                 afficherait une progression inventée. */}
                                             {evt.type !== 'jalon' && (
                                                 <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
-                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress}%` }}></div>
+                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress ?? 0}%` }}></div>
                                                 </div>
                                             )}
                                             {evt.type === 'jalon' ? (

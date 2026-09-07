@@ -21,7 +21,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
-import { calculerProgression, piecesAttenduesPourRole, libelleStatut } from '../helpers/progressionHelpers';
+import { calculerProgression, piecesAttenduesPourRole, libelleStatut, membreComptabilise } from '../helpers/progressionHelpers';
 import { lienExterne } from '../helpers/textHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ContextEditModal } from './ContextEditModal';
@@ -4308,6 +4308,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             let totalDocs = 0;
             let receivedDocs = 0;
             activeMembers.forEach((m, i) => {
+                // Seuls les membres ENGAGÉS pèsent dans l'avancement global :
+                // porteur et partenaires ayant accepté. Un invité qui n'a pas
+                // répondu n'a pas de pièces à fournir — le compter gonflait le
+                // dénominateur ici alors que les écrans de liste l'ignoraient,
+                // d'où deux pourcentages pour un même dossier.
+                // Sa ligne reste affichée : c'est l'agrégat qui l'exclut.
+                if (!membreComptabilise({ role: m.role, statut: m.status, estPorteur: m.is_owner })) return;
                 const p = getMemberProgress(m, i);
                 totalDocs += p.total;
                 receivedDocs += p.received;
