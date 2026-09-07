@@ -146,7 +146,10 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     const fetchGoogleEvents = async (supabaseToken: string) => {
         try {
             setGoogleSyncError(null);
-            const { data, error } = await supabase.functions.invoke('sync-google-calendar', {
+            // `response` est la réponse HTTP brute : `invoke` la renvoie à côté
+            // de l'erreur. C'est la source la plus sûre du message serveur —
+            // `error.message` reste générique (« non-2xx status code »).
+            const { data, error, response } = await supabase.functions.invoke('sync-google-calendar', {
                 body: { action: 'pull_events' },
                 headers: {
                     Authorization: `Bearer ${supabaseToken}`
@@ -163,13 +166,26 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                 // finissait dans la branche « Erreur de synchronisation »,
                 // avec une trace alarmante en console.
                 let errorMsg = typeof error === 'string' ? error : (error.message || "Erreur de synchronisation");
-                const reponse = (error as any)?.context;
-                if (reponse && typeof reponse.json === 'function') {
-                    try {
-                        const corps = await reponse.json();
-                        if (corps?.error) errorMsg = String(corps.error);
-                    } catch {
-                        // Corps illisible : on garde le message générique.
+                // `response` d'abord, `error.context` en repli selon la version
+                // de `supabase-js`.
+                const reponse: any = (response as any) ?? (error as any)?.context;
+
+                // Lecture en deux temps : `clone()` d'abord, car `supabase-js`
+                // a pu consommer le flux pour construire l'erreur — un corps
+                // déjà lu ne peut plus l'être, et `.json()` échoue en silence.
+                // À défaut de JSON, on lit le texte brut : mieux vaut un
+                // message imparfait que le générique « non-2xx status code ».
+                if (reponse) {
+                    for (const lire of [
+                        async () => (await reponse.clone().json())?.error,
+                        async () => await reponse.clone().text(),
+                    ]) {
+                        try {
+                            const brut = await lire();
+                            if (brut) { errorMsg = String(brut); break; }
+                        } catch {
+                            // On tente la lecture suivante.
+                        }
                     }
                 }
 
@@ -186,7 +202,10 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                 } else if (errorMsg.includes("Session Google expirée") || errorMsg.includes("reconnexion requise")) {
                     setGoogleSyncError("Session Google expirée. Reconnexion requise.");
                 } else {
-                    console.error('Sync function error from invoke:', error);
+                    // Message du SERVEUR, pas la trace React : c'est lui qui
+                    // dit ce qui ne va pas. La trace complète n'apprenait rien
+                    // et noyait la console.
+                    console.warn('Synchronisation Google refusée :', errorMsg);
                     setGoogleSyncError("Erreur de synchronisation");
                 }
                 return;
