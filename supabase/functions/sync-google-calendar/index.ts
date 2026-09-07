@@ -194,8 +194,37 @@ Deno.serve(async (req) => {
       })
       if (!fetchResp.ok) {
         const fetchErr = await fetchResp.text()
-        console.error('Pull events failed:', fetchErr)
-        throw new Error('Impossible de récupérer les événements Google.')
+        console.error('Pull events failed:', fetchResp.status, fetchErr)
+
+        // Le message renvoyé au client disait seulement « Impossible de
+        // récupérer les événements Google ». Le motif réel restait dans les
+        // logs de la fonction, invisible depuis l'application : impossible de
+        // distinguer un jeton périmé d'un agenda supprimé, et donc de dire à
+        // l'utilisateur quoi faire.
+        //
+        // On qualifie les trois cas courants, en reprenant les libellés que le
+        // client sait déjà interpréter.
+        if (fetchResp.status === 401) {
+          throw new Error('Session Google expirée (jeton refusé), reconnexion requise.')
+        }
+        if (fetchResp.status === 403) {
+          throw new Error('Permissions insuffisantes (Calendrier). Autorisez l\'accès au calendrier dans vos paramètres.')
+        }
+        if (fetchResp.status === 404) {
+          // L'agenda mémorisé n'existe plus (supprimé côté Google). On oublie
+          // la référence : le prochain appel recréera l'agenda Filao au lieu
+          // d'échouer indéfiniment sur un identifiant mort.
+          await supabaseClient
+            .from('user_integrations')
+            .update({ meta: { ...(integration.meta ?? {}), calendar_id: null } })
+            .eq('user_id', user.id)
+            .eq('provider', 'google')
+          throw new Error('Agenda Filao introuvable côté Google : il sera recréé au prochain essai.')
+        }
+
+        let detail = ''
+        try { detail = JSON.parse(fetchErr)?.error?.message ?? '' } catch { detail = '' }
+        throw new Error(`Impossible de récupérer les événements Google${detail ? ` : ${detail}` : ` (HTTP ${fetchResp.status})`}.`)
       }
       
       const eventsData = await fetchResp.json()
