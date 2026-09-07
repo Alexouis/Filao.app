@@ -40,6 +40,11 @@ import {
 
 import { lienExterne } from '../src/helpers/textHelpers.ts';
 
+import {
+  piecesAttenduesPourRole, membreComptabilise, piecesAttendues,
+  calculerProgression, progressionDossier, libelleStatut,
+} from '../src/helpers/progressionHelpers.ts';
+
 import { STATUSES } from '../src/config.ts';
 
 // ---------------------------------------------------------------------------
@@ -380,4 +385,59 @@ test('lienExterne : ne propage pas un schéma dangereux', () => {
   assert.doesNotMatch(lienExterne('data:text/html,<script>'), /^data:/i);
   // On repasse par https sur la partie lisible.
   assert.match(lienExterne('javascript:alert(1)'), /^https:\/\//);
+});
+
+// ===========================================================================
+// 12. PROGRESSION — règle unique dashboard / dossier
+// ===========================================================================
+test('piecesAttenduesPourRole : mandataire > cotraitant, rôle inconnu = cotraitant', () => {
+  const m = piecesAttenduesPourRole('Mandataire');
+  const c = piecesAttenduesPourRole('Co-traitant');
+  assert.ok(m > 0 && c > 0);
+  assert.ok(m > c);
+  assert.equal(piecesAttenduesPourRole('Inconnu'), c);
+  assert.equal(piecesAttenduesPourRole(null), c);
+});
+test('membreComptabilise : porteur et acceptés seulement', () => {
+  assert.equal(membreComptabilise({ estPorteur: true }), true);
+  assert.equal(membreComptabilise({ statut: 'accepte' }), true);
+  assert.equal(membreComptabilise({ statut: 'invite' }), false);
+  assert.equal(membreComptabilise({ statut: 'refuse' }), false);
+  assert.equal(membreComptabilise({}), false);
+});
+test('piecesAttendues : ignore invités et refusés', () => {
+  const c = piecesAttenduesPourRole('Co-traitant');
+  const m = piecesAttenduesPourRole('Mandataire');
+  const total = piecesAttendues([
+    { role: 'Mandataire', estPorteur: true },
+    { role: 'Co-traitant', statut: 'accepte' },
+    { role: 'Co-traitant', statut: 'invite' },   // ne compte pas
+    { role: 'Co-traitant', statut: 'refuse' },   // ne compte pas
+  ]);
+  assert.equal(total, m + c);
+});
+test('calculerProgression : bornée, entière, 0 si rien attendu', () => {
+  assert.deepEqual(calculerProgression(4, 19), { recues: 4, attendues: 19, percent: 21 });
+  assert.equal(calculerProgression(25, 19).percent, 100);   // compteur gonflé → plafonné
+  assert.equal(calculerProgression(-3, 10).recues, 0);
+  assert.equal(calculerProgression(0, 0).percent, 0);
+});
+test('progressionDossier : le porteur est ajouté s’il manque des groupements', () => {
+  const m = piecesAttenduesPourRole('Mandataire');
+  const c = piecesAttenduesPourRole('Co-traitant');
+  const avecPorteur = progressionDossier(
+    [{ role_groupement: 'Mandataire', statut: 'accepte' }, { role_groupement: 'Co-traitant', statut: 'accepte' }],
+    4, true);
+  const sansPorteur = progressionDossier(
+    [{ role_groupement: 'Co-traitant', statut: 'accepte' }],
+    4, false);
+  assert.equal(avecPorteur.attendues, m + c);
+  assert.equal(sansPorteur.attendues, m + c);
+  assert.equal(avecPorteur.percent, sansPorteur.percent);
+});
+test('libelleStatut : même libellé que la carte, expiration comprise', () => {
+  const t = (o: any): any => ({ id: 't', statut: STATUSES.on, date_limite: null, createur_id: 'u', ...o });
+  assert.equal(libelleStatut(t({})), STATUSES.on);                       // « En cours », pas « En préparation »
+  assert.equal(libelleStatut(t({ date_limite: isoDans(-2) })), STATUSES.expired);
+  assert.equal(libelleStatut(t({ statut: STATUSES.won })), STATUSES.won);
 });

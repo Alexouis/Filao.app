@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Tender, Groupement } from '../types';
+import { Tender } from '../types';
 import {
   STATUSES,
   UserProfile,
   PLANS_CONFIG,
   PLANS_TYPES,
   PlanType,
-  REQUIRED_DOCS_BY_ROLE // <--- Added this import
 } from '../config';
 import { chargerForfaits, forfait, illimite } from '@/helpers/planLimits';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
+import { progressionDossier } from '@/helpers/progressionHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { Plus, Clock, TrendingUp, TrendingDown, Minus, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -267,6 +267,31 @@ export const Dashboard: React.FC<DashboardProps> = ({
       setTenders(visibleTenders);
       calculateStats(visibleTenders);
 
+      // Avancement réel, vu du serveur (RPC `avancement_dossiers`,
+      // migration 103).
+      //
+      // Remplace la lecture de `nb_fichiers_recus` : ce compteur n'était
+      // qu'incrémenté — jamais décrémenté à la suppression, et incrémenté même
+      // lors d'un remplacement — et affichait 100 % pour un dossier à 21 %.
+      // Un seul appel pour toute la liste.
+      try {
+        const ids = visibleTenders.map(t => t.id).filter(Boolean);
+        if (ids.length > 0) {
+          const { data: avancements, error: errAvancement } = await supabase
+            .rpc('avancement_dossiers', { p_tender_ids: ids });
+          if (errAvancement) throw errAvancement;
+          const parDossier: Record<string, number> = {};
+          (avancements ?? []).forEach((l: any) => {
+            if (l?.tender_id) parDossier[l.tender_id] = Number(l.pieces_recues) || 0;
+          });
+          setPiecesParDossier(parDossier);
+        }
+      } catch (errAvancement) {
+        // Sans ces compteurs, la progression retombe sur l'ancien champ :
+        // imparfait, mais l'écran reste utilisable.
+        console.warn('Avancement des dossiers indisponible :', errAvancement);
+      }
+
       if (onTendersLoad) {
         onTendersLoad(visibleTenders);
       }
@@ -365,49 +390,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return "text-[#00A3E0] bg-[#00A3E0]/[0.04] border-[#00A3E0] border";
   };
 
-  // --- PROGRESS LOGIC (UPDATED) ---
-  const getProgress = (tender: Tender) => {
-    // 1. Helper to get doc count for a role
-    const getCountForRole = (role: string) => (REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || []).length;
+  /**
+   * Pièces réellement déposées par dossier, vues du serveur. Identique pour
+   * tous les membres d'un groupement, contrairement à un comptage local que
+   * la policy de stockage limite au dossier de chacun.
+   */
+  const [piecesParDossier, setPiecesParDossier] = useState<Record<string, number>>({});
 
-    // 3. Collaborators docs (from Groupements)
-    let collabsDocsCount = 0;
-
-    if (tender.groupements && Array.isArray(tender.groupements)) {
-      tender.groupements.forEach((g: Groupement) => {
-        // Skip if role is missing or if it's the creator's own company (already counted as Mandataire?)
-        // Actually, if creator is in groupements as 'Mandataire', we might double count if we aren't careful.
-        // But usually creator isn't in groupements table in legacy data? 
-        // In v3.1 creator IS in groupements table as Mandataire.
-
-        // If v3.1: Creator is in groupements.
-        // If we count "Mandataire" from groupements, we should NOT add "myDocsCount" separately relative to userProfile.
-        // OR we just iterate groupements.
-
-        // Let's rely on groupements if present.
-        if (g.role_groupement) {
-          collabsDocsCount += getCountForRole(g.role_groupement);
-        }
-      });
-    }
-
-    // If groupements is empty (legacy or not yet migrated fetch?), fallback to simple Mandataire count for creator
-    if (!tender.groupements || tender.groupements.length === 0) {
-      collabsDocsCount = getCountForRole("Mandataire");
-    }
-
-    // Total is sum of all groupement requirements
-    // Note: We removed the separate "myDocsCount" to avoid double counting if I am in groupements
-    const totalExpected = collabsDocsCount;
-
-    // 4. Calculate Total Received Files
-    // Important: We use the DB counter here, not tenderFiles.length (unavailable in dashboard view)
-    // Ensure your handleFileUpload/delete updates this column in the DB
-    const totalReceived = (tender as any).nb_fichiers_recus || 0;
-
-    // 5. Calculate Percentage
-    if (totalExpected === 0) return 0;
-    return Math.min(100, Math.round((totalReceived / totalExpected) * 100));
+  // --- PROGRESSION ---
+  //
+  // Règle unique, partagée avec l'écran du dossier (`progressionHelpers`).
+  // Le tableau de bord n'a pas la liste des fichiers : il lit le compteur
+  // dénormalisé `nb_fichiers_recus`, que l'écran du dossier resynchronise à
+  // chaque ouverture avec le comptage réel. Le dénominateur, lui, obéit à la
+  // même règle des deux côtés : porteur + membres acceptés.
+  const getProgress = (tender: Tender): number => {
+    const groupements: any[] = Array.isArray(tender.groupements) ? tender.groupements : [];
+    const porteurDansGroupements = groupements.some((g: any) => g.role_groupement === 'Mandataire');
+    // Compteur serveur si disponible, sinon l'ancien champ en repli.
+    const recues = piecesParDossier[tender.id] ?? ((tender as any).nb_fichiers_recus || 0);
+    return progressionDossier(groupements, recues, porteurDansGroupements).percent;
   };
 
   // --- DYNAMIC DATA ---

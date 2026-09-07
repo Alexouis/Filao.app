@@ -21,6 +21,7 @@ import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
+import { calculerProgression, piecesAttenduesPourRole, libelleStatut } from '../helpers/progressionHelpers';
 import { lienExterne } from '../helpers/textHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ContextEditModal } from './ContextEditModal';
@@ -402,6 +403,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const [docDCEASupprimer, setDocDCEASupprimer] = useState<any | null>(null);
     /** Le dossier demandé n'est pas lisible (droits insuffisants ou supprimé). */
     const [accesRefuse, setAccesRefuse] = useState(false);
+    /**
+     * Nombre de pièces déposées PAR PERSONNE, tel que le serveur le voit
+     * (RPC `avancement_dossier`, migration 103), indexé par e-mail en
+     * minuscules.
+     *
+     * Pourquoi ne pas compter les fichiers listés localement : la policy de
+     * stockage limite chacun à son propre dossier, seul le mandataire lit ceux
+     * de ses partenaires. Le comptage local donnait donc un « avancement
+     * global » différent selon le lecteur — 53 % pour le porteur, 21 % pour un
+     * cotraitant, sur le même dossier.
+     */
+    const [piecesParDepositaire, setPiecesParDepositaire] = useState<Record<string, number>>({});
     /** Changement de rôle risquant de masquer des pièces, en attente de confirmation. */
     const [changementRoleAConfirmer, setChangementRoleAConfirmer] =
         useState<{ role: string; appliquer: () => Promise<void> } | null>(null);
@@ -1610,6 +1623,62 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             setUploadedFiles(syncedFiles);
             setUploadProgress(syncedProgress);
             setUploadedFilePaths(syncedPaths);
+
+            // Avancement partagé : compteurs par déposant, vus du serveur.
+            //
+            // Indépendant de ce que le navigateur a le droit de lister, donc
+            // IDENTIQUE pour le mandataire et pour un cotraitant. Ne renvoie
+            // que des nombres, jamais des noms de fichiers : le cloisonnement
+            // du contenu reste entier.
+            try {
+                const { data: avancement, error: errAvancement } = await supabase
+                    .rpc('avancement_dossier', { p_tender_id: tId });
+                if (errAvancement) throw errAvancement;
+                const parDepositaire: Record<string, number> = {};
+                (avancement ?? []).forEach((l: any) => {
+                    if (l?.email_depositaire) {
+                        parDepositaire[String(l.email_depositaire).toLowerCase()] = Number(l.pieces_recues) || 0;
+                    }
+                });
+                setPiecesParDepositaire(parDepositaire);
+            } catch (errAvancement) {
+                // On garde l'affichage : à défaut, la progression retombe sur
+                // le comptage local, moins juste mais jamais bloquant.
+                console.warn('Avancement partagé indisponible :', errAvancement);
+            }
+
+            // Resynchronisation du compteur `nb_fichiers_recus`.
+            //
+            // Le tableau de bord n'a pas la liste des fichiers : il lit ce
+            // compteur dénormalisé pour afficher la progression. Or il n'était
+            // qu'incrémenté — jamais décrémenté à la suppression, et incrémenté
+            // même quand une pièce en remplaçait une autre. Il dérivait vers le
+            // haut, et le tableau de bord affichait 100 % pour un dossier à
+            // 21 %.
+            //
+            // Ici, on connaît le comptage RÉEL. On l'écrit, si le porteur
+            // (seul autorisé par la RLS à modifier `reponses_ao`) ouvre le
+            // dossier. Chaque ouverture remet ainsi le compteur d'aplomb, sans
+            // dépendre de la discipline des chemins d'écriture.
+            //
+            // Best-effort : un échec ici ne doit pas gêner l'affichage.
+            try {
+                const reelsRecus = Object.keys(syncedFiles).length;
+                const estPorteur = formData.createur_id ? formData.createur_id === userProfile?.id : false;
+                // `dernierNbFichiers` est la dernière valeur connue du compteur
+                // (celle que l'abonnement temps réel surveille). On l'aligne
+                // AVANT d'écrire : sinon notre propre mise à jour reviendrait
+                // par le canal temps réel et relancerait un chargement.
+                if (estPorteur && dernierNbFichiers.current !== reelsRecus) {
+                    dernierNbFichiers.current = reelsRecus;
+                    await supabase
+                        .from('reponses_ao')
+                        .update({ nb_fichiers_recus: reelsRecus })
+                        .eq('id', tId);
+                }
+            } catch (errSync) {
+                console.warn('Resynchronisation de nb_fichiers_recus impossible :', errSync);
+            }
         } catch (error) {
             console.error('Error loading files:', error);
         }
@@ -4204,16 +4273,37 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             || statutEffectif === STATUSES.expired;
 
         // --- PROGRESS: global + per member ---
+        // Progression : règle partagée avec le tableau de bord
+        // (`progressionHelpers`). Ici on dispose des fichiers réels, donc le
+        // numérateur est un comptage, pas un compteur.
         const getMemberProgress = (member: UIGroupementMember, idx: number) => {
             const role = member.role || 'Co-traitant';
             const requiredDocs = REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || [];
-            const total = requiredDocs.length;
             const collabId = member.id || idx.toString();
-            const received = requiredDocs.filter(docDef => !!uploadedFiles[`${docDef.value}-${collabId}`]).length;
-            return { received, total, percent: total > 0 ? Math.round((received / total) * 100) : 0 };
+
+            // Comptage local : ce que CE navigateur a le droit de lister.
+            const localement = requiredDocs.filter(docDef => !!uploadedFiles[`${docDef.value}-${collabId}`]).length;
+
+            // Comptage serveur : le même pour tous les membres du groupement.
+            // On le préfère dès qu'il est disponible, sinon on retombe sur le
+            // local — sans quoi une RPC indisponible viderait l'affichage.
+            const cle = member.email?.toLowerCase();
+            const cotéServeur = cle !== undefined ? piecesParDepositaire[cle] : undefined;
+            const received = cotéServeur !== undefined ? cotéServeur : localement;
+
+            // Le serveur compte les objets déposés ; l'interface, elle, raisonne
+            // en emplacements attendus. Un dépôt hors grille ne doit pas faire
+            // dépasser 5/5 — `calculerProgression` borne déjà le pourcentage,
+            // on borne aussi le numérateur affiché.
+            const p = calculerProgression(
+                Math.min(received, requiredDocs.length),
+                piecesAttenduesPourRole(role)
+            );
+            return { received: p.recues, total: p.attendues, percent: p.percent };
         };
 
-        // Global progress
+        // Global progress — même dénominateur que le tableau de bord :
+        // `activeMembers` ne contient que le porteur et les membres acceptés.
         const globalProgress = (() => {
             let totalDocs = 0;
             let receivedDocs = 0;
@@ -4222,7 +4312,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 totalDocs += p.total;
                 receivedDocs += p.received;
             });
-            return { received: receivedDocs, total: totalDocs, percent: totalDocs > 0 ? Math.round((receivedDocs / totalDocs) * 100) : 0 };
+            const p = calculerProgression(receivedDocs, totalDocs);
+            return { received: p.recues, total: p.attendues, percent: p.percent };
         })();
 
         // Count overdue pieces (placeholder: pieces with 0% on members who were invited > 3 days ago)
@@ -4272,13 +4363,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     : daysLeft <= 14 ? 'text-amber-600 bg-amber-50 border-amber-200'
                         : 'text-[#00A3E0] bg-[#00A3E0]/5 border-[#00A3E0]/20';
 
-        // Effective status label for badge
-        const statusLabel = formData.statut === STATUSES.on ? 'En préparation'
-            : formData.statut === STATUSES.submitted ? 'Déposé'
-                : formData.statut === STATUSES.won ? 'Gagné'
-                    : formData.statut === STATUSES.lost ? 'Perdu'
-                        : formData.statut === STATUSES.draft ? 'Brouillon'
-                            : 'En cours';
+        // Libellé de statut : LE MÊME que sur la carte du tableau de bord.
+        // L'ancien mappage local affichait « En préparation » pour `En cours`
+        // — un synonyme que la carte n'employait pas — et ignorait
+        // l'expiration : un dossier échu restait « En préparation » ici et
+        // « Expiré » là-bas.
+        const statusLabel = libelleStatut(formData as any);
 
         const statusColor = formData.statut === STATUSES.won ? 'bg-green-100 text-green-700 border-green-200'
             : formData.statut === STATUSES.lost ? 'bg-red-50 text-red-600 border-red-100'
