@@ -83,11 +83,11 @@ const construireEmail = (type: string, payload: any, appUrl: string) => {
     case "recap_messages": {
       const nb = payload?.nb_messages ?? 0;
       const nbDossiers = payload?.nb_dossiers ?? 0;
-      sujet = `${nb} nouveau${nb > 1 ? "x" : ""} message${nb > 1 ? "s" : ""} sur vos dossiers`;
+      sujet = `${nb} message${nb > 1 ? "s" : ""} non lu${nb > 1 ? "s" : ""} sur vos dossiers`;
       contenu = {
-        titre: "Récapitulatif des messages du jour",
+        titre: "Messages non lus",
         paragraphes: [
-          `${nb} message${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.`,
+          `${nb} message${nb > 1 ? "s" : ""} non lu${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.`,
         ],
         // Extraits seulement : un e-mail donne envie d'aller lire, il ne
         // rejoue pas la conversation — et une messagerie de groupement peut

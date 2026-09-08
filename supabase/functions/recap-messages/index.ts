@@ -16,6 +16,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
  * exactement ce que la file cherche à éviter : « regrouper plutôt que
  * spammer ».
  *
+ * SEULEMENT LES MESSAGES NON LUS
+ * On compare l'envoi de chaque message à la dernière consultation du fil par
+ * le destinataire (`chat_last_viewed`, la table qu'alimente déjà le compteur
+ * de non-lus). Quelqu'un qui a suivi la conversation en direct ne reçoit rien.
+ * Sans consultation enregistrée, tout est considéré non lu.
+ *
  * QUI EST DESTINATAIRE
  * Les participants du dossier, hors AUTEUR du message : le créateur et les
  * entreprises ayant accepté. Un invité qui n'a pas rejoint le groupement n'a
@@ -128,6 +134,22 @@ Deno.serve(async (req: Request) => {
       return [...ids].map(id => compteParId.get(id)).filter(Boolean);
     };
 
+    // Dernière consultation de chaque fil, par utilisateur.
+    //
+    // C'est ce qui distingue un récapitulatif des NON LUS d'un simple relevé
+    // de la journée : quelqu'un qui a suivi la conversation en direct n'a
+    // aucune raison de recevoir le soir un e-mail lui résumant ce qu'il a
+    // déjà lu.
+    const { data: consultations } = await admin
+      .from("chat_last_viewed")
+      .select("user_id, tender_id, last_viewed_at")
+      .in("tender_id", idsDossiers);
+
+    const vuLe = new Map<string, string>();
+    (consultations ?? []).forEach(c => {
+      vuLe.set(`${c.user_id}:${c.tender_id}`, c.last_viewed_at);
+    });
+
     // Regroupement par destinataire : un récapitulatif par personne.
     const parDestinataire = new Map<string, { email: string; items: any[] }>();
 
@@ -136,6 +158,13 @@ Deno.serve(async (req: Request) => {
         // Jamais l'auteur de son propre message.
         if (participant.id === m.sender_id) continue;
         if (!participant.email) continue;
+
+        // Message déjà lu : le fil a été ouvert APRÈS son envoi.
+        // Sans consultation enregistrée, le message est considéré non lu —
+        // c'est le cas d'un partenaire qui n'a jamais ouvert la messagerie,
+        // précisément celui qu'il faut prévenir.
+        const derniereVue = vuLe.get(`${participant.id}:${m.tender_id}`);
+        if (derniereVue && new Date(derniereVue) >= new Date(m.created_at)) continue;
 
         // Préférence « Messages ». Absente = activée, comme partout ailleurs.
         // La file revérifiera à la consommation ; on filtre déjà ici pour ne
