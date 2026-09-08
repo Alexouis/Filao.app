@@ -21,6 +21,10 @@ import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
 import { calculerProgression, piecesAttenduesPourRole, libelleStatut, membreComptabilise } from '../helpers/progressionHelpers';
+import {
+    specialitesCouvertes, specialitesManquantes, scoreSucces, gainPotentiel,
+    joursRestants, roleUtilisateur, dossierTermine,
+} from '../helpers/decisionHelpers';
 import { lienExterne } from '../helpers/textHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { ContextEditModal } from './ContextEditModal';
@@ -3994,77 +3998,35 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
     const renderDecisionView = () => {
         const activeMembers = groupementMembers.filter(m => !m.deleted);
-        const allCoveredSpecialtyIds = Array.from(new Set(activeMembers.flatMap(m => m.specialty_ids || [])));
-        const missingSpecialtyIds = formData.required_specialty_ids.filter(sid => !allCoveredSpecialtyIds.includes(sid));
 
-        // Map missing IDs to labels
+        // Règles métier : voir `decisionHelpers`, où elles sont testées. Elles
+        // vivaient ici, au milieu du JSX, donc invérifiables — alors qu'il
+        // s'agit de décisions produit (score du dossier, couverture, situation
+        // de l'utilisateur) et non d'affichage.
+        const allCoveredSpecialtyIds = specialitesCouvertes(groupementMembers as any);
+        const missingSpecialtyIds = specialitesManquantes(formData.required_specialty_ids, allCoveredSpecialtyIds);
+
         const missingSpecialties = missingSpecialtyIds.map(sid => {
             const ref = refSpecialties.find(r => r.id === sid);
             return { id: sid, label: ref ? ref.label : "Profil expert" };
         });
 
-        // Score de DOSSIER (pas un indicateur personnel) : part de 40 % et monte
-        // à 95 % selon la proportion de compétences requises couvertes par
-        // l'équipe. Tous les membres doivent donc lire la même valeur.
-        //
-        // Le repli à 85 % quand aucune compétence n'est requise a longtemps
-        // masqué un écart : un cotraitant qui ne pouvait pas lire
-        // `reponses_ao_specialties` recevait une liste vide et voyait 85 %,
-        // pendant que le mandataire calculait 40 %. La policy est corrigée
-        // (migrations 072 et 074), mais on distingue désormais les deux cas pour
-        // qu'une régression de lecture ne se traduise plus par un score
-        // faussement optimiste.
-        //
-        // Le commentaire ci-dessus annonçait cette distinction ; elle n'était
-        // pas dans le code, et le bug est revenu tel quel pour l'administrateur
-        // (migration 100). On la fait pour de bon : `required_skills` est un
-        // JSONB porté par la ligne du dossier, lisible par quiconque lit le
-        // dossier. S'il contient des libellés alors que les identifiants
-        // (chargés depuis `reponses_ao_specialties`) sont vides, c'est la
-        // LECTURE de la table qui a échoué, pas le dossier qui n'exige rien.
-        const lectureCompetencesEchouee =
-            (formData.required_specialty_ids?.length ?? 0) === 0
-            && (formData.required_skills?.length ?? 0) > 0;
-
-        const successScore: number | null = (() => {
-            if (lectureCompetencesEchouee) return null;
-            const reqCount = formData.required_specialty_ids?.length ?? 0;
-            if (reqCount === 0) return 85;
-            const coveredCount = formData.required_specialty_ids.filter(sid => allCoveredSpecialtyIds.includes(sid)).length;
-            return Math.round(40 + (coveredCount / reqCount) * 55);
-        })();
-
-        // Logic for potential gain per specialty
-        const getPotentialGain = () => {
-            const reqCount = formData.required_specialty_ids.length;
-            if (reqCount <= 1) return 0; // If only one skill and it's missing, gain is already part of the delta to 85? 
-            // Better: calculate how much one more covered skill adds
-            return Math.round(55 / reqCount);
-        };
-        const potentialGain = getPotentialGain();
-
-        // --- DYNAMIC INDICATORS ---
-        const daysLeft = formData.date_limite
-            ? Math.ceil((new Date(formData.date_limite).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-            : null;
-
-        // Detect if current user is a pending invitee
-        const myGroupementEntry = groupementMembers.find(
-            m => (m.id && m.id === userProfile?.id) || (m.email && m.email === userProfile?.email)
+        // `null` = compétences illisibles. L'interface affiche alors
+        // « indisponible » plutôt qu'un score faussement optimiste.
+        const successScore = scoreSucces(
+            formData.required_specialty_ids,
+            formData.required_skills,
+            allCoveredSpecialtyIds
         );
-        const isRefused = myGroupementEntry?.status === GROUPEMENT_STATUSES.refuse;
-        const amIInvitee = !!tenderId && !!myGroupementEntry && !myGroupementEntry.is_owner
-            && (myGroupementEntry.status === GROUPEMENT_STATUSES.invite || isRefused);
+        const potentialGain = gainPotentiel(formData.required_specialty_ids);
 
-        // Dossier dans un état terminal : la réponse est jouée, rejoindre le
-        // groupement ne sert plus à préparer la candidature. Le bandeau
-        // d'invitation doit le dire, sinon l'invité croit participer à une
-        // réponse en cours. `getEffectiveStatus` couvre aussi l'expiration,
-        // calculée depuis la date limite et jamais stockée en base.
+        const daysLeft = joursRestants(formData.date_limite);
+
+        const { entree: myGroupementEntry, aRefuse: isRefused, estInvite: amIInvitee } =
+            roleUtilisateur(groupementMembers as any, userProfile, tenderId);
+
         const statutEffectif = getEffectiveStatus(formData as any);
-        const dossierTermine = statutEffectif === STATUSES.won
-            || statutEffectif === STATUSES.lost
-            || statutEffectif === STATUSES.expired;
+        const dossierTermine_ = dossierTermine(formData as any);
 
         // --- PROGRESS: global + per member ---
         // Progression : règle partagée avec le tableau de bord
@@ -4307,11 +4269,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             <div className="p-3 bg-white/10 rounded-xl shrink-0"><Mail size={22} className="text-white" /></div>
                             <div>
                                 <h3 className="font-bold text-base">
-                                    {dossierTermine ? 'Invitation sur un dossier clôturé' : 'Invitation à collaborer'}
+                                    {dossierTermine_ ? 'Invitation sur un dossier clôturé' : 'Invitation à collaborer'}
                                 </h3>
                                 <p className="text-white/75 text-sm">
                                     Vous avez été invité à travailler sur <strong>"{formData.titre}"</strong> en tant que <strong>{myGroupementEntry.role}</strong>.
-                                    {dossierTermine ? (
+                                    {dossierTermine_ ? (
                                         <>
                                             {' '}Ce dossier est <strong>
                                                 {statutEffectif === STATUSES.won ? 'remporté'
@@ -4328,7 +4290,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         <div className="flex gap-3 shrink-0">
                             <button onClick={() => handleInvitationResponse(false)} disabled={loading} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-bold text-sm transition-colors">Refuser</button>
                             <button onClick={() => handleInvitationResponse(true)} disabled={loading} className="px-5 py-2.5 bg-white text-[#0B1F38] font-bold rounded-xl hover:bg-gray-100 transition-colors shadow-lg text-sm flex items-center gap-2">
-                                {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> {dossierTermine ? 'Rejoindre en consultation' : 'Accepter et rejoindre'}</>}
+                                {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> {dossierTermine_ ? 'Rejoindre en consultation' : 'Accepter et rejoindre'}</>}
                             </button>
                         </div>
                     </div>

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx --test tests/unit.test.ts",
+    "test": "tsx --test tests/unit.test.ts && tsx --test --test-force-exit tests/composants.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,10 +24,14 @@
     "web-vitals": "^4.2.4"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.3",
     "@types/file-saver": "^2.0.7",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.23",
+    "happy-dom": "^20.14.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.23.13",

@@ -41,6 +41,11 @@ import {
 import { lienExterne } from '../src/helpers/textHelpers.ts';
 
 import {
+  specialitesCouvertes, specialitesManquantes, lectureCompetencesEchouee,
+  scoreSucces, gainPotentiel, joursRestants, roleUtilisateur, dossierTermine,
+} from '../src/helpers/decisionHelpers.ts';
+
+import {
   piecesAttenduesPourRole, membreComptabilise, piecesAttendues,
   calculerProgression, progressionDossier, libelleStatut,
 } from '../src/helpers/progressionHelpers.ts';
@@ -440,4 +445,71 @@ test('libelleStatut : même libellé que la carte, expiration comprise', () => {
   assert.equal(libelleStatut(t({})), STATUSES.on);                       // « En cours », pas « En préparation »
   assert.equal(libelleStatut(t({ date_limite: isoDans(-2) })), STATUSES.expired);
   assert.equal(libelleStatut(t({ statut: STATUSES.won })), STATUSES.won);
+});
+
+// ===========================================================================
+// 13. VUE DÉCISION — règles métier extraites du JSX
+// ===========================================================================
+test('specialitesCouvertes : agrège les membres actifs, dédoublonne, ignore les retirés', () => {
+  const couvertes = specialitesCouvertes([
+    { specialty_ids: ['a', 'b'] },
+    { specialty_ids: ['b', 'c'] },
+    { specialty_ids: ['z'], deleted: true },   // retiré : ne couvre plus rien
+    { },                                        // sans spécialités
+  ]);
+  assert.deepEqual([...couvertes].sort(), ['a', 'b', 'c']);
+});
+test('specialitesManquantes : ce que personne ne couvre', () => {
+  assert.deepEqual(specialitesManquantes(['a', 'b', 'c'], ['b']), ['a', 'c']);
+  assert.deepEqual(specialitesManquantes([], ['b']), []);
+  assert.deepEqual(specialitesManquantes(null, []), []);
+});
+test('lectureCompetencesEchouee : des libellés sans identifiants trahissent un refus de lecture', () => {
+  assert.equal(lectureCompetencesEchouee([], ['Génie civil']), true);
+  assert.equal(lectureCompetencesEchouee(['id1'], ['Génie civil']), false);
+  assert.equal(lectureCompetencesEchouee([], []), false);   // dossier sans exigence
+});
+test('scoreSucces : 40 % à vide, 95 % tout couvert, proportionnel entre les deux', () => {
+  assert.equal(scoreSucces(['a', 'b'], [], []), 40);
+  assert.equal(scoreSucces(['a', 'b'], [], ['a', 'b']), 95);
+  assert.equal(scoreSucces(['a', 'b'], [], ['a']), 68);      // 40 + 55/2
+  assert.equal(scoreSucces([], [], []), 85);                  // aucune exigence
+});
+test('scoreSucces : null si les compétences n’ont pas pu être lues', () => {
+  // Le cas qui faisait diverger cotraitant (85 %) et mandataire (40 %).
+  assert.equal(scoreSucces([], ['Génie civil'], []), null);
+});
+test('gainPotentiel : nul pour une seule compétence requise', () => {
+  assert.equal(gainPotentiel(['a']), 0);
+  assert.equal(gainPotentiel([]), 0);
+  assert.equal(gainPotentiel(['a', 'b', 'c', 'd', 'e']), 11);  // 55/5
+});
+test('joursRestants : positif, négatif, ou null', () => {
+  assert.equal(joursRestants(null), null);
+  assert.ok((joursRestants(isoDans(5)) ?? 0) > 0);
+  assert.ok((joursRestants(isoDans(-5)) ?? 0) < 0);
+});
+test('roleUtilisateur : invité, refusé, porteur', () => {
+  const moi = { id: 'u1', email: 'moi@x.fr' };
+  const invite = roleUtilisateur([{ id: 'u1', status: 'invite' }], moi, 't1');
+  assert.equal(invite.estInvite, true);
+  assert.equal(invite.aRefuse, false);
+
+  const refuse = roleUtilisateur([{ id: 'u1', status: 'refuse' }], moi, 't1');
+  assert.equal(refuse.aRefuse, true);
+  assert.equal(refuse.estInvite, true);   // le bandeau reste, pour pouvoir revenir sur son refus
+
+  const porteur = roleUtilisateur([{ id: 'u1', status: 'accepte', is_owner: true }], moi, 't1');
+  assert.equal(porteur.estInvite, false, "le porteur n'a pas d'invitation à accepter");
+
+  // Reconnaissance par e-mail quand l'identifiant manque encore.
+  const parEmail = roleUtilisateur([{ email: 'moi@x.fr', status: 'invite' }], moi, 't1');
+  assert.equal(parEmail.estInvite, true);
+});
+test('dossierTermine : gagné, perdu, expiré — pas « en cours »', () => {
+  const t = (o: any) => ({ id: 't', statut: STATUSES.on, date_limite: null, createur_id: 'u', ...o });
+  assert.equal(dossierTermine(t({ statut: STATUSES.won })), true);
+  assert.equal(dossierTermine(t({ statut: STATUSES.lost })), true);
+  assert.equal(dossierTermine(t({ date_limite: isoDans(-2) })), true);   // expiré
+  assert.equal(dossierTermine(t({ date_limite: isoDans(5) })), false);
 });

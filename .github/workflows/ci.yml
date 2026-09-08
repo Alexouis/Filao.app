@@ -30,11 +30,12 @@ jobs:
       - name: Installer Node
         uses: actions/setup-node@v4
         with:
-          # 22 : la version sous laquelle les tests sont écrits. Ils utilisent
-          # le lanceur intégré de Node (`node:test`), stable depuis la 20 —
-          # figer la version évite qu'une montée de version du runner change le
-          # comportement sans prévenir.
-          node-version: '22'
+          # 24 : la version utilisée en développement. Les tests s'appuient sur
+          # le lanceur intégré (`node:test`) et sur `--test-force-exit`, dont le
+          # comportement a bougé d'une version à l'autre — la CI doit donc
+          # exécuter la MÊME que la machine de développement, sans quoi elle
+          # validerait autre chose que ce qui est réellement lancé.
+          node-version: '24'
           # Met en cache ~/.npm en se fiant au lockfile : réinstallation rapide
           # tant que les dépendances ne bougent pas.
           cache: 'npm'
