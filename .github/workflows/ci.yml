@@ -1,0 +1,62 @@
+name: CI
+
+# Deux déclencheurs, et pas un de plus :
+#   - `push` sur `main` : vérifie ce qui est réellement livré ;
+#   - `pull_request` : vérifie AVANT la fusion, c'est là que la CI est utile.
+#
+# Sans le filtre de branche sur `push`, chaque poussée d'une branche de travail
+# ouverte en PR déclencherait deux fois le même travail.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Une poussée qui en suit une autre sur la même branche annule la précédente :
+# inutile de payer un build pour un commit déjà remplacé.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verification:
+    name: Typage, tests et build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node
+        uses: actions/setup-node@v4
+        with:
+          # 22 : la version sous laquelle les tests sont écrits. Ils utilisent
+          # le lanceur intégré de Node (`node:test`), stable depuis la 20 —
+          # figer la version évite qu'une montée de version du runner change le
+          # comportement sans prévenir.
+          node-version: '22'
+          # Met en cache ~/.npm en se fiant au lockfile : réinstallation rapide
+          # tant que les dépendances ne bougent pas.
+          cache: 'npm'
+
+      - name: Installer les dépendances
+        # `npm ci` et non `npm install` : installe EXACTEMENT le lockfile, sans
+        # le modifier. Une CI qui met à jour ses propres dépendances ne teste
+        # plus ce que la machine de développement exécute.
+        run: npm ci
+
+      - name: Vérifier le typage
+        # Périmètre `src` + `tests` (voir tsconfig). Les fonctions
+        # `supabase/functions` en sont exclues : elles tournent sous Deno, avec
+        # des imports par URL et le global `Deno`, que ce compilateur ne connaît
+        # pas — les inclure produisait 138 erreurs qui n'en étaient pas.
+        run: npm run typecheck
+
+      - name: Lancer les tests
+        run: npm test
+
+      - name: Vérifier que le build passe
+        # Le typage ne garantit pas que Vite sache assembler le tout : imports
+        # manquants, alias mal résolus, ressource absente. C'est le dernier
+        # filet avant la fusion.
+        run: npm run build
