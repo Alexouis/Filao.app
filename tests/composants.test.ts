@@ -28,6 +28,7 @@ import { PanneauxLateraux } from '../src/components/PanneauxLateraux.tsx';
 import { EquipeEtPieces } from '../src/components/EquipeEtPieces.tsx';
 import { InfoItem, VerifiedBadge, UnverifiedBadge } from '../src/components/settings/CompanyInfoAtoms.tsx';
 import { CompanyInfoReadOnly } from '../src/components/settings/CompanyInfoReadOnly.tsx';
+import { OnboardingCompanyStep } from '../src/components/OnboardingCompanyStep.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -422,6 +423,70 @@ test('CompanyInfoReadOnly : les champs vides affichent « Non renseigné »', ()
     render(React.createElement(CompanyInfoReadOnly, proprietesFiche()));
     // Plusieurs champs du jeu d'essai sont vides (TVA, effectif, NAF…).
     assert.ok(screen.getAllByText('Non renseigné').length > 0);
+});
+
+
+// ===========================================================================
+// Inscription — étape « entreprise »
+// ===========================================================================
+const proprietesEtape1 = (surcharge: any = {}) => ({
+    companyData: { nom: '', siret: '', adresse: '', ville: '', code_postal: '' },
+    setCompanyData: rien,
+    userData: { prenom: '', nom_famille: '', poste: '' },
+    setUserData: rien,
+    siretInput: '',
+    setSiretInput: rien,
+    searching: false,
+    searchError: null,
+    setSearchError: rien,
+    onRechercherSiret: rien,
+    entryMode: null,
+    setEntryMode: rien,
+    setFieldsLocked: rien,
+    isVerified: false,
+    setIsVerified: rien,
+    lectureSeule: false,
+    nomRattachement: null,
+    entrepriseId: null,
+    ...surcharge,
+});
+
+test('OnboardingCompanyStep : le mode choisi décide du panneau affiché', () => {
+    // `entryMode` à null : ni la recherche ni le formulaire manuel.
+    cleanup();
+    render(React.createElement(OnboardingCompanyStep, proprietesEtape1({ entryMode: null })));
+    assert.equal(screen.queryByText('Recherche par SIRET'), null);
+
+    cleanup();
+    render(React.createElement(OnboardingCompanyStep, proprietesEtape1({ entryMode: 'siret' })));
+    assert.ok(screen.getByText('Recherche par SIRET'));
+
+    // La saisie manuelle reste offerte : une entreprise absente du répertoire
+    // ne doit pas bloquer l'inscription.
+    cleanup();
+    render(React.createElement(OnboardingCompanyStep, proprietesEtape1({ entryMode: 'manual' })));
+    assert.ok(screen.getByText('Saisie manuelle'));
+});
+
+test('OnboardingCompanyStep : une erreur de recherche est affichée', () => {
+    cleanup();
+    render(React.createElement(OnboardingCompanyStep, proprietesEtape1({
+        entryMode: 'siret',
+        searchError: 'Établissement introuvable',
+    })));
+    assert.ok(screen.getByText('Établissement introuvable'));
+});
+
+test('OnboardingCompanyStep : rattaché à une entreprise, la saisie est expliquée', () => {
+    cleanup();
+    render(React.createElement(OnboardingCompanyStep, proprietesEtape1({
+        lectureSeule: true,
+        nomRattachement: 'Axero',
+        entrepriseId: 'e1',
+    })));
+    // L'utilisateur doit comprendre POURQUOI il ne peut pas modifier, sinon il
+    // croit à un blocage.
+    assert.ok(screen.getByText(/Axero/));
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans
