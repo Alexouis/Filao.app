@@ -26,6 +26,8 @@ import { ConfirmDialog } from '../src/components/ui/ConfirmDialog.tsx';
 import { IndicateursDossier } from '../src/components/IndicateursDossier.tsx';
 import { PanneauxLateraux } from '../src/components/PanneauxLateraux.tsx';
 import { EquipeEtPieces } from '../src/components/EquipeEtPieces.tsx';
+import { InfoItem, VerifiedBadge, UnverifiedBadge } from '../src/components/settings/CompanyInfoAtoms.tsx';
+import { CompanyInfoReadOnly } from '../src/components/settings/CompanyInfoReadOnly.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -356,6 +358,70 @@ test('EquipeEtPieces : les compétences non couvertes sont signalées', () => {
         missingSpecialties: [{ id: 's1', label: 'Transport scolaire' }],
     })));
     assert.ok(screen.getByText('Transport scolaire'));
+});
+
+
+// ===========================================================================
+// Fiche entreprise — éléments extraits de CompanyTab
+// ===========================================================================
+test('InfoItem : une valeur absente est SIGNALÉE, pas masquée', () => {
+    cleanup();
+    render(React.createElement(InfoItem, { label: 'SIRET', value: null }));
+    // Un champ escamoté laisse croire qu'il n'existe pas ; « Non renseigné »
+    // indique quoi compléter.
+    assert.ok(screen.getByText('Non renseigné'));
+    assert.ok(screen.getByText('SIRET'));
+});
+
+test('InfoItem : une valeur présente est affichée telle quelle', () => {
+    cleanup();
+    render(React.createElement(InfoItem, { label: 'SIRET', value: '55210055400013' }));
+    assert.ok(screen.getByText('55210055400013'));
+    assert.equal(screen.queryByText('Non renseigné'), null);
+});
+
+test('Badges : vérifié et non vérifié portent des libellés distincts', () => {
+    cleanup();
+    render(React.createElement(VerifiedBadge));
+    assert.ok(screen.getByText(/Vérifié via SIRET/));
+
+    cleanup();
+    render(React.createElement(UnverifiedBadge));
+    assert.ok(screen.getByText('Non vérifié'));
+});
+
+const proprietesFiche = (surcharge: any = {}) => ({
+    formData: {
+        nom: 'Axero', siret: '55210055400013', adresse: '1 rue de la Paix',
+        code_postal: '75002', ville: 'Paris', forme_juridique: 'SAS',
+        date_creation: '2020-03-15', site_web: '', tva: '', effectif: '',
+        code_naf: '', libelle_naf: '', taille: '', prenom: '', nom_famille: '', poste: '',
+    },
+    entrepriseData: { id: 'e1', logo_url: null },
+    getLegalFormLabel: (_c: string, l: string) => l,
+    visibleDansReseau: false,
+    depotLogoEnCours: false,
+    savingReseau: false,
+    onDeposerLogo: rien,
+    onBasculerReseau: rien,
+    refDomains: [], refSpecialties: [], refExpertiseTags: [], refGeoZones: [],
+    selectedNatures: [], selectedDomains: [], selectedSpecialties: [],
+    selectedExpertiseTags: [], selectedGeoZones: [],
+    ...surcharge,
+});
+
+test('CompanyInfoReadOnly : les informations d’identité sont affichées', () => {
+    cleanup();
+    render(React.createElement(CompanyInfoReadOnly, proprietesFiche()));
+    assert.ok(screen.getByText('55210055400013'));
+    assert.ok(screen.getByText(/Paris/));
+});
+
+test('CompanyInfoReadOnly : les champs vides affichent « Non renseigné »', () => {
+    cleanup();
+    render(React.createElement(CompanyInfoReadOnly, proprietesFiche()));
+    // Plusieurs champs du jeu d'essai sont vides (TVA, effectif, NAF…).
+    assert.ok(screen.getAllByText('Non renseigné').length > 0);
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans

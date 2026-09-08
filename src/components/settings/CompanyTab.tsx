@@ -4,6 +4,7 @@ import { deposerFichier } from '../../helpers/uploadHelpers';
 import { Building2, Briefcase, FolderOpen, Wrench, Plus, X, Loader2, Check, Search, ShieldCheck, ShieldAlert, PenLine, Upload, Calendar as CalendarIcon, MapPin, Hash, Globe, Eye, EyeOff, Award, Users, Cpu, FileStack, ExternalLink, FileText, Leaf, Map, ChevronDown, Download } from 'lucide-react';
 import { InfoItem, VerifiedBadge, UnverifiedBadge } from './CompanyInfoAtoms';
 import { CompanyInfoReadOnly } from './CompanyInfoReadOnly';
+import { CompanyInfoEditForm } from './CompanyInfoEditForm';
 import { SettingsCard } from './SettingsCard';
 import { DocumentInput } from './DocumentInput';
 import { supabase } from '../../lib/supabaseClient';
@@ -1366,298 +1367,30 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                             selectedGeoZones={selectedGeoZones}
                         />
                     ) : (
-                        /* ========= EDITABLE FORM VIEW ========= */
-                        <div className="space-y-3">
-                            <SettingsCard title="Identité & Localisation" icon={Building2}>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-2">
-                                    <div className="col-span-2">
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Nom de l'entreprise</label>
-                                        <input type="text" value={formData.nom} onChange={(e) => handleInputChange('nom', e.target.value)}
-                                            className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="Ex: Filao SAS" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">SIRET</label>
-                                        <input type="text" value={formData.siret} className={lockedInputClass} disabled placeholder="Via recherche" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Effectif</label>
-                                        <input type="number" value={formData.effectif} onChange={(e) => handleInputChange('effectif', e.target.value)}
-                                            className={inputClass} placeholder="1" min="1" />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Prénom (Dirigeant)</label>
-                                        <input type="text" value={formData.prenom} onChange={(e) => handleInputChange('prenom', e.target.value)}
-                                            className={inputClass} placeholder="Prénom" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Nom (Dirigeant)</label>
-                                        <input type="text" value={formData.nom_famille} onChange={(e) => handleInputChange('nom_famille', e.target.value)}
-                                            className={inputClass} placeholder="Nom" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Forme juridique</label>
-                                        <input type="text" value={formData.forme_juridique} onChange={(e) => handleInputChange('forme_juridique', e.target.value)}
-                                            className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="SAS, SARL..." />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Taille</label>
-                                        <select value={formData.taille} onChange={(e) => handleInputChange('taille', e.target.value)}
-                                            className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked}>
-                                            <option value="">Taille</option>
-                                            <option value="Micro/TPE">Micro/TPE</option>
-                                            <option value="PME">PME</option>
-                                            <option value="ETI">ETI</option>
-                                            <option value="GE">GE</option>
-                                        </select>
-                                    </div>
-
-                                    <div className="col-span-2">
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Code NAF</label>
-                                        <input type="text" value={formData.code_naf} onChange={(e) => handleInputChange('code_naf', e.target.value)}
-                                            className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="62.01Z" />
-                                    </div>
-                                    <div className="col-span-2">
-                                        <label className="text-xs font-medium text-gray-600 mb-0.5 block">Activité (NAF)</label>
-                                        <input type="text" value={formData.libelle_naf} onChange={(e) => handleInputChange('libelle_naf', e.target.value)}
-                                            className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="Libellé de l'activité" />
-                                    </div>
-
-                                    <div className="col-span-2 md:col-span-4 border-t border-gray-100 pt-2 mt-1">
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-2">
-                                            <div className="col-span-2">
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">Adresse</label>
-                                                <input type="text" value={formData.adresse} onChange={(e) => handleInputChange('adresse', e.target.value)}
-                                                    className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="Ex: 15 Rue des Capucines" />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">Ville</label>
-                                                <input type="text" value={formData.ville} onChange={(e) => handleInputChange('ville', e.target.value)}
-                                                    className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">Code Postal</label>
-                                                <input type="text" value={formData.code_postal} onChange={(e) => handleInputChange('code_postal', e.target.value)}
-                                                    className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="col-span-2 md:col-span-4 border-t border-gray-100 pt-2 mt-1">
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-3 gap-y-2">
-                                            <div>
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">Date de création</label>
-                                                <input type="text" value={formData.date_creation} onChange={(e) => handleInputChange('date_creation', e.target.value)}
-                                                    className={fieldsLocked ? lockedInputClass : inputClass} disabled={fieldsLocked} placeholder="AAAA-MM-JJ" />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">N° TVA</label>
-                                                <input type="text" value={formData.tva} onChange={(e) => handleInputChange('tva', e.target.value)} className={inputClass} placeholder="FR..." />
-                                            </div>
-                                            <div className="col-span-2">
-                                                <label className="text-xs font-medium text-gray-600 mb-0.5 block">Site web</label>
-                                                <input type="url" value={formData.site_web} onChange={(e) => handleInputChange('site_web', e.target.value)} className={inputClass} placeholder="https://www.exemple.fr" />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Zone d'intervention — Premium Grid */}
-                                    <div className="col-span-2 md:col-span-4 border-t border-gray-100 pt-4 mt-2">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div>
-                                                <label className="text-sm font-bold text-gray-900">Zone d'intervention</label>
-                                                <p className="text-xs text-gray-400">Sélectionnez vos régions d'activité (Métropole & DOM-TOM)</p>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    const metroIds = refGeoZones.filter(z => z.zone_type === 'metropole').map(z => z.id);
-                                                    const alreadyHasAll = metroIds.every(id => selectedGeoZones.includes(id));
-                                                    if (alreadyHasAll) {
-                                                        setSelectedGeoZones(prev => prev.filter(id => !metroIds.includes(id)));
-                                                    } else {
-                                                        setSelectedGeoZones(prev => Array.from(new Set([...prev, ...metroIds])));
-                                                    }
-                                                }}
-                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                                    refGeoZones.filter(z => z.zone_type === 'metropole').length > 0 && 
-                                                    refGeoZones.filter(z => z.zone_type === 'metropole').every(z => selectedGeoZones.includes(z.id))
-                                                        ? 'bg-filao-primary text-white border-filao-primary shadow-sm'
-                                                        : 'bg-white text-filao-primary border-filao-primary/20 hover:border-filao-primary/50'
-                                                }`}
-                                            >
-                                                France Entière
-                                            </button>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            {/* Metropole Grid */}
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-                                                {refGeoZones.filter(z => z.zone_type === 'metropole').map(zone => (
-                                                    <button
-                                                        key={zone.id}
-                                                        type="button"
-                                                        onClick={() => setSelectedGeoZones(prev => prev.includes(zone.id) ? prev.filter(id => id !== zone.id) : [...prev, zone.id])}
-                                                        className={`px-3 py-2 rounded-xl text-left transition-all border ${
-                                                            selectedGeoZones.includes(zone.id)
-                                                                ? 'bg-filao-primary/5 border-filao-primary text-filao-primary ring-1 ring-filao-primary/20'
-                                                                : 'bg-white border-gray-100 text-gray-600 hover:border-gray-300'
-                                                        }`}
-                                                    >
-                                                        <p className="text-[11px] font-bold truncate leading-tight" title={zone.label}>{zone.label}</p>
-                                                    </button>
-                                                ))}
-                                            </div>
-
-                                            {/* DOM-TOM Section */}
-                                            {refGeoZones.some(z => z.zone_type === 'domtom') && (
-                                                <div className="bg-gray-50/50 rounded-xl p-3 border border-gray-100">
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Départements d'Outre-mer</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {refGeoZones.filter(z => z.zone_type === 'domtom').map(zone => (
-                                                            <button
-                                                                key={zone.id}
-                                                                type="button"
-                                                                onClick={() => setSelectedGeoZones(prev => prev.includes(zone.id) ? prev.filter(id => id !== zone.id) : [...prev, zone.id])}
-                                                                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
-                                                                    selectedGeoZones.includes(zone.id)
-                                                                        ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
-                                                                        : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
-                                                                }`}
-                                                            >
-                                                                {zone.label}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Expertises & Qualifications — Accordion Select */}
-                                    <div className="col-span-2 md:col-span-4 border-t border-gray-100 pt-4 mt-2">
-                                        <label className="text-sm font-bold text-gray-900 mb-1 block">Expertises & Qualifications</label>
-                                        <p className="text-xs text-gray-400 mb-4">Ciblez vos compétences transversales et certifications.</p>
-
-                                        <div className="space-y-2">
-                                            {[
-                                                { key: 'environnement', label: 'Approches environnementales & énergétiques', icon: Leaf },
-                                                { key: 'contexte', label: 'Contextes d\'intervention', icon: Map },
-                                                { key: 'methodologie', label: 'Méthodologies & outils', icon: Wrench },
-                                                { key: 'certification', label: 'Certifications & labels', icon: ShieldCheck }
-                                            ].map((thematic) => (
-                                                <div key={thematic.key} className="border border-gray-100 rounded-xl overflow-hidden bg-white shadow-sm">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setExpandedThematic(prev => prev === thematic.key ? null : thematic.key)}
-                                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-                                                    >
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-400 flex items-center justify-center">
-                                                                <thematic.icon size={16} />
-                                                            </div>
-                                                            <div className="text-left">
-                                                                <p className="text-[13px] font-bold text-gray-800">{thematic.label}</p>
-                                                                <p className="text-[10px] text-gray-400">
-                                                                    {selectedExpertiseTags.filter(id => refExpertiseTags.find(t => t.id === id)?.thematic === thematic.key).length} sélectionné(s)
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                        <ChevronDown className={`text-gray-400 transition-transform duration-300 ${expandedThematic === thematic.key ? 'rotate-180' : ''}`} size={16} />
-                                                    </button>
-
-                                                    {expandedThematic === thematic.key && (
-                                                        <div className="p-4 bg-gray-50/30 border-t border-gray-50">
-                                                            <div className="flex flex-wrap gap-2">
-                                                                {refExpertiseTags.filter(t => t.thematic === thematic.key).map(tag => (
-                                                                    <button
-                                                                        key={tag.id}
-                                                                        type="button"
-                                                                        onClick={() => setSelectedExpertiseTags(prev => prev.includes(tag.id) ? prev.filter(id => id !== tag.id) : [...prev, tag.id])}
-                                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                                                            selectedExpertiseTags.includes(tag.id)
-                                                                                ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
-                                                                                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
-                                                                        }`}
-                                                                    >
-                                                                        {tag.label}
-                                                                    </button>
-                                                                ))}
-                                                                {refExpertiseTags.filter(t => t.thematic === thematic.key).length === 0 && (
-                                                                    <p className="text-xs text-gray-400 italic">Aucun tag disponible pour cette thématique.</p>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                            
-                            </div>
-                            </SettingsCard>
-
-                            <SettingsCard
-                                title="Activités & Spécialités"
-                                description="Définissez votre nature d'activité, vos domaines d'intervention et vos spécialités pour un meilleur matching."
-                                icon={Briefcase}
-                            >
-                                {loadingRef ? (
-                                    <div className="flex flex-col items-center justify-center py-12 gap-3">
-                                        <Loader2 className="w-8 h-8 text-filao-primary animate-spin" />
-                                        <p className="text-sm text-gray-400 font-medium">Chargement de la taxonomie...</p>
-                                    </div>
-                                ) : (
-                                    <div className={!isEditing ? "pointer-events-none opacity-80" : ""}>
-                                        <SpecialtyAccordion
-                                            selectedNatures={selectedNatures}
-                                            onNaturesChange={setSelectedNatures}
-                                            selectedDomains={selectedDomains}
-                                            onDomainsChange={setSelectedDomains}
-                                            selectedSpecialties={selectedSpecialties}
-                                            onSpecialtiesChange={setSelectedSpecialties}
-                                            refDomains={refDomains}
-                                            refSpecialties={refSpecialties}
-                                        />
-                                        {!isEditing && (
-                                            <div className="mt-6 pt-6 border-t border-gray-100">
-                                                <p className="text-xs text-blue-600 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                                                    Activez le mode édition pour modifier vos spécialités.
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </SettingsCard>
-
-                            {/* Réseau Filao — also in edit mode */}
-                            <SettingsCard title="Réseau Filao" icon={Globe}>
-                                <div className="space-y-3">
-                                    <p className="text-xs text-gray-500">
-                                        Rendez votre entreprise visible dans l'annuaire Filao. Les autres entreprises pourront vous trouver et vous inviter à collaborer sur des appels d'offres.
-                                    </p>
-                                    <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                                        <div className="flex items-center gap-2">
-                                            {visibleReseau ? <Eye size={16} className="text-emerald-600" /> : <EyeOff size={16} className="text-gray-400" />}
-                                            <span className="text-sm font-medium text-gray-900">
-                                                {visibleReseau ? 'Visible sur le réseau' : 'Masqué du réseau'}
-                                            </span>
-                                        </div>
-                                        <button
-                                            onClick={handleToggleReseau}
-                                            disabled={savingReseau || !entrepriseData?.id}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none ${visibleReseau ? 'bg-emerald-500' : 'bg-gray-300'} ${savingReseau ? 'opacity-50' : ''}`}
-                                            role="switch" aria-checked={visibleReseau}>
-                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${visibleReseau ? 'translate-x-6' : 'translate-x-1'}`} />
-                                        </button>
-                                    </div>
-                                    {!entrepriseData?.id && (
-                                        <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">Enregistrez d'abord votre entreprise pour activer cette option.</p>
-                                    )}
-                                </div>
-                            </SettingsCard>
-                        </div>
+                        <CompanyInfoEditForm
+                            formData={formData}
+                            entrepriseData={entrepriseData}
+                            onChangerChamp={handleInputChange}
+                            refDomains={refDomains}
+                            refSpecialties={refSpecialties}
+                            refExpertiseTags={refExpertiseTags}
+                            refGeoZones={refGeoZones}
+                            selectedNatures={selectedNatures}
+                            setSelectedNatures={setSelectedNatures}
+                            selectedDomains={selectedDomains}
+                            setSelectedDomains={setSelectedDomains}
+                            selectedSpecialties={selectedSpecialties}
+                            setSelectedSpecialties={setSelectedSpecialties}
+                            selectedExpertiseTags={selectedExpertiseTags}
+                            setSelectedExpertiseTags={setSelectedExpertiseTags}
+                            selectedGeoZones={selectedGeoZones}
+                            setSelectedGeoZones={setSelectedGeoZones}
+                            fieldsLocked={fieldsLocked}
+                            loadingRef={loadingRef}
+                            visibleDansReseau={visibleReseau}
+                            savingReseau={savingReseau}
+                            onBasculerReseau={handleToggleReseau}
+                        />
                     )}
                 </div>
                 </fieldset>
