@@ -392,6 +392,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     /** Le dossier demandé n'est pas lisible (droits insuffisants ou supprimé). */
     const [accesRefuse, setAccesRefuse] = useState(false);
     /**
+     * Refus d'invitation en attente de confirmation.
+     *
+     * Le refus est DÉFINITIF : `app.est_convie` ne couvre que les statuts
+     * « accepte » et « invite », donc refuser coupe l'accès au dossier et rien
+     * ne permet de revenir en arrière côté invité. Un clic malheureux était
+     * irréparable — d'où cette confirmation, qui dit aussi vers qui se tourner.
+     */
+    const [refusAConfirmer, setRefusAConfirmer] = useState(false);
+    /**
      * Nombre de pièces déposées PAR PERSONNE, tel que le serveur le voit
      * (RPC `avancement_dossier`, migration 103), indexé par e-mail en
      * minuscules.
@@ -4184,7 +4193,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             </div>
                         </div>
                         <div className="flex gap-3 shrink-0">
-                            <button onClick={() => handleInvitationResponse(false)} disabled={loading} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-bold text-sm transition-colors">Refuser</button>
+                            <button onClick={() => setRefusAConfirmer(true)} disabled={loading} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-bold text-sm transition-colors">Refuser</button>
                             <button onClick={() => handleInvitationResponse(true)} disabled={loading} className="px-5 py-2.5 bg-white text-[#0B1F38] font-bold rounded-xl hover:bg-gray-100 transition-colors shadow-lg text-sm flex items-center gap-2">
                                 {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> {dossierTermine_ ? 'Rejoindre en consultation' : 'Accepter et rejoindre'}</>}
                             </button>
@@ -5577,6 +5586,25 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 />
                 {renderGroupementTypeModal()}
                 {renderAddManualModal()}
+                {/* Refus d'invitation : irréversible, donc confirmé — et on
+                    indique le contact du mandataire, seule voie de recours
+                    puisque l'accès au dossier sera coupé juste après. */}
+                <ConfirmDialog
+                    ouvert={refusAConfirmer}
+                    titre="Refuser cette invitation ?"
+                    message={(() => {
+                        const mandataire = groupementMembers.find(m => m.is_owner);
+                        const contact = mandataire?.email;
+                        return `Ce refus est définitif : vous perdrez l'accès à ce dossier et ne pourrez pas revenir sur votre décision.${contact ? ` Pour être réinvité, contactez le mandataire à l'adresse ${contact}.` : ' Pour être réinvité, contactez le mandataire du dossier.'}`;
+                    })()}
+                    libelleConfirmer="Refuser définitivement"
+                    libelleAnnuler="Revenir"
+                    onConfirmer={() => {
+                        setRefusAConfirmer(false);
+                        handleInvitationResponse(false);
+                    }}
+                    onAnnuler={() => setRefusAConfirmer(false)}
+                />
                 <ConfirmDialog
                     ouvert={!!changementRoleAConfirmer}
                     titre="Changer le rôle ?"
