@@ -25,6 +25,7 @@ import { DocDetailsModal } from '../src/components/DocDetailsModal.tsx';
 import { ConfirmDialog } from '../src/components/ui/ConfirmDialog.tsx';
 import { IndicateursDossier } from '../src/components/IndicateursDossier.tsx';
 import { PanneauxLateraux } from '../src/components/PanneauxLateraux.tsx';
+import { EquipeEtPieces } from '../src/components/EquipeEtPieces.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -273,6 +274,88 @@ test('PanneauxLateraux : sans lien renseigné, aucun lien mort n’est proposé'
     cleanup();
     render(React.createElement(PanneauxLateraux, proprietesPanneaux({ lienTelechargement: null })));
     assert.equal(screen.queryByText(/Lien vers l'appel d'offres/), null);
+});
+
+
+// ===========================================================================
+// Étape 3 du découpage — zone Équipe & pièces
+// ===========================================================================
+const membre = (o: any = {}) => ({
+    id: 'm1', email: 'a@b.fr', name: 'Alexandre', company: 'Axero',
+    role: 'Co-traitant', status: 'accepte', deleted: false, ...o,
+});
+
+const proprietesEquipe = (surcharge: any = {}) => ({
+    activeMembers: [membre()],
+    globalProgress: { received: 4, total: 19, percent: 21 },
+    getMemberProgress: () => ({ received: 4, total: 5, percent: 80 }),
+    missingSpecialties: [],
+    requiredSpecialtyIds: [],
+    refSpecialties: [],
+    allCoveredSpecialtyIds: [],
+    requiredSkills: [],
+    typeGroupement: 'solidaire',
+    potentialGain: 11,
+    carouselIndex: 0,
+    isOwner: true,
+    isLocked: false,
+    isRefused: false,
+    amIInvitee: false,
+    userProfileId: 'u1',
+    userProfileEmail: 'moi@x.fr',
+    onOuvrirMembre: rien,
+    onOuvrirCoordination: rien,
+    onOuvrirCompetences: rien,
+    onAjouterMembre: rien,
+    onOuvrirReseau: rien,
+    onRetirerMembre: rien,
+    onRelancerInvitation: rien,
+    onRetirerCompetence: rien,
+    ...surcharge,
+});
+
+test('EquipeEtPieces : l’avancement global est affiché tel qu’on le lui donne', () => {
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe()));
+    // Le composant ne recalcule rien : il restitue la valeur unifiée.
+    assert.ok(screen.getByText(/4 \/ 19 pièces/));
+});
+
+test('EquipeEtPieces : le porteur peut ajouter un membre, pas un simple membre', () => {
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({ isOwner: true })));
+    assert.ok(screen.queryByText(/Ajouter un membre/));
+
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({ isOwner: false })));
+    assert.equal(screen.queryByText(/Ajouter un membre/), null);
+});
+
+test('EquipeEtPieces : dossier verrouillé, plus d’ajout de membre', () => {
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({ isOwner: true, isLocked: true })));
+    assert.equal(screen.queryByText(/Ajouter un membre/), null);
+});
+
+test('EquipeEtPieces : ouvrir la fiche d’un membre remonte son index au parent', () => {
+    cleanup();
+    let indexRecu: number | null = null;
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({
+        onOuvrirMembre: (i: number) => { indexRecu = i; },
+    })));
+    fireEvent.click(screen.getByText('Axero'));
+    assert.equal(indexRecu, 0, "le parent doit recevoir l'index du membre cliqué");
+});
+
+test('EquipeEtPieces : les compétences non couvertes sont signalées', () => {
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({
+        requiredSpecialtyIds: ['s1'],
+        refSpecialties: [{ id: 's1', label: 'Transport scolaire' }],
+        allCoveredSpecialtyIds: [],
+        missingSpecialties: [{ id: 's1', label: 'Transport scolaire' }],
+    })));
+    assert.ok(screen.getByText('Transport scolaire'));
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans
