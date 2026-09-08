@@ -80,6 +80,27 @@ const construireEmail = (type: string, payload: any, appUrl: string) => {
       break;
     }
 
+    case "recap_messages": {
+      const nb = payload?.nb_messages ?? 0;
+      const nbDossiers = payload?.nb_dossiers ?? 0;
+      sujet = `${nb} nouveau${nb > 1 ? "x" : ""} message${nb > 1 ? "s" : ""} sur vos dossiers`;
+      contenu = {
+        titre: "Récapitulatif des messages du jour",
+        paragraphes: [
+          `${nb} message${nb > 1 ? "s" : ""} sur ${nbDossiers} dossier${nbDossiers > 1 ? "s" : ""}.`,
+        ],
+        // Extraits seulement : un e-mail donne envie d'aller lire, il ne
+        // rejoue pas la conversation — et une messagerie de groupement peut
+        // contenir des éléments de négociation qu'on ne diffuse pas hors de
+        // l'application.
+        details: (payload?.messages ?? []).map((m: any) =>
+          `${m.titre ?? "Un dossier"} — « ${(m.extrait ?? "").slice(0, 80)}${(m.extrait ?? "").length > 80 ? "…" : ""} »`
+        ),
+        action: { label: "Ouvrir la messagerie", url: appUrl },
+      };
+      break;
+    }
+
     case "document_expirant": {
       const label = payload?.document_label ?? "Un document";
       const dateExp = dateFr(payload?.date_expiration) ?? "prochainement";

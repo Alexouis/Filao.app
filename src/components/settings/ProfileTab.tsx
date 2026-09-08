@@ -37,7 +37,9 @@ type NotifChannel = 'app' | 'email';
 const NOTIF_EVENTS: { key: NotifEvent; label: string; description: string; emailIndisponible?: boolean }[] = [
     { key: 'nouveau_document', label: 'Nouveau document', description: 'Un partenaire dépose une pièce sur un AO' },
     { key: 'rappels', label: 'Rappels', description: 'Échéances et dates limites à venir' },
-    { key: 'messages_feed', label: 'Messages', description: 'Nouveau message dans le fil d\'un AO', emailIndisponible: true },
+    // L'e-mail est désormais branché : récapitulatif quotidien produit par
+    // `recap-messages` et envoyé par la file. La case n'est plus grisée.
+    { key: 'messages_feed', label: 'Messages', description: 'Nouveau message dans le fil d\'un AO' },
     { key: 'communications', label: 'Actualités Filao', description: 'Conseils, mises à jour et offres', emailIndisponible: true },
 ];
 

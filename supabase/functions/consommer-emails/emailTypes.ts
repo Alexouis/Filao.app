@@ -31,13 +31,13 @@ export const META_EMAILS: Record<string, MetaEmail> = {
   deadline_j1: { famille: "rappels", transactionnel: true },
   // Récapitulatif quotidien des dépôts → famille "nouveau_document".
   recap_documents: { famille: "nouveau_document", transactionnel: true },
+  // Récapitulatif quotidien de la messagerie → famille "messages_feed".
+  //
+  // Regroupé par jour, jamais un e-mail par message : une conversation animée
+  // produirait autrement des dizaines d'envois. Même principe que le récap des
+  // dépôts, dont il reprend la structure.
+  recap_messages: { famille: "messages_feed", transactionnel: true },
   // Document du coffre-fort bientôt expiré → famille "rappels".
-  document_expirant: { famille: "rappels", transactionnel: true },
-  // Jalon de rétroplanning échu → famille "rappels".
-  jalon_echu: { famille: "rappels", transactionnel: true },
-  // Bienvenue → transactionnel, pas de famille (toujours envoyé une fois).
-  bienvenue: { famille: null, transactionnel: true },
-  // Document du coffre-fort expirant → famille "rappels" (échéance à agir).
   document_expirant: { famille: "rappels", transactionnel: true },
   // Jalon de rétroplanning échu → famille "rappels".
   jalon_echu: { famille: "rappels", transactionnel: true },
