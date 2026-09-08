@@ -23,6 +23,8 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { CriteresModal } from '../src/components/CriteresModal.tsx';
 import { DocDetailsModal } from '../src/components/DocDetailsModal.tsx';
 import { ConfirmDialog } from '../src/components/ui/ConfirmDialog.tsx';
+import { IndicateursDossier } from '../src/components/IndicateursDossier.tsx';
+import { PanneauxLateraux } from '../src/components/PanneauxLateraux.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -174,6 +176,103 @@ test('DocDetailsModal : le porteur voit la coordination documentaire', () => {
     cleanup();
     render(React.createElement(DocDetailsModal, proprietesDocDetails({ isOwner: true })));
     assert.ok(screen.getByText('Coordination Documentaire'));
+});
+
+
+// ===========================================================================
+// Étape 2 du découpage — indicateurs et panneaux latéraux
+// ===========================================================================
+const proprietesIndicateurs = (surcharge: any = {}) => ({
+    successScore: 40,
+    potentialGain: 11,
+    missingSpecialties: [],
+    montantEstime: null,
+    criteresAttribution: null,
+    nextMilestone: null,
+    isOwner: true,
+    isLocked: false,
+    gaugeRadius: 40,
+    gaugeCircumference: 251,
+    gaugeOffset: 100,
+    gaugeColor: '#F59E0B',
+    carouselIndex: 0,
+    onOuvrirCriteres: rien,
+    onOuvrirRetroplanning: rien,
+    ...surcharge,
+});
+
+test('IndicateursDossier : le score du dossier est affiché tel quel', () => {
+    cleanup();
+    render(React.createElement(IndicateursDossier, proprietesIndicateurs({ successScore: 40 })));
+    assert.ok(screen.getByText('40%'));
+});
+
+test('IndicateursDossier : score illisible → aucun pourcentage affiché', () => {
+    cleanup();
+    render(React.createElement(IndicateursDossier, proprietesIndicateurs({ successScore: null })));
+    // Le cas qui faisait diverger cotraitant et mandataire : mieux vaut ne rien
+    // annoncer qu'un chiffre faussement optimiste.
+    assert.equal(screen.queryByText('85%'), null);
+    assert.equal(screen.queryByText('40%'), null);
+});
+
+test('IndicateursDossier : le gain par partenaire n’apparaît que s’il manque une compétence', () => {
+    cleanup();
+    render(React.createElement(IndicateursDossier, proprietesIndicateurs({
+        missingSpecialties: [{ id: 's1', label: 'Logistique' }],
+        potentialGain: 28,
+    })));
+    assert.ok(screen.getByText(/\+28%/));
+
+    cleanup();
+    render(React.createElement(IndicateursDossier, proprietesIndicateurs({ missingSpecialties: [] })));
+    assert.equal(screen.queryByText(/via partenaire/), null);
+});
+
+test('IndicateursDossier : sans critères publiés, le dit explicitement', () => {
+    cleanup();
+    render(React.createElement(IndicateursDossier, proprietesIndicateurs({ criteresAttribution: null })));
+    assert.ok(screen.getByText(/Non communiqués dans l'avis/));
+});
+
+const proprietesPanneaux = (surcharge: any = {}) => ({
+    referenceMarche: null,
+    datePublication: null,
+    dateDepotSouhaitee: null,
+    secteurActivite: null,
+    cpvCodes: null,
+    lienTelechargement: null,
+    dceDocuments: [],
+    milestones: [],
+    tenderId: 't1',
+    amIInvitee: false,
+    isRefused: false,
+    isOwner: true,
+    isLocked: false,
+    onOuvrirContexte: rien,
+    onOuvrirDCE: rien,
+    onOuvrirRetroplanning: rien,
+    ...surcharge,
+});
+
+test('PanneauxLateraux : le contexte est toujours visible', () => {
+    cleanup();
+    render(React.createElement(PanneauxLateraux, proprietesPanneaux()));
+    assert.ok(screen.getByText(/Contexte de l'AO/));
+});
+
+test('PanneauxLateraux : un membre ayant refusé ne voit ni pièces ni rétroplanning', () => {
+    cleanup();
+    render(React.createElement(PanneauxLateraux, proprietesPanneaux({ isRefused: true })));
+    assert.ok(screen.getByText(/Contexte de l'AO/), 'le contexte reste visible');
+    assert.equal(screen.queryByText(/Pièces du marché/), null);
+    assert.equal(screen.queryByText('Rétroplanning'), null);
+});
+
+test('PanneauxLateraux : sans lien renseigné, aucun lien mort n’est proposé', () => {
+    cleanup();
+    render(React.createElement(PanneauxLateraux, proprietesPanneaux({ lienTelechargement: null })));
+    assert.equal(screen.queryByText(/Lien vers l'appel d'offres/), null);
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans
