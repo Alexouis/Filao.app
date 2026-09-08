@@ -3515,13 +3515,31 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // au-delà du forfait souscrit.
             //
             // `maxStockageOctets` à null signifie illimité : aucun refus.
-            const limiteStockage = forfait(userProfile?.plan).maxStockageOctets;
-            const currentUsage = userProfile?.storage_used || 0;
+            // Espace restant demandé au SERVEUR (migration 104), et non lu dans
+            // `storage_used`.
+            //
+            // Ce compteur ne faisait que monter : incrémenté à chaque dépôt, il
+            // n'était décrémenté qu'à la suppression d'un appel d'offres — ni au
+            // remplacement d'une pièce, ni à sa suppression. Il finissait par
+            // refuser des envois parfaitement légitimes, tout en affichant un
+            // chiffre rassurant en facturation, calculé autrement.
+            //
+            // La même fonction sert désormais à bloquer et à afficher : deux
+            // mesures pour une seule limite, c'est la garantie qu'au moins l'une
+            // des deux ment.
+            if (delta > 0 && userProfile?.entreprise_id) {
+                const { data: restant, error: errStockage } = await supabase
+                    .rpc('stockage_restant_entreprise', { p_entreprise: userProfile.entreprise_id });
 
-            if (limiteStockage !== null && delta > 0 && (currentUsage + delta > limiteStockage)) {
-                setShowStorageLimitModal(true);
-                setUploadProgress(prev => { const n = { ...prev }; delete n[key]; return n; });
-                return;
+                if (errStockage) {
+                    // On ne bloque pas sur une erreur de mesure : refuser un
+                    // dépôt légitime est plus grave que dépasser de peu.
+                    console.warn('Espace restant indéterminé, dépôt autorisé :', errStockage);
+                } else if (restant !== null && delta > Number(restant)) {
+                    setShowStorageLimitModal(true);
+                    setUploadProgress(prev => { const n = { ...prev }; delete n[key]; return n; });
+                    return;
+                }
             }
 
             // Upload — validé côté serveur (type réel, taille, destination).
@@ -3544,6 +3562,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (erreurDepot) throw new Error(erreurDepot);
 
             // Increment Usage
+            //
+            // `storage_used` ne décide plus rien : ni le blocage (qui passe par
+            // `stockage_restant_entreprise`), ni l'affichage (par
+            // `stockage_consomme_entreprise`). On continue de l'entretenir le
+            // temps que les autres écrans s'en détachent — retirer la colonne
+            // pendant qu'elle est encore lue ailleurs casserait plus que ça ne
+            // nettoierait.
             if (delta !== 0) {
                 await supabase.rpc('increment_storage_usage', { user_id: user.id, bytes_added: delta });
                 setUserProfile((prev: any) => ({ ...prev, storage_used: (prev?.storage_used || 0) + delta }));

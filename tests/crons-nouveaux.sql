@@ -66,6 +66,16 @@ SELECT cron.schedule(
     url     := 'https://jgswgldqhrbismujkeue.supabase.co/functions/v1/purge-pieces-orphelines',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
+      -- La passerelle des Edge Functions exige un `Authorization` valide dès
+      -- lors que la vérification JWT est active sur la fonction (le réglage
+      -- par défaut). Sans lui : 401 UNAUTHORIZED_NO_AUTH_HEADER, refusé AVANT
+      -- d'atteindre le code — le `x-purge-secret` n'est même pas lu.
+      --
+      -- On garde les DEUX : le JWT ouvre la porte, le secret autorise l'action.
+      -- `purge-stockage-orphelin` fonctionne sans, parce que sa vérification
+      -- JWT a été désactivée dans le tableau de bord ; on ne reproduit pas ce
+      -- réglage, deux barrières valent mieux qu'une.
+      'Authorization', 'Bearer <SERVICE_ROLE_JWT>',
       'x-purge-secret', '<PURGE_SECRET>'
     ),
     body    := '{"dryRun": false}'::jsonb
@@ -86,6 +96,9 @@ SELECT net.http_post(
   url     := 'https://jgswgldqhrbismujkeue.supabase.co/functions/v1/purge-pieces-orphelines',
   headers := jsonb_build_object(
     'Content-Type', 'application/json',
+    -- Voir la note du bloc 2 : sans `Authorization`, la passerelle répond 401
+    -- avant que la fonction ne soit appelée.
+    'Authorization', 'Bearer <SERVICE_ROLE_JWT>',
     'x-purge-secret', '<PURGE_SECRET>'
   ),
   body    := '{"dryRun": true}'::jsonb

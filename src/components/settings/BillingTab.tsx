@@ -148,12 +148,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     const currentPlanKey = offre.code;
     const currentPlanInfo = PLANS.find(p => p.id === currentPlanKey);
 
-    // Consommation réelle, lue depuis le stockage plutôt que du compteur
-    // `storage_used` : celui-ci n'existe qu'en mémoire côté front et retombait à
-    // zéro à chaque rechargement, affichant « 0 Mo » même après un dépôt de
-    // 25 Mo. On part de la valeur en mémoire le temps de la requête, pour ne pas
-    // faire clignoter l'affichage.
-    const [usedStorage, setUsedStorage] = useState<number>((userProfile as any)?.storage_used || 0);
+    // Consommation réelle, lue depuis le stockage (migration 104 : coffre-fort
+    // ET pièces de dossier).
+    //
+    // `null` tant que la mesure n'est pas revenue. On amorçait auparavant avec
+    // `storage_used`, un compteur PAR UTILISATEUR qui ne mesure pas la même
+    // chose que cette valeur PAR ENTREPRISE, et qui dérive de surcroît : on
+    // affichait donc un chiffre faux avant de le corriger sous les yeux de
+    // l'utilisateur. Mieux vaut ne rien annoncer un instant.
+    const [usedStorage, setUsedStorage] = useState<number | null>(null);
     /** Occupation en utilisateurs : membres actifs / places du forfait (null = illimité). */
     const [sieges, setSieges] = useState<{ occupes: number; restants: number | null } | null>(null);
 
@@ -195,7 +198,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
     const totalStorage = offre.maxStockageOctets;
     // Stockage illimité : aucun pourcentage n'a de sens, la barre reste vide.
     const storagePercentage = totalStorage
-        ? Math.min(100, Math.max(0, (usedStorage / totalStorage) * 100))
+        ? Math.min(100, Math.max(0, ((usedStorage ?? 0) / totalStorage) * 100))
         : 0;
     const hasStripeSubscription = Boolean((userProfile as any)?.stripe_subscription_id)
         || currentPlanKey !== PLANS_TYPES.free;
@@ -260,7 +263,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                         )}
                         <div className="flex justify-between text-xs mb-1.5">
                             <span className="text-gray-400">Espace de stockage</span>
-                            <span className="text-white font-medium">{formatBytes(usedStorage)} / {formatBytes(totalStorage)}</span>
+                            <span className="text-white font-medium">{usedStorage === null ? '—' : formatBytes(usedStorage)} / {formatBytes(totalStorage)}</span>
                         </div>
                         <div className="w-full bg-white/10 rounded-full h-1.5">
                             <div className="bg-filao-primary h-1.5 rounded-full transition-all" style={{ width: `${storagePercentage}%` }}></div>
