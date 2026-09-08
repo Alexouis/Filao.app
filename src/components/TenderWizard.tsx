@@ -8,7 +8,7 @@ import {
     CheckCircle, FileText, X, Search, ArrowRight, ArrowLeft, ChevronDown,
     Loader2, Plus, Trash2, Euro, Globe, FileInput, PenTool,
     Target, AlertTriangle, AlertCircle, Sparkles, XCircle, Mail, Network, Building,
-    CalendarCheck, Download, UserPlus, FolderOpen,
+    CalendarCheck, Download, UserPlus,
     Files, Save, Send, ShieldAlert, MessageSquare, RefreshCw,
     UserCheck, Crown, LogOut, Trophy, Frown, Pencil, Lock,
     Eye,
@@ -34,6 +34,8 @@ import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
 import { DocDetailsModal } from './DocDetailsModal';
 import { CriteresModal } from './CriteresModal';
+import { IndicateursDossier } from './IndicateursDossier';
+import { PanneauxLateraux } from './PanneauxLateraux';
 import { track } from '../helpers/analytics';
 import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
@@ -41,14 +43,13 @@ import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
-import { cpvLisible, libelleCpv } from '../helpers/cpvLabels';
+import { libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
     extractCriteresAttribution,
     extractReferenceMarche,
     normaliserPoids,
-    formatCpv,
     avisEncoreOuvert,
     dedoublonnerAvis,
     libelleLieuBoamp,
@@ -4152,112 +4153,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             : successScore >= 70 ? '#10B981' : successScore >= 40 ? '#F59E0B' : '#EF4444';
 
         // Budget formatting
-        const formatBudget = (val: number) => {
-            if (val >= 1000000) return `${(val / 1000000).toFixed(1)}M€`;
-            if (val >= 1000) return `${Math.round(val / 1000)}k€`;
-            return `${val}€`;
-        };
 
-        /**
-         * Carte « Critères d'attribution ».
-         *
-         * Le BOAMP publie quatre formes distinctes et deux seulement sont
-         * chiffrées, d'où les quatre rendus ci-dessous. Le cas le plus fréquent
-         * n'est pas le plus riche : beaucoup d'acheteurs renvoient au règlement
-         * de consultation sans rien publier de structuré.
-         */
-        const renderCriteresCard = () => {
-            const crit = formData.criteres_attribution;
-            const editable = isOwner && !isLocked;
-
-            const Wrapper = ({ children }: { children: React.ReactNode }) => (
-                <div
-                    className={`bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all ${editable ? 'cursor-pointer' : ''}`}
-                    onClick={editable ? openCriteresModal : undefined}
-                >
-                    <div className="flex items-center justify-between mb-2">
-                        <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Critères d'attribution</p>
-                        {editable && <PenTool size={10} className="text-[#0B1F38]/25" />}
-                    </div>
-                    {children}
-                </div>
-            );
-
-            // Aucune donnée, ou renvoi au règlement de consultation.
-            if (!crit || crit.kind === 'absent' || crit.kind === 'cctp') {
-                return (
-                    <Wrapper>
-                        <p className="text-[11px] text-[#0B1F38]/50 leading-snug">
-                            {crit?.kind === 'cctp'
-                                ? "L'acheteur renvoie au règlement de consultation."
-                                : 'Non communiqués dans l\'avis.'}
-                        </p>
-                        {editable && (
-                            <p className="text-[9px] text-[#00A3E0] font-bold mt-1.5">Saisir les critères →</p>
-                        )}
-                    </Wrapper>
-                );
-            }
-
-            // Texte libre : on affiche tel quel, tronqué.
-            if (crit.kind === 'libre') {
-                return (
-                    <Wrapper>
-                        <p className="text-[11px] text-[#0B1F38]/70 leading-snug line-clamp-4">{crit.texte}</p>
-                    </Wrapper>
-                );
-            }
-
-            // Critères classés sans pondération.
-            if (crit.kind === 'priorites') {
-                return (
-                    <Wrapper>
-                        <div className="space-y-1">
-                            {crit.criteres.map((c, i) => (
-                                <div key={i} className="flex items-start gap-1.5">
-                                    <span className="text-[10px] font-bold text-[#00A3E0] shrink-0 mt-px">{c.ordre}.</span>
-                                    <span className="text-[11px] text-[#0B1F38] leading-snug line-clamp-2">{c.libelle}</span>
-                                </div>
-                            ))}
-                        </div>
-                        <p className="text-[9px] text-[#0B1F38]/40 mt-1.5 italic">Classés par ordre d'importance, sans pondération publiée.</p>
-                    </Wrapper>
-                );
-            }
-
-            // Critères pondérés. ⚠️ Les poids ne somment pas toujours à 100 :
-            // on normalise pour la barre, et on signale la conversion.
-            const parts = normaliserPoids(crit.criteres);
-            const palette = ['#00A3E0', '#F59E0B', '#10B981', '#8B5CF6', '#EC4899', '#0B1F38'];
-
-            return (
-                <Wrapper>
-                    <div className="space-y-1.5">
-                        {parts.map((p, i) => (
-                            <div key={i} className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: palette[i % palette.length] }} />
-                                    <span className="text-[11px] font-medium text-[#0B1F38] truncate" title={p.libelle}>{p.libelle}</span>
-                                </div>
-                                <span className="text-xs font-bold text-[#0B1F38] shrink-0">{p.pourcentage}%</span>
-                            </div>
-                        ))}
-                    </div>
-                    {parts.length > 0 && (
-                        <div className="flex rounded-full h-2 overflow-hidden mt-2">
-                            {parts.map((p, i) => (
-                                <div key={i} className="h-full" style={{ width: `${p.pourcentage}%`, background: palette[i % palette.length] }} />
-                            ))}
-                        </div>
-                    )}
-                    {!crit.poidsSontDesPourcentages && (
-                        <p className="text-[9px] text-[#0B1F38]/40 mt-1.5 italic">
-                            Coefficients publiés par l'acheteur, convertis en pourcentages.
-                        </p>
-                    )}
-                </Wrapper>
-            );
-        };
 
         return (
             <div className="w-full h-full flex flex-col animate-in slide-in-from-right-4 duration-500 overflow-hidden">
@@ -4391,74 +4287,23 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar-dark pb-2">
                     {/* ZONE 2 — INDICATEURS STRATÉGIQUES - Hidden if refused */}
                     {!isRefused && (
-                        <div className="px-5 pb-3">
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                {/* Carte 1 — Potentiel de succès */}
-                                <div className="bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all">
-                                    <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider mb-2">Potentiel de succès</p>
-                                    <div className="flex items-center gap-3">
-                                        <div className="relative shrink-0">
-                                            <svg width="90" height="90" viewBox="0 0 100 100" className="transform -rotate-90">
-                                                <circle cx="50" cy="50" r={gaugeRadius} fill="none" stroke="#0B1F38" strokeOpacity="0.06" strokeWidth="8" />
-                                                <circle cx="50" cy="50" r={gaugeRadius} fill="none" stroke={gaugeColor} strokeWidth="8" strokeLinecap="round"
-                                                    strokeDasharray={gaugeCircumference} strokeDashoffset={gaugeOffset}
-                                                    className="transition-all duration-1000" />
-                                            </svg>
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <span className="text-xl font-extrabold text-[#0B1F38]" title={successScore === null ? "Les compétences requises n'ont pas pu être lues : score indisponible." : undefined}>{successScore === null ? '—' : `${successScore}%`}</span>
-                                            </div>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-[10px] text-[#0B1F38]/50 leading-snug">Couverture des compétences requises par l'équipe</p>
-                                            {missingSpecialties.length > 0 && (
-                                                <p className="text-[10px] font-bold text-[#00A3E0] mt-1 leading-snug">+{potentialGain}% via partenaire {missingSpecialties[carouselIndex % missingSpecialties.length].label}</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Carte 2 — Budget et offre */}
-                                <div className="bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all">
-                                    <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider mb-2">Budget et offre</p>
-                                    <p className="text-2xl font-extrabold text-[#0B1F38] leading-tight">
-                                        {formData.montant_estime > 0 ? formatBudget(formData.montant_estime) : '—'}
-                                    </p>
-                                    <p className="text-[10px] text-[#0B1F38]/40 font-medium">Budget estimé (acheteur)</p>
-                                    <div className="mt-2 pt-2 border-t border-[#0B1F38]/5">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-[10px] text-[#0B1F38]/50">Offre groupement</span>
-                                            <span className="text-xs font-bold text-[#0B1F38]/30">— €</span>
-                                        </div>
-                                        <p className="text-[9px] text-[#0B1F38]/30 mt-1 italic">Se calcule via le DPGF</p>
-                                    </div>
-                                </div>
-
-                                {/* Carte 3 — Critères d'attribution */}
-                                {renderCriteresCard()}
-
-                                {/* Carte 4 — Prochain jalon */}
-                                <div className="bg-white/60 border border-white/60 rounded-2xl p-2 shadow-sm hover:shadow-md transition-all cursor-pointer" onClick={() => setShowRetroplanningModal(true)}>
-                                    <p className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider mb-2">Prochain jalon</p>
-                                    {nextMilestone ? (
-                                        <div className="flex flex-col items-center text-center gap-1">
-                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${nextMilestone.status === 'done' ? 'bg-green-100 text-green-600' :
-                                                nextMilestone.status === 'danger' ? 'bg-red-100 text-red-500' :
-                                                    nextMilestone.status === 'warning' ? 'bg-amber-100 text-amber-600' :
-                                                        'bg-[#00A3E0]/10 text-[#00A3E0]'
-                                                }`}>
-                                                {nextMilestone.status === 'done' ? <CheckCircle size={20} /> : <CalendarIcon size={20} />}
-                                            </div>
-                                            <p className="text-sm font-bold text-[#0B1F38] leading-tight">{nextMilestone.label}</p>
-                                            <p className="text-xs font-medium text-[#0B1F38]/60">{new Date(nextMilestone.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                                            {nextMilestone.status === 'danger' && <p className="text-[10px] font-bold text-red-500">Urgent</p>}
-                                            {nextMilestone.status === 'warning' && <p className="text-[10px] font-bold text-amber-500">Bientôt</p>}
-                                        </div>
-                                    ) : (
-                                        <p className="text-xs text-[#0B1F38]/40 italic">Aucun jalon défini</p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+                        <IndicateursDossier
+                            successScore={successScore}
+                            potentialGain={potentialGain}
+                            missingSpecialties={missingSpecialties}
+                            montantEstime={formData.montant_estime}
+                            criteresAttribution={formData.criteres_attribution}
+                            nextMilestone={nextMilestone}
+                            isOwner={isOwner}
+                            isLocked={isLocked}
+                            gaugeRadius={gaugeRadius}
+                            gaugeCircumference={gaugeCircumference}
+                            gaugeOffset={gaugeOffset}
+                            gaugeColor={gaugeColor}
+                            carouselIndex={carouselIndex}
+                            onOuvrirCriteres={openCriteresModal}
+                            onOuvrirRetroplanning={() => setShowRetroplanningModal(true)}
+                        />
                     )}
 
                     {/* ============================== */}
@@ -4777,123 +4622,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                             {/* === COLONNE DROITE : Panneaux de référence === */}
                             <div className="lg:col-span-1 flex flex-col gap-3">
 
-                                {/* Panel 1 — Contexte de l'AO */}
-                                <div className="bg-white/40 border border-white/60 rounded-2xl p-2 relative group">
-                                    {isOwner && !isLocked && <button
-                                        onClick={() => setShowContextEditModal(true)}
-                                        className="absolute top-3 right-3 p-1.5 bg-[#0B1F38]/5 text-[#0B1F38]/40 hover:bg-[#00A3E0]/10 hover:text-[#00A3E0] rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                        title="Modifier">
-                                        <PenTool size={12} />
-                                    </button>}
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h4 className="text-sm font-bold text-[#0B1F38] flex items-center gap-1.5"><FileText size={14} className="text-[#00A3E0]" /> Contexte de l'AO</h4>
-                                        <button onClick={() => setShowContextEditModal(true)} className="text-[10px] font-bold text-[#00A3E0] hover:underline">Voir tout →</button>
-                                    </div>
-                                    <div className="space-y-2 text-[11px]">
-                                        {/* Référence : celle de l'acheteur si connue, sinon l'identifiant
-                                            technique Filao en repli explicite. Indépendante du lien
-                                            (les deux disparaissaient ensemble auparavant). */}
-                                        {(formData.reference_marche || tenderId) && (
-                                            <div className="flex justify-between">
-                                                <span className="text-[#0B1F38]/40">Référence</span>
-                                                {formData.reference_marche ? (
-                                                    <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[140px]" title={formData.reference_marche}>{formData.reference_marche}</span>
-                                                ) : (
-                                                    <span className="text-[#0B1F38]/50 font-medium truncate ml-2 max-w-[140px]" title={`Identifiant Filao : ${tenderId}`}>
-                                                        Réf. interne
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
-                                        {formData.date_publication && (
-                                            <div className="flex justify-between"><span className="text-[#0B1F38]/40">Publication</span><span className="text-[#0B1F38] font-medium">{new Date(formData.date_publication).toLocaleDateString('fr-FR')}</span></div>
-                                        )}
-                                        {formData.date_depot_souhaitee && (
-                                            <div className="flex justify-between"><span className="text-[#0B1F38]/40">Dépôt souhaité</span><span className="text-[#0B1F38] font-medium">{new Date(formData.date_depot_souhaitee).toLocaleDateString('fr-FR')}</span></div>
-                                        )}
-                                        {/* Le mode de passation est déjà affiché dans l'en-tête de
-                                            l'AO ; cette ligne sert donc au secteur, qui n'apparaissait
-                                            nulle part alors que la fiche le demande. Taille de carte
-                                            inchangée. */}
-                                        {formData.secteur_activite && (
-                                            <div className="flex justify-between">
-                                                <span className="text-[#0B1F38]/40">Secteur</span>
-                                                <span className="text-[#0B1F38] font-medium truncate ml-2 max-w-[150px]">
-                                                    {(SECTORS_LABELS as any)[formData.secteur_activite] || formData.secteur_activite}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {/* Codes CPV — nomenclature européenne de l'objet du marché.
-                                            Présenté comme les autres lignes du panneau : intitulé à
-                                            gauche, valeur à droite. La version précédente occupait
-                                            trois lignes (titre, pastilles, libellé) pour une seule
-                                            information. */}
-                                        {formData.cpv_codes?.length > 0 && (
-                                            <div className="flex justify-between gap-2">
-                                                <span className="text-[#0B1F38]/40 shrink-0">CPV</span>
-                                                <span
-                                                    className="text-[#0B1F38] font-medium truncate text-right"
-                                                    // Le détail complet reste accessible au survol :
-                                                    // un code par ligne, avec sa division.
-                                                    title={formData.cpv_codes.map(c => cpvLisible(c, formatCpv(c))).join('\n')}
-                                                >
-                                                    <span className="font-mono">{formatCpv(formData.cpv_codes[0])}</span>
-                                                    {libelleCpv(formData.cpv_codes[0]) && (
-                                                        <span className="text-[#0B1F38]/50"> · {libelleCpv(formData.cpv_codes[0])}</span>
-                                                    )}
-                                                    {formData.cpv_codes.length > 1 && (
-                                                        <span className="text-[#0B1F38]/40"> +{formData.cpv_codes.length - 1}</span>
-                                                    )}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {formData.lien_telechargement ? (
-                                            <a href={lienExterne(formData.lien_telechargement)} target="_blank" rel="noopener noreferrer" title={formData.lien_telechargement} className="flex items-center gap-1 text-[#00A3E0] font-bold hover:underline mt-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] rounded">
-                                                <Link size={12} /> Lien vers l'appel d'offres →
-                                            </a>
-                                        ) : (
-                                            /* Le lien doit être joignable "dans tous les cas" : si absent, on propose
-                                               la saisie au lieu de masquer silencieusement la ligne. */
-                                            <button
-                                                onClick={() => setShowContextEditModal(true)}
-                                                disabled={!isOwner || isLocked}
-                                                className="flex items-center gap-1 text-[#0B1F38]/40 font-bold hover:text-[#00A3E0] hover:underline mt-1 text-[11px] disabled:hover:no-underline disabled:hover:text-[#0B1F38]/40 disabled:cursor-default"
-                                            >
-                                                <Link size={12} /> {(!isOwner || isLocked) ? "Aucun lien renseigné" : "Ajouter le lien vers l'appel d'offres"}
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Panel 2 — Pièces du marché (DCE) - Hidden if refused */}
-                                {!isRefused && (
-                                    <div className={`bg-white/40 border border-white/60 rounded-2xl p-2 group ${amIInvitee ? 'opacity-80' : 'cursor-pointer'}`} onClick={amIInvitee ? undefined : () => setShowDCEPiecesModal(true)}>
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="text-sm font-bold text-[#0B1F38] flex items-center gap-1.5"><FolderOpen size={14} className="text-[#00A3E0]" /> Pièces du marché</h4>
-                                            {!amIInvitee && <button className="text-[10px] font-bold text-[#00A3E0] hover:underline group-hover:translate-x-0.5 transition-transform">Consulter →</button>}
-                                        </div>
-                                        <p className="text-[11px] text-[#0B1F38]/50 mt-1.5">{formData.dce_documents?.length || 0} document{formData.dce_documents?.length > 1 ? 's' : ''}</p>
-                                    </div>
-                                )}
-
-                                {/* Panel 3 — Rétroplanning - Hidden if refused */}
-                                {!isRefused && (
-                                    <div className="bg-white/40 border border-white/60 rounded-2xl p-2 cursor-pointer group" onClick={() => setShowRetroplanningModal(true)}>
-                                        <div className="flex justify-between items-center mb-3">
-                                            <h4 className="text-sm font-bold text-[#0B1F38] flex items-center gap-1.5"><CalendarCheck size={14} className="text-[#00A3E0]" /> Rétroplanning</h4>
-                                            <button className="text-[10px] font-bold text-[#00A3E0] hover:underline group-hover:translate-x-0.5 transition-transform">Voir tout →</button>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {milestones.slice(0, 3).map((m, i) => (
-                                                <div key={i} className="flex items-center gap-2">
-                                                    <div className={`w-2 h-2 rounded-full shrink-0 ${m.status === 'done' ? 'bg-green-500' : m.status === 'danger' ? 'bg-red-500' : m.status === 'warning' ? 'bg-amber-500' : 'bg-gray-300'}`} />
-                                                    <span className="text-[11px] font-medium text-[#0B1F38]/60 shrink-0 w-20">{new Date(m.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                                                    <span className="text-[11px] text-[#0B1F38] font-medium">{m.label}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                                <PanneauxLateraux
+                                    referenceMarche={formData.reference_marche}
+                                    datePublication={formData.date_publication}
+                                    dateDepotSouhaitee={formData.date_depot_souhaitee}
+                                    secteurActivite={formData.secteur_activite}
+                                    cpvCodes={formData.cpv_codes}
+                                    lienTelechargement={formData.lien_telechargement}
+                                    dceDocuments={formData.dce_documents}
+                                    milestones={milestones}
+                                    tenderId={tenderId}
+                                    amIInvitee={amIInvitee}
+                                    isRefused={isRefused}
+                                    isOwner={isOwner}
+                                    isLocked={isLocked}
+                                    onOuvrirContexte={() => setShowContextEditModal(true)}
+                                    onOuvrirDCE={() => setShowDCEPiecesModal(true)}
+                                    onOuvrirRetroplanning={() => setShowRetroplanningModal(true)}
+                                />
                             </div>
                         </div>
                     </div>
