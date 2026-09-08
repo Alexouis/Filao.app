@@ -40,6 +40,10 @@ import {
 
 import { lienExterne } from '../src/helpers/textHelpers.ts';
 
+import { estDossierDunCollegue, estEnLectureSeule } from '../src/helpers/accesDossier.ts';
+import { canCreateTender } from '../src/helpers/planHelpers.ts';
+import { buildICalendar } from '../src/helpers/icalHelpers.ts';
+
 import {
   specialitesCouvertes, specialitesManquantes, lectureCompetencesEchouee,
   scoreSucces, gainPotentiel, joursRestants, roleUtilisateur, dossierTermine,
@@ -512,4 +516,119 @@ test('dossierTermine : gagné, perdu, expiré — pas « en cours »', () => {
   assert.equal(dossierTermine(t({ statut: STATUSES.lost })), true);
   assert.equal(dossierTermine(t({ date_limite: isoDans(-2) })), true);   // expiré
   assert.equal(dossierTermine(t({ date_limite: isoDans(5) })), false);
+});
+
+// ===========================================================================
+// 14. ACCÈS AUX DOSSIERS — cloisonnement entre collègues
+// ===========================================================================
+const dossierDe = (createur: string, entreprise: string | null) =>
+  ({ createur_id: createur, entreprise_id: entreprise });
+
+test('estDossierDunCollegue : même entreprise, autre porteur', () => {
+  const moi = { id: 'u1', entreprise_id: 'e1' };
+  assert.equal(estDossierDunCollegue(dossierDe('u2', 'e1'), moi), true);
+});
+test('estDossierDunCollegue : mon propre dossier n’est pas « d’un collègue »', () => {
+  const moi = { id: 'u1', entreprise_id: 'e1' };
+  assert.equal(estDossierDunCollegue(dossierDe('u1', 'e1'), moi), false);
+});
+test('estDossierDunCollegue : entreprise différente → non', () => {
+  const moi = { id: 'u1', entreprise_id: 'e1' };
+  assert.equal(estDossierDunCollegue(dossierDe('u2', 'e2'), moi), false);
+});
+test('estDossierDunCollegue : données manquantes → non, jamais d’accès par défaut', () => {
+  const moi = { id: 'u1', entreprise_id: 'e1' };
+  assert.equal(estDossierDunCollegue(null, moi), false);
+  assert.equal(estDossierDunCollegue(dossierDe('u2', 'e1'), null), false);
+  assert.equal(estDossierDunCollegue(dossierDe('u2', null), moi), false);
+  assert.equal(estDossierDunCollegue(dossierDe('u2', 'e1'), { id: 'u1' }), false);
+});
+test('estEnLectureSeule : oui pour un collègue, NON pour un administrateur', () => {
+  const moi = { id: 'u1', entreprise_id: 'e1' };
+  const dossierCollegue = dossierDe('u2', 'e1');
+  assert.equal(estEnLectureSeule(dossierCollegue, moi, false), true);
+  // Les migrations 093/094 ouvrent l'écriture à l'admin : l'éditeur lui est
+  // pleinement utilisable.
+  assert.equal(estEnLectureSeule(dossierCollegue, moi, true), false);
+});
+
+// ===========================================================================
+// 15. QUOTAS DE FORFAIT — création d'un dossier
+// ===========================================================================
+test('canCreateTender : refuse sans profil', () => {
+  const r = canCreateTender(null, []);
+  assert.equal(r.allowed, false);
+  assert.ok(r.message);
+});
+test('canCreateTender : le forfait Partenaire (0 dossier) explique la NATURE de l’offre', () => {
+  const r = canCreateTender({ id: 'u1', plan: 'partenaire' }, []);
+  assert.equal(r.allowed, false);
+  // « vous portez déjà 0 dossier » serait absurde : le message doit dire que
+  // ce forfait sert à REJOINDRE, pas à porter.
+  assert.doesNotMatch(r.message ?? '', /0\s*\/\s*0/);
+  assert.ok((r.message ?? '').length > 0);
+});
+test('canCreateTender : seuls les dossiers qui consomment du quota comptent', () => {
+  const dossier = (o: any) => ({
+    id: Math.random().toString(), statut: STATUSES.on,
+    date_limite: isoDans(10), createur_id: 'u1', ...o,
+  });
+  const profil = { id: 'u1', plan: 'solo' };
+  // Un dossier déposé ne consomme plus d'emplacement (cf. consommeQuota).
+  const avecDepose = canCreateTender(profil as any, [
+    dossier({ statut: STATUSES.submitted }),
+  ] as any);
+  assert.equal(avecDepose.allowed, true);
+
+  // Le dossier d'un autre non plus.
+  const avecDossierAutrui = canCreateTender(profil as any, [
+    dossier({ createur_id: 'u2' }),
+  ] as any);
+  assert.equal(avecDossierAutrui.allowed, true);
+});
+
+// ===========================================================================
+// 16. EXPORT ICAL — fichier importable dans un agenda
+// ===========================================================================
+const aoPourIcal = (o: any = {}) => ({
+  id: 'ao1', titre: 'Marché de voirie', statut: STATUSES.on,
+  date_limite: '2026-09-15', organisme_acheteur: 'Ville de Lyon',
+  jalons: [], ...o,
+});
+
+test('buildICalendar : enveloppe VCALENDAR bien formée', () => {
+  const ics = buildICalendar([aoPourIcal()]);
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR'));
+  assert.ok(ics.trimEnd().endsWith('END:VCALENDAR'));
+  assert.match(ics, /VERSION:2\.0/);
+});
+test('buildICalendar : un VEVENT par date limite', () => {
+  const ics = buildICalendar([aoPourIcal()]);
+  const nb = (ics.match(/BEGIN:VEVENT/g) || []).length;
+  assert.equal(nb, 1);
+  assert.match(ics, /SUMMARY:Remise/);
+});
+test('buildICalendar : les dossiers clos sont exclus par défaut, inclus sur demande', () => {
+  const clos = [aoPourIcal({ statut: STATUSES.won })];
+  assert.equal((buildICalendar(clos).match(/BEGIN:VEVENT/g) || []).length, 0);
+  assert.ok((buildICalendar(clos, { includeClosed: true }).match(/BEGIN:VEVENT/g) || []).length > 0);
+});
+test('buildICalendar : une date invalide ne casse pas le fichier', () => {
+  // Un `.ics` malformé est refusé EN BLOC par les agendas : une seule mauvaise
+  // date ne doit pas emporter tout l'export.
+  const ics = buildICalendar([aoPourIcal({ date_limite: 'pas-une-date' })]);
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR'));
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 0);
+});
+test('buildICalendar : les caractères spéciaux du titre sont échappés', () => {
+  const ics = buildICalendar([aoPourIcal({ titre: 'Lot 1, phase 2; travaux' })]);
+  // Virgule et point-virgule sont des séparateurs iCalendar : non échappés,
+  // ils décaleraient les champs.
+  assert.match(ics, /Lot 1\\,/);
+  assert.match(ics, /phase 2\\;/);
+});
+test('buildICalendar : liste vide → calendrier valide et sans événement', () => {
+  const ics = buildICalendar([]);
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR'));
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 0);
 });
