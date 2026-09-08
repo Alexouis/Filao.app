@@ -19,6 +19,7 @@ import {
 import { canCreateTender } from '@/helpers/planHelpers';
 import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
+import { filtrerEtTrierDossiers } from '@/helpers/listeDossiersHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
 import { RatePartnersModal } from './RatePartnersModal';
@@ -641,96 +642,29 @@ export const Tenders: React.FC<TendersProps> = ({
     }
   };
 
-  const processedTenders = useMemo(() => {
-    let result = [...tenders];
-
-    // 1. Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      result = result.filter(t =>
-        (t.titre && t.titre.toLowerCase().includes(query)) ||
-        (t.organisme_acheteur && t.organisme_acheteur.toLowerCase().includes(query)) ||
-        (t.statut && t.statut.toLowerCase().includes(query))
-      );
-    }
-
-    // 2. Filter by status, category, domain AND REFUSAL
-    result = result.filter(t => {
-      // Hide tenders where I refused the invitation
-      // Check in groupements
-      const myGroupement = t.groupements?.find((g: any) => 
-        userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id
-      );
-
-      // Check in email invitations
-      const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
-
-      // Filter by category
-      if (filterCategory !== 'Tous') {
-        const matchesCat = Array.isArray(t.type_marche) ? t.type_marche.includes(filterCategory) : t.type_marche === filterCategory;
-        if (!matchesCat) return false;
-      }
-
-      // Filter by domain
-      if (filterDomain !== 'Tous' && t.secteur_activite !== filterDomain) return false;
-
-      // Filter by role: Porté = je suis le porteur (créateur) ; Rejoint = sinon.
-      // Aligné sur le badge de rôle affiché sur la carte (jeSuisPorteur).
-      if (filterRole !== 'Tous') {
-        const jeSuisPorteur = t.createur_id === userId;
-        if (filterRole === 'Portés' && !jeSuisPorteur) return false;
-        if (filterRole === 'Rejoints' && jeSuisPorteur) return false;
-      }
-
-      // Bascule « toute l'entreprise ». Par défaut on n'affiche que ses propres
-      // dossiers : une secrétaire qui suit dix chefs de projet noierait sinon
-      // les siens sous ceux des autres.
-      if (!voirToutEntreprise && estDossierDunCollegue(t)) return false;
-
-      // Handle pending/accepted visibility consistently
-      const isRefused = myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused';
-      const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
-
-      if (showInvitationsOnly) {
-        if (!isPending && !isRefused) return false;
-        
-        if (filterStatus === 'En attente' && !isPending) return false;
-        if (filterStatus === 'Refusé' && !isRefused) return false;
-        return true;
-      } else {
-        if (isPending || isRefused) return false;
-
-        // Filtre « Urgents » : échéance proche, transverse au statut (défini par isUrgent).
-        if (filterStatus === 'Urgents') return isUrgent(t);
-        // Filter by main status only when not in invitations view
-        if (filterStatus !== 'Tous' && getEffectiveStatus(t) !== filterStatus) return false;
-        return true;
-      }
-    });
-    
-    result.sort((a, b) => {
-      if (showInvitationsOnly) {
-         const aGroupement = a.groupements?.find((g: any) => userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id);
-         const aInvitation = a.invitations?.find((i: any) => i.email === userProfile?.email);
-         const aIsRefused = aGroupement?.statut === 'refuse' || aInvitation?.status === 'refused';
-         
-         const bGroupement = b.groupements?.find((g: any) => userProfile?.entreprise_id && g.entreprise_id === userProfile?.entreprise_id);
-         const bInvitation = b.invitations?.find((i: any) => i.email === userProfile?.email);
-         const bIsRefused = bGroupement?.statut === 'refuse' || bInvitation?.status === 'refused';
-         
-         if (aIsRefused && !bIsRefused) return 1;
-         if (!aIsRefused && bIsRefused) return -1;
-      }
-
-      if (sortOption === 'date_asc') return new Date(a.date_limite || 0).getTime() - new Date(b.date_limite || 0).getTime();
-      if (sortOption === 'date_desc') return new Date(b.date_limite || 0).getTime() - new Date(a.date_limite || 0).getTime();
-      if (sortOption === 'titre_asc') return (a.titre || '').localeCompare(b.titre || '');
-      if (sortOption === 'score_desc') return (b.success_score || 0) - (a.success_score || 0);
-      return 0;
-    });
-    return result;
-  }, [tenders, searchQuery, filterStatus, filterCategory, filterDomain, filterRole, sortOption, showInvitationsOnly, userId, userProfile?.email, userProfile?.entreprise_id,
-      voirToutEntreprise, estDossierDunCollegue]);
+  /**
+   * Liste affichée : recherche, filtres et tri.
+   *
+   * Les règles vivent dans `listeDossiersHelpers`, où elles sont testées. Ce
+   * ne sont pas des détails d'affichage mais des décisions produit — ce qu'on
+   * montre, ce qu'on cache, dans quel ordre — et elles étaient invérifiables
+   * enfouies dans ce composant.
+   */
+  const processedTenders = useMemo(
+    () => filtrerEtTrierDossiers(
+      tenders,
+      {
+        recherche: searchQuery,
+        filterStatus, filterCategory, filterDomain, filterRole,
+        showInvitationsOnly, voirToutEntreprise, sortOption,
+      },
+      { id: userId, email: userProfile?.email, entreprise_id: userProfile?.entreprise_id },
+      estDossierDunCollegue,
+    ),
+    [tenders, searchQuery, filterStatus, filterCategory, filterDomain, filterRole,
+     sortOption, showInvitationsOnly, userId, userProfile?.email,
+     userProfile?.entreprise_id, voirToutEntreprise, estDossierDunCollegue]
+  );
 
 
   useEffect(() => {

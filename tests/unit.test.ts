@@ -44,6 +44,10 @@ import { estDossierDunCollegue, estEnLectureSeule } from '../src/helpers/accesDo
 import { canCreateTender } from '../src/helpers/planHelpers.ts';
 import { buildICalendar } from '../src/helpers/icalHelpers.ts';
 import {
+  correspondRecherche, correspondCategorie, correspondRole,
+  dossierVisible, filtrerEtTrierDossiers,
+} from '../src/helpers/listeDossiersHelpers.ts';
+import {
   extractCpvCodes, cpvDivision, normaliserPoids, avisEncoreOuvert,
   dedoublonnerAvis, reparerEncodage,
 } from '../src/helpers/boampHelpers.ts';
@@ -737,4 +741,110 @@ test('reparerEncodage : valeur absente → chaîne vide', () => {
   assert.equal(reparerEncodage(null), '');
   assert.equal(reparerEncodage(undefined), '');
   assert.equal(reparerEncodage(''), '');
+});
+
+// ===========================================================================
+// 18. LISTE DES DOSSIERS — filtres, visibilité et tri
+// ===========================================================================
+const ao = (o: any = {}) => ({
+  id: 'a1', titre: 'Marché de voirie', organisme_acheteur: 'Ville de Lyon',
+  statut: STATUSES.on, date_limite: isoDans(30), createur_id: 'u1',
+  type_marche: 'Travaux', secteur_activite: 'BTP',
+  groupements: [], invitations: [], ...o,
+});
+const moiListe = { id: 'u1', email: 'moi@x.fr', entreprise_id: 'e1' };
+
+test('correspondRecherche : titre, acheteur et statut ; pas la description', () => {
+  const t = ao({ description: 'renovation complete' });
+  assert.equal(correspondRecherche(t, 'voirie'), true);
+  assert.equal(correspondRecherche(t, 'lyon'), true);       // insensible à la casse
+  assert.equal(correspondRecherche(t, 'en cours'), true);
+  // Un mot fréquent dans les descriptions ramènerait presque tout.
+  assert.equal(correspondRecherche(t, 'renovation'), false);
+  assert.equal(correspondRecherche(t, '   '), true);         // recherche vide = tout
+});
+
+test('correspondCategorie : type unique ou liste de types', () => {
+  assert.equal(correspondCategorie(ao({ type_marche: 'Travaux' }), 'Travaux'), true);
+  assert.equal(correspondCategorie(ao({ type_marche: ['Travaux', 'Services'] }), 'Services'), true);
+  assert.equal(correspondCategorie(ao({ type_marche: 'Travaux' }), 'Services'), false);
+  assert.equal(correspondCategorie(ao(), 'Tous'), true);
+});
+
+test('correspondRole : « Portés » = créateur, « Rejoints » = les autres', () => {
+  assert.equal(correspondRole(ao({ createur_id: 'u1' }), 'Portés', 'u1'), true);
+  assert.equal(correspondRole(ao({ createur_id: 'u2' }), 'Portés', 'u1'), false);
+  assert.equal(correspondRole(ao({ createur_id: 'u2' }), 'Rejoints', 'u1'), true);
+  assert.equal(correspondRole(ao(), 'Tous', 'u1'), true);
+});
+
+test('dossierVisible : une invitation en attente est MASQUÉE en vue normale', () => {
+  const invite = ao({ groupements: [{ entreprise_id: 'e1', statut: 'invite' }] });
+  assert.equal(dossierVisible(invite, {}, moiListe), false);
+  // …et c'est précisément ce qu'on montre en vue « invitations ».
+  assert.equal(dossierVisible(invite, { showInvitationsOnly: true }, moiListe), true);
+});
+
+test('dossierVisible : un refus suit la même règle, dans les deux vues', () => {
+  const refuse = ao({ invitations: [{ email: 'moi@x.fr', status: 'refused' }] });
+  assert.equal(dossierVisible(refuse, {}, moiListe), false);
+  assert.equal(dossierVisible(refuse, { showInvitationsOnly: true }, moiListe), true);
+});
+
+test('dossierVisible : en vue invitations, « En attente » et « Refusé » se distinguent', () => {
+  const enAttente = ao({ groupements: [{ entreprise_id: 'e1', statut: 'invite' }] });
+  const refuse = ao({ groupements: [{ entreprise_id: 'e1', statut: 'refuse' }] });
+  const vue = { showInvitationsOnly: true, filterStatus: 'En attente' };
+  assert.equal(dossierVisible(enAttente, vue, moiListe), true);
+  assert.equal(dossierVisible(refuse, vue, moiListe), false);
+});
+
+test('dossierVisible : « Urgents » est transverse au statut', () => {
+  const urgent = ao({ date_limite: isoDans(2) });
+  const lointain = ao({ date_limite: isoDans(60) });
+  assert.equal(dossierVisible(urgent, { filterStatus: 'Urgents' }, moiListe), true);
+  assert.equal(dossierVisible(lointain, { filterStatus: 'Urgents' }, moiListe), false);
+});
+
+test('dossierVisible : les dossiers des collègues sont cachés par défaut', () => {
+  const collegue = ao({ createur_id: 'u2' });
+  const estCollegue = () => true;
+  assert.equal(dossierVisible(collegue, {}, moiListe, estCollegue), false);
+  assert.equal(dossierVisible(collegue, { voirToutEntreprise: true }, moiListe, estCollegue), true);
+});
+
+test('filtrerEtTrierDossiers : tri par date, croissant et décroissant', () => {
+  const proche = ao({ id: 'proche', date_limite: isoDans(5) });
+  const lointain = ao({ id: 'lointain', date_limite: isoDans(50) });
+  const asc = filtrerEtTrierDossiers([lointain, proche] as any, { sortOption: 'date_asc' }, moiListe);
+  assert.deepEqual(asc.map((t: any) => t.id), ['proche', 'lointain']);
+  const desc = filtrerEtTrierDossiers([proche, lointain] as any, { sortOption: 'date_desc' }, moiListe);
+  assert.deepEqual(desc.map((t: any) => t.id), ['lointain', 'proche']);
+});
+
+test('filtrerEtTrierDossiers : tri alphabétique respectant les accents', () => {
+  const a = ao({ id: 'a', titre: 'Élagage' });
+  const b = ao({ id: 'b', titre: 'Fauchage' });
+  const r = filtrerEtTrierDossiers([b, a] as any, { sortOption: 'titre_asc' }, moiListe);
+  // `localeCompare` classe « É » avant « F » — un tri sur les codes de
+  // caractères l'aurait rejeté en fin de liste.
+  assert.deepEqual(r.map((t: any) => t.id), ['a', 'b']);
+});
+
+test('filtrerEtTrierDossiers : en vue invitations, les refus passent en dernier', () => {
+  const enAttente = ao({ id: 'attente', groupements: [{ entreprise_id: 'e1', statut: 'invite' }] });
+  const refuse = ao({ id: 'refuse', groupements: [{ entreprise_id: 'e1', statut: 'refuse' }] });
+  const r = filtrerEtTrierDossiers([refuse, enAttente] as any, { showInvitationsOnly: true }, moiListe);
+  assert.deepEqual(r.map((t: any) => t.id), ['attente', 'refuse']);
+});
+
+test('filtrerEtTrierDossiers : ne modifie pas le tableau reçu', () => {
+  const source = [ao({ id: 'b', titre: 'B' }), ao({ id: 'a', titre: 'A' })] as any;
+  filtrerEtTrierDossiers(source, { sortOption: 'titre_asc' }, moiListe);
+  assert.deepEqual(source.map((t: any) => t.id), ['b', 'a']);
+});
+
+test('filtrerEtTrierDossiers : entrée vide ou nulle → liste vide', () => {
+  assert.deepEqual(filtrerEtTrierDossiers([], {}, moiListe), []);
+  assert.deepEqual(filtrerEtTrierDossiers(null, {}, moiListe), []);
 });
