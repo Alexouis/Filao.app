@@ -161,12 +161,14 @@ Deno.serve(async (req: Request) => {
         for (const email of destinataires) {
           const { data: utilisateur } = await admin
             .from("utilisateurs")
-            .select("id, notifications_on")
+            .select("id, notification_preferences")
             .ilike("email", email)
             .maybeSingle();
 
-          // Respecte la désinscription globale aux notifications.
-          if (utilisateur && utilisateur.notifications_on === false) {
+          // Respecte la préférence « Rappels ». Voir la note détaillée dans
+          // `send-deadline-reminders` : `notifications_on` reflète
+          // l'autorisation du NAVIGATEUR, pas un choix de l'utilisateur.
+          if (utilisateur && (utilisateur.notification_preferences as any)?.rappels?.app === false) {
             motifs.push({ dossier: dossier.id, jalon: jalon.label, email, motif: "notifications désactivées" });
             continue;
           }

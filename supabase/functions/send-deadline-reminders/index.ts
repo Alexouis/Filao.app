@@ -114,14 +114,26 @@ Deno.serve(async (req: Request) => {
       for (const uid of destinataireIds) {
         const { data: utilisateur } = await admin
           .from("utilisateurs")
-          .select("id, notifications, notifications_on")
+          .select("id, notifications, notification_preferences")
           .eq("id", uid)
           .maybeSingle();
         if (!utilisateur) continue;
 
-        // Respecte la désinscription globale.
-        if (utilisateur.notifications_on === false) {
-          motifs.push({ dossier: dossier.id, uid, motif: "notifications désactivées" });
+        // Respecte la préférence « Rappels » de l'utilisateur.
+        //
+        // On lisait auparavant `notifications_on`, qui n'est PAS une
+        // préférence : l'application la met à `false` toute seule quand le
+        // NAVIGATEUR refuse les notifications système (voir AuthContext).
+        // Refuser la fenêtre surgissante de Chrome coupait donc aussi les
+        // rappels d'échéance en base — deux choses sans rapport. À l'inverse,
+        // décocher « Rappels » dans les paramètres ne les arrêtait pas.
+        //
+        // La source de vérité est `notification_preferences`, la même que
+        // consulte `notify-user` pour les notifications de l'application.
+        // Préférence absente = activée, comme partout ailleurs.
+        const prefs = utilisateur.notification_preferences as any;
+        if (prefs?.rappels?.app === false) {
+          motifs.push({ dossier: dossier.id, uid, motif: "rappels désactivés dans les préférences" });
           continue;
         }
 
