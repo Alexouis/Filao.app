@@ -4201,18 +4201,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     </div>
                 )}
 
-                {/* Refusal Reminder — shown for users who declined */}
-                {isRefused && (
-                    <div className="mx-4 mt-4 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl flex items-center justify-between gap-4 shrink-0 animate-in fade-in slide-in-from-top-4 duration-500">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-amber-100 rounded-lg shrink-0"><AlertTriangle size={20} className="text-amber-600" /></div>
-                            <div>
-                                <p className="text-sm font-bold">Collaboration refusée</p>
-                                <p className="text-xs opacity-90">Vous avez refusé de collaborer sur ce dossier. Votre accès est limité au contexte du marché.</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 {/* ============================== */}
                 {/* ZONE 1 — HEADER                */}
