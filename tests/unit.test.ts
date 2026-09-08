@@ -43,6 +43,10 @@ import { lienExterne } from '../src/helpers/textHelpers.ts';
 import { estDossierDunCollegue, estEnLectureSeule } from '../src/helpers/accesDossier.ts';
 import { canCreateTender } from '../src/helpers/planHelpers.ts';
 import { buildICalendar } from '../src/helpers/icalHelpers.ts';
+import {
+  extractCpvCodes, cpvDivision, normaliserPoids, avisEncoreOuvert,
+  dedoublonnerAvis, reparerEncodage,
+} from '../src/helpers/boampHelpers.ts';
 
 import {
   specialitesCouvertes, specialitesManquantes, lectureCompetencesEchouee,
@@ -631,4 +635,106 @@ test('buildICalendar : liste vide → calendrier valide et sans événement', ()
   const ics = buildICalendar([]);
   assert.ok(ics.startsWith('BEGIN:VCALENDAR'));
   assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 0);
+});
+
+// ===========================================================================
+// 17. BOAMP — analyse des avis publiés (données externes, donc imprévisibles)
+// ===========================================================================
+const avisBoamp = (objet: any) => ({ donnees: JSON.stringify({ OBJET: objet }) });
+
+test('extractCpvCodes : ne retient que des codes à 8 chiffres', () => {
+  const codes = extractCpvCodes(avisBoamp({
+    CPV: [
+      { PRINCIPAL: '45213000' },
+      { PRINCIPAL: '4521' },        // trop court
+      { PRINCIPAL: 'ABCDEFGH' },    // non numérique
+      { PRINCIPAL: '' },
+    ],
+  }));
+  assert.deepEqual(codes.map(c => c.code), ['45213000']);
+});
+test('extractCpvCodes : dédoublonne, y compris entre l’objet et les lots', () => {
+  const codes = extractCpvCodes(avisBoamp({
+    CPV: { PRINCIPAL: '45213000' },
+    LOTS: { LOT: [{ CPV: { PRINCIPAL: '45213000' } }, { CPV: { PRINCIPAL: '71000000' } }] },
+  }));
+  assert.deepEqual(codes.map(c => c.code), ['45213000', '71000000']);
+});
+test('extractCpvCodes : avis vide ou malformé → liste vide, jamais d’exception', () => {
+  // Ces données viennent d'une source externe : un plantage ici casserait
+  // l'import d'un avis entier.
+  assert.deepEqual(extractCpvCodes(null), []);
+  assert.deepEqual(extractCpvCodes({}), []);
+  assert.deepEqual(extractCpvCodes({ donnees: 'pas du json' }), []);
+  assert.deepEqual(extractCpvCodes({ donnees: JSON.stringify({}) }), []);
+});
+test('cpvDivision : les deux premiers chiffres', () => {
+  assert.equal(cpvDivision('45213000'), '45');
+  assert.equal(cpvDivision('60130000'), '60');
+});
+
+test('normaliserPoids : ramène à 100 % et ignore les poids absents ou nuls', () => {
+  const r = normaliserPoids([
+    { libelle: 'Prix', poids: 60 },
+    { libelle: 'Technique', poids: 40 },
+    { libelle: 'Sans poids' } as any,
+    { libelle: 'Poids nul', poids: 0 },
+  ]);
+  assert.deepEqual(r, [
+    { libelle: 'Prix', pourcentage: 60 },
+    { libelle: 'Technique', pourcentage: 40 },
+  ]);
+});
+test('normaliserPoids : des poids qui ne totalisent pas 100 sont ramenés à l’échelle', () => {
+  // Un acheteur peut publier des points (ex. /20) plutôt que des pourcentages.
+  const r = normaliserPoids([
+    { libelle: 'Prix', poids: 12 },
+    { libelle: 'Technique', poids: 8 },
+  ]);
+  assert.deepEqual(r.map(c => c.pourcentage), [60, 40]);
+});
+test('normaliserPoids : aucun poids exploitable → liste vide', () => {
+  assert.deepEqual(normaliserPoids([]), []);
+  assert.deepEqual(normaliserPoids([{ libelle: 'X' } as any]), []);
+});
+
+test('avisEncoreOuvert : une date absente ou illisible ne présume PAS la clôture', () => {
+  // Écarter un avis faute de date fiable ferait manquer une opportunité :
+  // dans le doute, on le montre.
+  const t = new Date(2026, 5, 1);
+  assert.equal(avisEncoreOuvert({}, t), true);
+  assert.equal(avisEncoreOuvert({ datelimitereponse: 'illisible' }, t), true);
+});
+test('avisEncoreOuvert : compare à la date limite annoncée', () => {
+  const t = new Date(2026, 5, 1);
+  assert.equal(avisEncoreOuvert({ datelimitereponse: '2026-12-31' }, t), true);
+  assert.equal(avisEncoreOuvert({ datelimitereponse: '2026-01-01' }, t), false);
+});
+
+test('dedoublonnerAvis : un même idweb n’apparaît qu’une fois', () => {
+  const r = dedoublonnerAvis([
+    { idweb: 'A', titre: 'premier' },
+    { idweb: 'A', titre: 'doublon' },
+    { idweb: 'B' },
+  ]);
+  assert.equal(r.length, 2);
+});
+test('dedoublonnerAvis : entrée vide ou nulle → tableau vide', () => {
+  assert.deepEqual(dedoublonnerAvis([]), []);
+  assert.deepEqual(dedoublonnerAvis(null as any), []);
+});
+
+test('reparerEncodage : corrige le mojibake des libellés BOAMP', () => {
+  // « Ã© » est la lecture en latin-1 d'un « é » encodé en UTF-8.
+  assert.equal(reparerEncodage('MarchÃ© de travaux'), 'Marché de travaux');
+  assert.equal(reparerEncodage('CrÃ¨che municipale'), 'Crèche municipale');
+});
+test('reparerEncodage : laisse intact un texte déjà correct', () => {
+  assert.equal(reparerEncodage('Marché de travaux'), 'Marché de travaux');
+  assert.equal(reparerEncodage('Rénovation énergétique'), 'Rénovation énergétique');
+});
+test('reparerEncodage : valeur absente → chaîne vide', () => {
+  assert.equal(reparerEncodage(null), '');
+  assert.equal(reparerEncodage(undefined), '');
+  assert.equal(reparerEncodage(''), '');
 });
