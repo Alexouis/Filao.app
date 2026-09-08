@@ -29,6 +29,7 @@ import { EquipeEtPieces } from '../src/components/EquipeEtPieces.tsx';
 import { InfoItem, VerifiedBadge, UnverifiedBadge } from '../src/components/settings/CompanyInfoAtoms.tsx';
 import { CompanyInfoReadOnly } from '../src/components/settings/CompanyInfoReadOnly.tsx';
 import { OnboardingCompanyStep } from '../src/components/OnboardingCompanyStep.tsx';
+import { BarreFiltresDossiers } from '../src/components/BarreFiltresDossiers.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -487,6 +488,70 @@ test('OnboardingCompanyStep : rattaché à une entreprise, la saisie est expliqu
     // L'utilisateur doit comprendre POURQUOI il ne peut pas modifier, sinon il
     // croit à un blocage.
     assert.ok(screen.getByText(/Axero/));
+});
+
+
+// ===========================================================================
+// Liste des dossiers — barre de filtres
+// ===========================================================================
+const proprietesBarre = (surcharge: any = {}) => ({
+    filterStatus: 'Tous', setFilterStatus: rien,
+    filterCategory: 'Tous', setFilterCategory: rien,
+    filterDomain: 'Tous', setFilterDomain: rien,
+    filterRole: 'Tous', setFilterRole: rien,
+    sortOption: 'date_asc', setSortOption: rien,
+    showInvitationsOnly: false, setShowInvitationsOnly: rien,
+    voirToutEntreprise: false, setVoirToutEntreprise: rien,
+    nbDossiersCollegues: 0,
+    isFilterMenuOpen: false, setIsFilterMenuOpen: rien,
+    isSortMenuOpen: false, setIsSortMenuOpen: rien,
+    activeAdvancedFilters: 0,
+    stats: { won: 0, lost: 0, active: 0, enCours: 0, deposes: 0, urgents: 0, winRate: 0 },
+    urgents: 0,
+    pendingInvitationsCount: 0,
+    sortMenuRef: { current: null } as any,
+    ...surcharge,
+});
+
+test('BarreFiltresDossiers : le filtre « Urgents » n’apparaît que s’il y a des urgents', () => {
+    cleanup();
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre()));
+    // Proposer un filtre qui ne ramènerait rien est une impasse.
+    assert.equal(screen.queryByText(/Urgents/), null);
+
+    cleanup();
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre({
+        stats: { won: 0, lost: 0, active: 0, enCours: 0, deposes: 0, urgents: 3, winRate: 0 },
+        urgents: 3,
+    })));
+    assert.ok(screen.getByText(/Urgents \(3\)/));
+});
+
+test('BarreFiltresDossiers : la bascule « toute l’entreprise » n’apparaît que s’il y a des dossiers de collègues', () => {
+    cleanup();
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre({ nbDossiersCollegues: 0 })));
+    assert.equal(screen.queryByText('Mes dossiers'), null);
+
+    cleanup();
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre({ nbDossiersCollegues: 4 })));
+    // Le libellé indique l'état COURANT du filtre, pas l'action à venir.
+    assert.ok(screen.getByText('Mes dossiers'));
+
+    cleanup();
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre({
+        nbDossiersCollegues: 4, voirToutEntreprise: true,
+    })));
+    assert.ok(screen.getByText("Toute l'entreprise"));
+});
+
+test('BarreFiltresDossiers : cliquer un statut le remonte au parent', () => {
+    cleanup();
+    let recu: string | null = null;
+    render(React.createElement(BarreFiltresDossiers, proprietesBarre({
+        setFilterStatus: (v: string) => { recu = v; },
+    })));
+    fireEvent.click(screen.getByText('Tous'));
+    assert.equal(recu, 'Tous');
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans
