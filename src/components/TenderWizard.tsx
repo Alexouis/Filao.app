@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useToast } from './ui/Toast';
 import { CollaboratorPicker } from './ui/CollaboratorPicker';
-import { EmailLogPanel } from './EmailLogPanel';
 
 import { LimitReachedModal } from './LimitReachedModal';
 import {
@@ -9,7 +8,7 @@ import {
     CheckCircle, FileText, X, Search, ArrowRight, ArrowLeft, ChevronDown,
     Loader2, Plus, Trash2, Euro, Globe, FileInput, PenTool,
     Target, AlertTriangle, AlertCircle, Sparkles, XCircle, Mail, Network, Building,
-    Info, CalendarCheck, Download, UserPlus, FolderOpen,
+    CalendarCheck, Download, UserPlus, FolderOpen,
     Files, Save, Send, ShieldAlert, MessageSquare, RefreshCw,
     UserCheck, Crown, LogOut, Trophy, Frown, Pencil, Lock,
     Eye,
@@ -29,6 +28,8 @@ import { SkillsModal } from './SkillsModal';
 import { RetroplanningModal } from './RetroplanningModal';
 import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
+import { DocDetailsModal } from './DocDetailsModal';
+import { CriteresModal } from './CriteresModal';
 import { track } from '../helpers/analytics';
 import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
@@ -46,7 +47,6 @@ import {
     formatCpv,
     avisEncoreOuvert,
     dedoublonnerAvis,
-    type CriteresAttribution,
     libelleLieuBoamp,
     reparerEncodage,
 } from '../helpers/boampHelpers';
@@ -353,7 +353,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * saisie. Dériver les lignes affichées de formData faisait disparaître
      * toute ligne vide dès sa création — le bouton semblait inopérant.
      */
-    const [criteresDraft, setCriteresDraft] = useState<{ libelle: string; poids?: number }[]>([]);
     const [showDCEPiecesModal, setShowDCEPiecesModal] = useState(false);
     const [showRetroplanningModal, setShowRetroplanningModal] = useState(false);
     const [previousView, setPreviousView] = useState<'results' | 'manual'>('results');
@@ -3645,195 +3644,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     }, [showCompanyDocPicker, showCriteresModal, showContextEditModal, showDocDetails, showSkillsModal]);
 
     // --- MODAL: DOCUMENT DETAILS ---
-    const renderDocDetailsModal = () => {
-        if (!showDocDetails || !isOwner) return null;
-
-        const activeMembers = groupementMembers.filter(m => !m.deleted);
-
-        return (
-            <div
-                className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-sm animate-in fade-in duration-200"
-                // Clic sur le fond uniquement : `currentTarget` écarte les clics
-                // propagés depuis l'intérieur de la modale, qui la fermeraient
-                // en plein remplissage de formulaire.
-                onClick={(e) => { if (e.target === e.currentTarget) setShowDocDetails(false); }}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Coordination documentaire"
-            >
-                <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
-                    {/* Header */}
-                    <div className="p-6 border-b border-[#0B1F38]/10 flex justify-between items-center bg-gray-50/50 shrink-0">
-                        <div>
-                            <h3 className="text-xl font-bold text-[#0B1F38]">Coordination Documentaire</h3>
-                            <p className="text-sm text-[#0B1F38]/60">Suivi global des pièces du groupement</p>
-                        </div>
-                        <button onClick={() => setShowDocDetails(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-full text-[#0B1F38]/40 hover:text-[#0B1F38] transition-colors">
-                            <X size={24} />
-                        </button>
-                    </div>
-
-                    {/* Progress Global */}
-                    <div className="px-6 pt-5 pb-3 shrink-0">
-                        <div className="bg-[#0B1F38]/5 p-4 rounded-xl border border-[#0B1F38]/10">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-bold text-[#0B1F38]">Progression globale du groupement</span>
-                                <span className="text-sm font-bold text-[#00A3E0]">{docProgress.percent}%</span>
-                            </div>
-                            <div className="w-full h-2.5 bg-[#0B1F38]/10 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-gradient-to-r from-[#00A3E0] to-[#26367F] transition-all duration-700 ease-out shadow-[0_0_10px_rgba(38,54,127,0.3)]"
-                                    style={{ width: `${docProgress.percent}%` }}
-                                />
-                            </div>
-                            <div className="flex justify-between items-center mt-2">
-                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-widest">{docProgress.uploaded} / {docProgress.total} documents validés</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Member Accordions */}
-                    <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-3 custom-scrollbar-dark mt-2">
-                        {activeMembers.map((member, mIdx) => {
-                            const role = member.role || 'Co-traitant';
-                            const reqDocs = REQUIRED_DOCS_BY_ROLE[role as keyof typeof REQUIRED_DOCS_BY_ROLE] || [];
-                            const collabId = member.id || mIdx.toString();
-
-                            const memberUploaded = reqDocs.filter(d => !!uploadedFiles[`${d.value}-${collabId}`]).length;
-                            const memberPercent = reqDocs.length > 0 ? Math.round((memberUploaded / reqDocs.length) * 100) : 0;
-                            const isAllDone = memberPercent === 100 && reqDocs.length > 0;
-
-                            return (
-                                <details key={mIdx} className="group border border-[#0B1F38]/10 rounded-2xl overflow-hidden bg-white hover:border-[#00A3E0]/30 transition-all shadow-sm">
-                                    <summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50/80 list-none font-bold text-[#0B1F38] select-none">
-                                        <div className="flex items-center gap-3">
-                                            <div className="relative">
-                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold transition-all shadow-md overflow-hidden ${isAllDone ? 'bg-green-500' : 'bg-gradient-to-br from-[#0B1F38] to-[#1B2533]'}`}>
-                                                    {isAllDone ? (
-                                                        <CheckCircle size={20} />
-                                                    ) : member.photo_url ? (
-                                                        <img src={member.photo_url} alt="" className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        (member.name || member.email || 'M').charAt(0).toUpperCase()
-                                                    )}
-                                                </div>
-                                                {memberPercent > 0 && !isAllDone && (
-                                                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center border-2 border-[#F4F6F9] shadow-sm">
-                                                        <div className="text-[8px] font-black text-[#00A3E0] leading-none">{memberPercent}%</div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-black tracking-tight">{member.name || member.email}</span>
-                                                    {member.role === 'Mandataire' && <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 text-[8px] font-black rounded uppercase">Mandataire</span>}
-                                                </div>
-                                                <p className="text-[10px] text-[#0B1F38]/40 font-medium">{role}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-4">
-                                            <div className="text-right hidden sm:block">
-                                                <p className={`text-xs font-black ${isAllDone ? 'text-green-500' : 'text-[#0B1F38]/70'}`}>{memberUploaded}/{reqDocs.length}</p>
-                                            </div>
-                                            <ChevronDown size={18} className="text-[#0B1F38]/20 transition-transform duration-300 group-open:rotate-180" />
-                                        </div>
-                                    </summary>
-
-                                    <div className="px-4 pb-4 bg-gray-50/50 space-y-2 border-t border-[#0B1F38]/5 pt-4 animate-in slide-in-from-top-2 duration-300">
-                                        {reqDocs.map((doc, dIdx) => {
-                                            const fileKey = `${doc.value}-${collabId}`;
-                                            const fileObj = uploadedFiles[fileKey];
-                                            const isSelf = member.id === userProfile.id;
-
-                                            return (
-                                                <div key={dIdx} className="flex items-center justify-between p-3 bg-white rounded-xl border border-[#0B1F38]/5 group/item transition-all hover:shadow-sm">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`p-1.5 rounded-lg ${fileObj ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-500'}`}>
-                                                            {fileObj ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-                                                        </div>
-                                                        <span className="text-xs font-bold text-[#0B1F38]/70">{doc.label}</span>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-2">
-                                                        {fileObj && member.email && (
-                                                            <button
-                                                                onClick={() => handleDownloadFile(`${member.email?.toLowerCase().trim()}/${fileObj.name}`, `${doc.label}.${fileObj.name.split('.').pop()}`)}
-                                                                className="p-1.5 text-[#00A3E0] hover:bg-[#00A3E0] hover:text-white rounded-lg transition-all shadow-sm bg-white border border-[#00A3E0]/10"
-                                                                title="Voir/Télécharger"
-                                                            >
-                                                                <Download size={14} />
-                                                            </button>
-                                                        )}
-                                                        {isSelf && (
-                                                            <label className="cursor-pointer">
-                                                                <div className={`px-3 py-1 bg-[#0B1F38] text-white text-[10px] font-black rounded-lg hover:bg-[#00A3E0] transition-all`}>
-                                                                    {fileObj ? "Update" : "Import"}
-                                                                </div>
-                                                                <input type="file" className="hidden" onChange={(e) => handleFileUpload(e, doc.value, member)} />
-                                                            </label>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                        {reqDocs.length === 0 && <p className="text-xs text-center text-gray-400 py-4 italic">Aucune pièce requise pour ce membre.</p>}
-
-                                        {!isAllDone && (() => {
-                                            const cleRelance = (member.email || '').trim().toLowerCase();
-                                            const dernierRappel = resentInvitations[cleRelance];
-                                            // Verrou d'une heure : même règle que `handleRelancer`,
-                                            // reflétée ici pour que le bouton dise ce qu'il fera.
-                                            const verrouille = !!dernierRappel && (Date.now() - dernierRappel < 3600000);
-                                            return (
-                                                <>
-                                                    <button
-                                                        onClick={() => handleRelancer(member)}
-                                                        disabled={verrouille || loading}
-                                                        className="w-full mt-2 py-2 text-[10px] font-black text-[#0B1F38]/40 hover:text-[#0B1F38] border-2 border-dashed border-[#0B1F38]/10 rounded-xl hover:bg-white hover:border-[#0B1F38]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                                                    >
-                                                        <Mail size={12} /> {verrouille ? 'RAPPEL DÉJÀ ENVOYÉ' : 'ENVOYER UN RAPPEL'}
-                                                    </button>
-                                                    {dernierRappel && (
-                                                        <p className="text-[10px] text-center text-[#0B1F38]/35 mt-1.5">
-                                                            Dernier rappel : {new Date(dernierRappel).toLocaleDateString('fr-FR', {
-                                                                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-                                                            })}
-                                                        </p>
-                                                    )}
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                </details>
-                            );
-                        })}
-
-                        {/* Journal des emails et dépôts liés au dossier —
-                            réservé au mandataire (créateur), une fois le dossier
-                            créé. La RLS restreint déjà les données visibles. */}
-                        {isOwner && tenderId && (
-                          <div className="mt-6 pt-4 border-t border-white/10">
-                            <EmailLogPanel tenderId={tenderId} />
-                          </div>
-                        )}
-                    </div>
-                    <div className="p-6 border-t border-[#0B1F38]/10 bg-gray-50/80 shrink-0">
-                        <button
-                            onClick={() => handleDownloadAllFiles()}
-                            disabled={loading || docProgress.uploaded === 0}
-                            className="w-full py-4 bg-[#0B1F38] hover:bg-[#1B2533] text-white font-black rounded-2xl shadow-xl shadow-[#0B1F38]/20 flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:opacity-50 disabled:grayscale"
-                        >
-                            {loading ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
-                            <div className="text-left">
-                                <p className="text-sm font-black leading-none">TÉLÉCHARGER LE DOSSIER COMPLET</p>
-                                <p className="text-[10px] text-white/50 mt-1 uppercase tracking-widest">{docProgress.uploaded} fichiers archivés (.zip)</p>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
 
     // ==========================================
     //              RENDER VIEWS
@@ -5196,32 +5006,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     // ==========================================
     //           CONTEXT EDIT MODAL
     // ==========================================
-    /** Ouvre la modale en amorçant le brouillon depuis les données existantes. */
-    const openCriteresModal = () => {
-        const crit = formData.criteres_attribution;
-        if (crit && (crit.kind === 'ponderes' || crit.kind === 'priorites') && crit.criteres.length > 0) {
-            // Depuis la forme `priorites` on reprend les libellés sans inventer
-            // de poids : l'acheteur ne les a pas publiés.
-            setCriteresDraft(crit.criteres.map(c => ({ libelle: c.libelle, poids: c.poids })));
-        } else {
-            setCriteresDraft([{ libelle: '', poids: undefined }]);
-        }
-        setShowCriteresModal(true);
-    };
+    /**
+     * Ouvre la modale des critères. L'amorçage du brouillon a suivi l'état
+     * dans `CriteresModal` : il ne concernait qu'elle.
+     */
+    const openCriteresModal = () => setShowCriteresModal(true);
 
     /** Convertit le brouillon en donnée persistable. */
-    const buildCriteres = (lignes: { libelle: string; poids?: number }[]): CriteresAttribution => {
-        const nettoyees = lignes
-            .map(l => ({ libelle: l.libelle.trim(), poids: l.poids }))
-            .filter(l => l.libelle.length > 0);
-        const total = nettoyees.reduce((s, l) => s + (l.poids ?? 0), 0);
-        return {
-            kind: nettoyees.length > 0 ? 'ponderes' : 'absent',
-            criteres: nettoyees,
-            poidsSontDesPourcentages: Math.abs(total - 100) < 0.5,
-            source: 'manuel'
-        };
-    };
 
     /**
      * Modale de saisie des critères d'attribution.
@@ -5230,138 +5021,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * pondération exploitable : l'utilisateur doit pouvoir reprendre à la main
      * ce qu'il lit dans le règlement de consultation.
      */
-    const renderCriteresModal = () => {
-        if (!showCriteresModal) return null;
-
-        const crit = formData.criteres_attribution;
-        const total = criteresDraft.reduce((s, l) => s + (l.poids ?? 0), 0);
-        const editable = isOwner && !isLocked;
-
-        const majLigne = (index: number, patch: Partial<{ libelle: string; poids?: number }>) =>
-            setCriteresDraft(prev => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
-
-        return (
-            <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowCriteresModal(false)}></div>
-                <div className="relative bg-white rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
-
-                    <div className="p-6 border-b border-[#0B1F38]/5 flex justify-between items-center shrink-0">
-                        <div>
-                            <h3 className="text-lg font-bold text-[#0B1F38]">Critères d'attribution</h3>
-                            <p className="text-xs text-[#0B1F38]/50">Tels qu'annoncés dans le règlement de consultation.</p>
-                        </div>
-                        <button onClick={() => setShowCriteresModal(false)} className="p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors">
-                            <X size={20} className="text-[#0B1F38]/40" />
-                        </button>
-                    </div>
-
-                    <div className="p-6 overflow-y-auto flex-1">
-                        {crit?.kind === 'libre' && crit.texte && (
-                            <div className="mb-5 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
-                                <p className="text-[11px] font-bold text-[#0B1F38]/50 uppercase tracking-wider mb-1.5">Texte publié par l'acheteur</p>
-                                <p className="text-[13px] text-[#0B1F38]/70 leading-relaxed">{crit.texte}</p>
-                            </div>
-                        )}
-                        {crit?.kind === 'cctp' && (
-                            <div className="mb-5 p-4 rounded-2xl bg-[#0B1F38]/5 border border-[#0B1F38]/10">
-                                <p className="text-[13px] text-[#0B1F38]/70">
-                                    L'acheteur renvoie au règlement de consultation. Reportez ici les critères qui y figurent.
-                                </p>
-                            </div>
-                        )}
-
-                        <fieldset disabled={!editable} className="border-0 p-0 m-0">
-                            {/* En-têtes : sans eux, deux champs côte à côte dont l'un
-                                attend un nombre ne s'expliquent pas d'eux-mêmes. */}
-                            <div className="grid grid-cols-[1fr_7rem_2rem] gap-2 items-center px-1 mb-1.5">
-                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Critère</span>
-                                <span className="text-[10px] font-bold text-[#0B1F38]/40 uppercase tracking-wider">Poids</span>
-                                <span className="sr-only">Actions</span>
-                            </div>
-                            <div className="space-y-2">
-                                {criteresDraft.map((ligne, i) => (
-                                    <div key={i} className="grid grid-cols-[1fr_7rem_2rem] gap-2 items-center">
-                                        <input
-                                            type="text"
-                                            value={ligne.libelle}
-                                            onChange={(e) => majLigne(i, { libelle: e.target.value })}
-                                            placeholder="ex. Valeur technique"
-                                            aria-label={`Intitulé du critère ${i + 1}`}
-                                            className={`${inputGlassPlain} w-full min-w-0`}
-                                        />
-                                        <input
-                                            type="number"
-                                            min={0}
-                                            step="any"
-                                            value={ligne.poids ?? ''}
-                                            onChange={(e) => {
-                                                const v = parseFloat(e.target.value);
-                                                majLigne(i, { poids: Number.isFinite(v) ? v : undefined });
-                                            }}
-                                            placeholder="ex. 50"
-                                            aria-label={`Poids du critère ${i + 1}`}
-                                            className={`${inputGlassPlain} w-full min-w-0`}
-                                        />
-                                        {editable && criteresDraft.length > 1 ? (
-                                            <button
-                                                onClick={() => setCriteresDraft(prev => prev.filter((_, idx) => idx !== i))}
-                                                aria-label={`Supprimer le critère ${i + 1}`}
-                                                className="p-2 text-[#0B1F38]/30 hover:text-red-500 transition-colors justify-self-center"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        ) : <span />}
-                                    </div>
-                                ))}
-                            </div>
-
-                            {editable && (
-                                <button
-                                    onClick={() => setCriteresDraft(prev => [...prev, { libelle: '', poids: undefined }])}
-                                    className="mt-3 w-full py-2.5 border border-dashed border-[#0B1F38]/15 rounded-xl text-[#0B1F38]/50 font-bold text-xs hover:border-[#00A3E0] hover:text-[#00A3E0] transition-all flex items-center justify-center gap-1.5"
-                                >
-                                    <Plus size={14} /> Ajouter un critère
-                                </button>
-                            )}
-                        </fieldset>
-
-                        {/* Le total n'a pas à valoir 100 : les acheteurs publient
-                            indifféremment des pourcentages ou des coefficients. On
-                            informe sans bloquer la saisie. */}
-                        <div className="mt-4 flex items-start gap-2 text-[12px]">
-                            <Info size={14} className="text-[#0B1F38]/40 shrink-0 mt-0.5" />
-                            <span className="text-[#0B1F38]/60">
-                                Total : <strong className="text-[#0B1F38]">{Math.round(total * 10) / 10}</strong>
-                                {total === 0
-                                    ? " — sans poids, les critères sont enregistrés sans pondération."
-                                    : Math.abs(total - 100) < 0.5
-                                        ? ' — interprété comme des pourcentages.'
-                                        : " — interprété comme des coefficients, converti en % à l'affichage."}
-                            </span>
-                        </div>
-                    </div>
-
-                    {editable && (
-                        <div className="p-6 border-t border-[#0B1F38]/5 bg-[#F8FAFC] flex justify-end shrink-0">
-                            <button
-                                onClick={async () => {
-                                    const next = buildCriteres(criteresDraft);
-                                    setFormData(prev => ({ ...prev, criteres_attribution: next }));
-                                    setShowCriteresModal(false);
-                                    // setFormData est asynchrone : on transmet la valeur
-                                    // explicitement plutôt que de lire un state périmé.
-                                    if (tenderId) await saveTenderContext({ criteres_attribution: next });
-                                }}
-                                className="px-8 py-3 bg-[#0B1F38] text-white font-bold rounded-xl hover:bg-[#00A3E0] transition-all shadow-lg"
-                            >
-                                {loading ? <Loader2 size={20} className="animate-spin" /> : 'Enregistrer'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
 
     /**
      * Validation de la modale « Détails de l'appel d'offres ».
@@ -6173,7 +5832,22 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                         if (tenderId) await saveRequiredSkills();
                     }}
                 />
-                {renderDocDetailsModal()}
+                <DocDetailsModal
+                    ouvert={showDocDetails}
+                    isOwner={isOwner}
+                    groupementMembers={groupementMembers}
+                    uploadedFiles={uploadedFiles}
+                    userProfileId={userProfile?.id}
+                    tenderId={tenderId}
+                    docProgress={docProgress}
+                    resentInvitations={resentInvitations}
+                    loading={loading}
+                    onFermer={() => setShowDocDetails(false)}
+                    onRelancer={handleRelancer}
+                    onTelechargerTout={handleDownloadAllFiles}
+                    onTelechargerPiece={handleDownloadFile}
+                    onDeposer={handleFileUpload}
+                />
                 <MemberDetailModal
                     selectedMemberIndex={selectedMemberIndex}
                     groupementMembers={groupementMembers}
@@ -6232,7 +5906,22 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     onValider={validerContexte}
                     showToast={showToast}
                 />
-                {renderCriteresModal()}
+                <CriteresModal
+                    ouvert={showCriteresModal}
+                    criteresExistants={formData.criteres_attribution}
+                    isOwner={isOwner}
+                    isLocked={isLocked}
+                    loading={loading}
+                    inputGlassPlain={inputGlassPlain}
+                    onFermer={() => setShowCriteresModal(false)}
+                    onValider={async (next) => {
+                        setFormData(prev => ({ ...prev, criteres_attribution: next }));
+                        setShowCriteresModal(false);
+                        // Valeur transmise explicitement : `setFormData` est
+                        // asynchrone, la relire ici donnerait l'état précédent.
+                        if (tenderId) await saveTenderContext({ criteres_attribution: next });
+                    }}
+                />
                 <RetroplanningModal
                     ouvert={showRetroplanningModal}
                     jalons={formData.jalons || []}
