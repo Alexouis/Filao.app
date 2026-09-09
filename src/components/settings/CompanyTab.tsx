@@ -14,6 +14,10 @@ import { Entreprise } from '../../types';
 import { Undo2 } from 'lucide-react';
 import { SpecialtyAccordion } from '../ui/SpecialtyAccordion';
 import { useUnsavedChanges, useDirtyState } from '../../helpers/useUnsavedChanges';
+import {
+    dateLisible, formeJuridiqueLisible, secteurLisible,
+    ficheDepuisSirene,
+} from '../../helpers/inseeLabels';
 
 interface CompanyTabProps {
     userProfile: UserProfile | null;
@@ -22,68 +26,6 @@ interface CompanyTabProps {
 }
 
 // Map API employee range to French standard categories
-const mapTaille = (tranche: string | undefined): string => {
-    if (!tranche) return '';
-    const code = tranche.toString();
-    // 00 to 03: < 10 employees -> Micro/TPE
-    // 11 to 31: 10 to 249 employees -> PME
-    // 32 to 51: 250 to 4999 employees -> ETI
-    // 52 and +: 5000+ employees -> GE
-    switch (code) {
-        case '00':
-        case '01':
-        case '02':
-        case '03': return 'Micro/TPE';
-        case '11':
-        case '12':
-        case '21':
-        case '22':
-        case '31': return 'PME';
-        case '32':
-        case '41':
-        case '42':
-        case '51': return 'ETI';
-        case '52':
-        case '53': return 'GE';
-        default: return '';
-    }
-};
-
-// Helper: Format date to DD/MM/YYYY
-const formatDate = (dateStr: string): string => {
-    if (!dateStr) return '';
-    try {
-        const date = new Date(dateStr);
-        return new Intl.DateTimeFormat('fr-FR').format(date);
-    } catch (e) {
-        return dateStr;
-    }
-};
-
-// Helper: Map standard legal form codes to readable labels
-const getLegalFormLabel = (code: string, currentLabel: string): string => {
-    if (currentLabel && currentLabel.length > 10 && !/^\d+$/.test(currentLabel)) return currentLabel;
-    const mapping: Record<string, string> = {
-        '1000': 'Entrepreneur individuel',
-        '5499': 'SARL / EURL',
-        '5710': 'SAS / SASU',
-        '5720': 'Société par actions simplifiée',
-        '5599': 'SA à conseil d\'administration',
-        '6599': 'SCI',
-        '5485': 'SELARL',
-        '5785': 'SELAS',
-    };
-    return mapping[code] || code || 'Non défini';
-};
-
-// Helper: Resolve INSEE section code to readable label
-const getSecteurLabel = (code: string): string => {
-    if (!code) return 'Non défini';
-    // If it's already a full label (>3 chars and not a single letter), return as-is
-    if (code.length > 3 && !/^[A-U]$/.test(code)) return code;
-    return INSEE_SECTION_LABELS[code] || code;
-};
-
 export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, initialSubTab }) => {
     const [entrepriseData, setEntrepriseData] = useState<Entreprise | null>(null);
     const [loading, setLoading] = useState(true);
@@ -603,54 +545,28 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             }
 
             const result = data.results[0];
-            const siege = result.siege;
-            const matchingEtab = result.matching_etablissements?.find(
-                (e: any) => e.siret === cleaned
-            ) || siege;
+            // Traduction de la réponse : voir `inseeLabels.ficheDepuisSirene`,
+            // où le choix de l'établissement et la reconstitution de la rue
+            // sont testés.
+            const fiche = ficheDepuisSirene(result, cleaned);
 
-            // Map effectif tranche to a representative number
-            const trancheCode = result.tranche_effectif_salarie || '00';
-            const effectifEstim = {
-                '00': '0', '01': '1', '02': '3', '03': '6', '11': '10', 
-                '12': '20', '21': '50', '22': '100', '31': '200', '32': '250',
-                '41': '500', '42': '1000', '51': '2000', '52': '5000', '53': '10000'
-            }[trancheCode] || '';
-
-            // Extract director info if potentially an individual expert
-            const isIndividual = result.complements?.est_entrepreneur_individuel;
-            const primaryDir = result.dirigeants?.[0];
-
-            let streetParts = [
-                matchingEtab.numero_voie,
-                matchingEtab.type_voie,
-                matchingEtab.libelle_voie,
-            ].filter(Boolean).join(' ');
-
-            // If still empty but we have the full address, try to strip CP/City
-            if (!streetParts && matchingEtab.adresse) {
-                const cp = matchingEtab.code_postal;
-                const ville = matchingEtab.libelle_commune;
-                streetParts = matchingEtab.adresse;
-                if (cp) streetParts = streetParts.replace(cp, '');
-                if (ville) streetParts = streetParts.replace(ville, '');
-                streetParts = streetParts.trim().replace(/,$/, '');
-            }
-
+            // Les champs absents de la réponse restent à leur valeur actuelle :
+            // écraser une adresse saisie à la main par du vide serait une perte.
             setFormData(prev => ({
                 ...prev,
-                nom: result.nom_complet || result.nom_raison_sociale || prev.nom,
-                prenom: isIndividual ? (primaryDir?.prenoms || '') : '',
-                nom_famille: isIndividual ? (primaryDir?.nom || '') : '',
-                siret: cleaned,
-                adresse: streetParts || matchingEtab.adresse || prev.adresse,
-                ville: matchingEtab.libelle_commune || prev.ville,
-                code_postal: matchingEtab.code_postal || prev.code_postal,
-                taille: result.categorie_entreprise || mapTaille(result.tranche_effectif_salarie) || prev.taille,
-                effectif: effectifEstim || 1,
-                forme_juridique: result.nature_juridique || prev.forme_juridique,
-                code_naf: result.activite_principale || prev.code_naf,
+                nom: fiche.nom ?? prev.nom,
+                prenom: fiche.prenom,
+                nom_famille: fiche.nom_famille,
+                siret: fiche.siret,
+                adresse: fiche.adresse ?? prev.adresse,
+                ville: fiche.ville ?? prev.ville,
+                code_postal: fiche.code_postal ?? prev.code_postal,
+                taille: fiche.taille ?? prev.taille,
+                effectif: fiche.effectif,
+                forme_juridique: fiche.forme_juridique ?? prev.forme_juridique,
+                code_naf: fiche.code_naf ?? prev.code_naf,
                 libelle_naf: prev.libelle_naf,
-                date_creation: result.date_creation || prev.date_creation,
+                date_creation: fiche.date_creation ?? prev.date_creation,
             }));
 
             // Fetch full NAF label
@@ -1351,7 +1267,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                         <CompanyInfoReadOnly
                             formData={formData}
                             entrepriseData={entrepriseData}
-                            getLegalFormLabel={getLegalFormLabel}
+                            getLegalFormLabel={formeJuridiqueLisible}
                             visibleDansReseau={visibleReseau}
                             depotLogoEnCours={uploadingLogo}
                             savingReseau={savingReseau}
@@ -1456,7 +1372,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     customDocs={customDocs}
                     docStatuses={docStatuses}
                     computeEffectiveStatus={computeEffectiveStatus}
-                    formatDate={formatDate}
+                    formatDate={dateLisible}
                     onDeposerDocument={handleDocumentUpload}
                     onAjouterDocPersonnalise={handleAddCustomDoc}
                     onRedeposerDocPersonnalise={handleCustomDocReupload}

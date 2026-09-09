@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 import { useToast } from './ui/Toast';
 import { STATUSES } from '@/config';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 interface RatePartnersModalProps {
     isOpen: boolean;
@@ -94,7 +95,7 @@ export const RatePartnersModal: React.FC<RatePartnersModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
+            <FondModale className="bg-black/60 backdrop-blur-sm" />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

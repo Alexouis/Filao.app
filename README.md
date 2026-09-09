@@ -83,6 +83,14 @@ supabase/functions/  Edge Functions Deno (emails, Stripe, dépôts, purges)
 `matrice-droits.md` décrit qui a le droit de faire quoi, par rôle et par statut
 de dossier. C'est la référence à mettre à jour avant de toucher aux policies.
 
+## Chargement des écrans
+
+`App.tsx` charge à la demande tous les écrans hors mise en page, authentification
+et tableau de bord. Le découpage est expliqué au-dessus des déclarations
+`lazy()` ; `vite.config.ts` isole en plus chaque dépendance tierce dans son
+propre morceau. Ajouter un écran lourd en import direct dans `App.tsx` défait
+ce travail — le passer en `lazy()`.
+
 ## Conventions
 
 `.agent/rules/filao-rules.md` fixe les règles suivies dans ce dépôt : RLS

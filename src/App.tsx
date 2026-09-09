@@ -1,40 +1,59 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { estEnLectureSeule } from './helpers/accesDossier';
 import { TenderReadOnlyPanel } from './components/TenderReadOnlyPanel';
-import { OnboardingWizard } from './components/OnboardingWizard';
+/**
+ * ÉCRANS CHARGÉS À LA DEMANDE
+ *
+ * Le bundle formait un seul fichier de 1,6 Mo — Vite le signalait à chaque
+ * build. Tout y était téléchargé avant le premier affichage, y compris des
+ * écrans qu'un utilisateur donné n'ouvrira peut-être jamais : les pages
+ * légales, le portail de dépôt externe, la facturation avec sa bibliothèque de
+ * graphiques, l'assistant de dossier et ses ~4 800 lignes.
+ *
+ * Ce qui reste chargé d'emblée est ce sans quoi il n'y a rien à montrer :
+ * la mise en page, l'authentification, le tableau de bord — écran d'arrivée,
+ * qu'un chargement différé ferait clignoter à chaque connexion — et la barre
+ * de notifications. Tout le reste attend qu'on le demande.
+ *
+ * La forme `.then(m => ({ default: m.X }))` est imposée par `React.lazy`, qui
+ * n'accepte qu'un export par défaut ; ces composants sont des exports nommés.
+ */
+const OnboardingWizard = lazy(() => import('./components/OnboardingWizard').then(m => ({ default: m.OnboardingWizard })));
 
-import { TenderWizard } from './components/TenderWizard';
-import { Financial } from './components/Financial';
-import Collaborators from './components/Collaborators';
-import { Settings } from './components/Settings';
-import { CompanyTab } from './components/settings/CompanyTab';
-import { Notifications } from './components/Notifications';
-import { Tenders } from './components/Tenders';
-import { CalendarPage } from './components/CalendarPage';
+const TenderWizard = lazy(() => import('./components/TenderWizard').then(m => ({ default: m.TenderWizard })));
+const Financial = lazy(() => import('./components/Financial').then(m => ({ default: m.Financial })));
+const Collaborators = lazy(() => import('./components/Collaborators'));
+const Settings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const CompanyTab = lazy(() => import('./components/settings/CompanyTab').then(m => ({ default: m.CompanyTab })));
+const Notifications = lazy(() => import('./components/Notifications').then(m => ({ default: m.Notifications })));
+const Tenders = lazy(() => import('./components/Tenders').then(m => ({ default: m.Tenders })));
+const CalendarPage = lazy(() => import('./components/CalendarPage').then(m => ({ default: m.CalendarPage })));
 import { Auth } from './components/Auth';
 import { MfaGate } from './components/MfaGate';
-import { Confidentialite, ConditionsUtilisation } from './components/LegalPages';
-import { ConfirmerCompte } from './components/ConfirmerCompte';
-import { CollaboratorSubmission } from './components/CollaboratorSubmission';
+const Confidentialite = lazy(() => import('./components/LegalPages').then(m => ({ default: m.Confidentialite })));
+const ConditionsUtilisation = lazy(() => import('./components/LegalPages').then(m => ({ default: m.ConditionsUtilisation })));
+const ConfirmerCompte = lazy(() => import('./components/ConfirmerCompte').then(m => ({ default: m.ConfirmerCompte })));
+const CollaboratorSubmission = lazy(() => import('./components/CollaboratorSubmission').then(m => ({ default: m.CollaboratorSubmission })));
 import { ToastProvider } from './components/ui/Toast';
-import { InvitationLanding } from './components/InvitationLanding';
-import { ResetPassword } from './components/ResetPassword';
+const InvitationLanding = lazy(() => import('./components/InvitationLanding').then(m => ({ default: m.InvitationLanding })));
+const ResetPassword = lazy(() => import('./components/ResetPassword').then(m => ({ default: m.ResetPassword })));
 import { supabase } from './lib/supabaseClient';
 import { NotFound } from './components/NotFound';
 import { NavItem } from './types';
 import { UserProfile, Tender, CollaboratorData, STATUSES } from './config';
 import { useNotificationListener } from './hooks/useNotificationListener';
 import { Dashboard } from './components/Dashboard';
-import { PricingPage } from './components/PricingPage';
+const PricingPage = lazy(() => import('./components/PricingPage').then(m => ({ default: m.PricingPage })));
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
-import { ChatCenter } from './components/chat/ChatCenter';
+const ChatCenter = lazy(() => import('./components/chat/ChatCenter').then(m => ({ default: m.ChatCenter })));
 import { captureAcquisitionParams } from './helpers/acquisitionHelpers';
 import { initWebVitals } from './helpers/webVitals';
 import { peutQuitter } from './helpers/useUnsavedChanges';
 import { UnsavedChangesGuard } from './components/ui/UnsavedChangesGuard';
+import { EcranEnChargement } from './components/ui/EcranEnChargement';
 // Success Modal Component
 const SuccessModal = ({ onClose }: { onClose: () => void }) => (
   <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -640,11 +659,7 @@ const AppContent = () => {
   //
   // On attend donc le profil avant de rendre l'application.
   if (!userProfile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-filao-surface">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-filao-primary"></div>
-      </div>
-    );
+    return <EcranEnChargement />;
   }
 
   if (!userProfile.onboarding_completed || sansEntreprise) {
@@ -684,7 +699,9 @@ const App: React.FC = () => {
       <Router>
         <AuthProvider>
           <ChatProvider>
-            <AppContent />
+            <Suspense fallback={<EcranEnChargement />}>
+              <AppContent />
+            </Suspense>
             {/* Boîte « saisie non enregistrée » : montée une seule fois, elle
                 sert toutes les gardes de l'application. */}
             <UnsavedChangesGuard />

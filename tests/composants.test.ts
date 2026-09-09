@@ -39,6 +39,7 @@ import { EnteteDossier, couleurEcheance } from '../src/components/EnteteDossier.
 import { PiedDossier } from '../src/components/PiedDossier.tsx';
 import { CompanyDocPickerModal, filtrerDocuments } from '../src/components/CompanyDocPickerModal.tsx';
 import { SaisieManuelleView } from '../src/components/SaisieManuelleView.tsx';
+import { ContextEditModal } from '../src/components/ContextEditModal.tsx';
 import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
 
 // ---------------------------------------------------------------------------
@@ -1320,6 +1321,80 @@ test('SaisieManuelleView : convertir et annuler remontent au parent', () => {
     fireEvent.click(screen.getByText(/Convertir en dossier/));
     fireEvent.click(screen.getByText('Annuler'));
     assert.ok(converti && annule);
+});
+
+// ===========================================================================
+// Clic sur le fond — règle unique
+// ===========================================================================
+/** Le fond est le premier enfant du conteneur, marqué décoratif. */
+const fondDe = (racine: HTMLElement) =>
+    racine.querySelector('[aria-hidden="true"].absolute.inset-0') as HTMLElement;
+
+test('FondModale : sur une modale de choix, le clic ferme', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    const { container } = render(React.createElement(GroupementTypeModal, {
+        ouvert: true, onChoisir: rien, onAnnuler: () => { ferme = true; },
+    }));
+    fireEvent.click(fondDe(container));
+    assert.equal(ferme, true);
+});
+
+test('FondModale : sur une modale de saisie, le clic est ignoré', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    const { container } = render(React.createElement(ContextEditModal, {
+        ouvert: true,
+        valeurs: {
+            reference_marche: 'AO-2026-01', titre: 'Toiture', organisme_acheteur: 'Mairie',
+            lieu_execution: [], cpv_codes: [], type_marche: [], required_specialty_ids: [],
+            required_skills: [], dce_documents: [], jalons: [],
+        } as any,
+        isOwner: true, isLocked: false, loading: false,
+        inputGlass: '', inputGlassPlain: '', labelStyle: '',
+        onFermer: () => { ferme = true; }, onValider: rien, showToast: rien,
+    }));
+    // Viser le bord d'une modale et manquer de quelques pixels est courant ;
+    // sur un formulaire à demi rempli, cela coûterait toute la saisie.
+    fireEvent.click(fondDe(container));
+    assert.equal(ferme, false);
+});
+
+test('FondModale : Échap reste une sortie, y compris sur une modale de saisie', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    render(React.createElement(ContextEditModal, {
+        ouvert: true,
+        valeurs: {
+            reference_marche: 'AO-2026-01', titre: 'Toiture', organisme_acheteur: 'Mairie',
+            lieu_execution: [], cpv_codes: [], type_marche: [], required_specialty_ids: [],
+            required_skills: [], dce_documents: [], jalons: [],
+        } as any,
+        isOwner: true, isLocked: false, loading: false,
+        inputGlass: '', inputGlassPlain: '', labelStyle: '',
+        onFermer: () => { ferme = true; }, onValider: rien, showToast: rien,
+    }));
+    // La différence tient à l'intention : Échap est délibéré, le clic sur le
+    // fond ne l'est souvent pas.
+    echap();
+    assert.equal(ferme, true);
+});
+
+test('FondModale : un clic à l’intérieur de la modale n’atteint jamais le fond', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    render(React.createElement(GroupementTypeModal, {
+        ouvert: true, onChoisir: rien, onAnnuler: () => { ferme = true; },
+    }));
+    // Le fond est un FRÈRE du dialogue, pas son parent : la propagation ne
+    // peut pas l'atteindre. C'est ce qui rend inutile le test sur
+    // `currentTarget` que traînaient certaines modales.
+    fireEvent.click(screen.getByText('Groupement Conjoint'));
+    assert.equal(ferme, false);
 });
 
 // ---------------------------------------------------------------------------

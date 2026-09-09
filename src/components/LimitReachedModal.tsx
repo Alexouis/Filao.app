@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, Rocket, Lock } from 'lucide-react';
 import { track } from '../helpers/analytics';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 interface LimitReachedModalProps {
     isOpen: boolean;
@@ -51,7 +52,7 @@ export const LimitReachedModal: React.FC<LimitReachedModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+            <FondModale onFermer={onClose} className="bg-black/60 backdrop-blur-sm" />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

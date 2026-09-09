@@ -4,6 +4,7 @@ import {
     Eye, Trash2, RefreshCw,
 } from 'lucide-react';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Typologie des pièces d'un dossier de consultation.
@@ -71,7 +72,7 @@ const DCEPiecesModalBase: React.FC<DCEPiecesModalProps> = ({
 
         return (
             <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => onFermer()}></div>
+                <FondModale onFermer={onFermer} />
                 <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

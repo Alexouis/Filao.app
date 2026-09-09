@@ -6,6 +6,7 @@ import {
 import { REQUIRED_DOCS_BY_ROLE, ROLES, GROUPEMENT_STATUSES } from '../config';
 import { UIGroupementMember } from '../types';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Fiche détaillée d'un membre du groupement : ses pièces, son rôle, son
@@ -150,7 +151,7 @@ const MemberDetailModalBase: React.FC<MemberDetailModalProps> = ({
 
         return (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={() => onFermer()}></div>
+                <FondModale onFermer={onFermer} className="bg-[#0B1F38]/40 backdrop-blur-sm" />
                 <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

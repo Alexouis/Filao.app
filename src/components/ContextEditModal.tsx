@@ -11,6 +11,7 @@ import { formatCpv } from '../helpers/boampHelpers';
 import { libelleCpv } from '../helpers/cpvLabels';
 import { lienExterne } from '../helpers/textHelpers';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Modale « Détails de l'appel d'offres » (contexte du marché).
@@ -83,7 +84,7 @@ const ContextEditModalBase: React.FC<ContextEditModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onFermer}></div>
+            <FondModale />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

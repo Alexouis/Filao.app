@@ -2,6 +2,7 @@ import React from 'react';
 import { Crown } from 'lucide-react';
 import type { UIGroupementMember } from '../types';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Les deux modales qui changent le mandataire d'un groupement.
@@ -52,7 +53,7 @@ export const MandatairePromotionModal: React.FC<MandatairePromotionModalProps> =
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
+            <FondModale onFermer={onAnnuler} />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
@@ -124,7 +125,7 @@ export const MandataireSuccessionModal: React.FC<MandataireSuccessionModalProps>
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
+            <FondModale onFermer={onAnnuler} />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

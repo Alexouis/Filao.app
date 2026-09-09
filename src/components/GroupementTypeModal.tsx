@@ -1,6 +1,7 @@
 import React from 'react';
 import { Users, Briefcase, CheckCircle } from 'lucide-react';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Choix du type de groupement, avant la vérification du dossier.
@@ -29,7 +30,7 @@ export const GroupementTypeModal: React.FC<GroupementTypeModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
+            <FondModale onFermer={onAnnuler} />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { Target, X, Search, CheckCircle, Plus, Loader2 } from 'lucide-react';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Modale « Compétences requises ».
@@ -101,7 +102,7 @@ const SkillsModalBase: React.FC<SkillsModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onFermer}></div>
+            <FondModale />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

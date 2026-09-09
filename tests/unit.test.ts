@@ -69,6 +69,11 @@ import {
   forfait, tousLesForfaits, illimite, prixLisible, type Forfait,
 } from '../src/helpers/planLimits.ts';
 
+import {
+  categorieEffectif, dateLisible, formeJuridiqueLisible, secteurLisible,
+  rueDepuisEtablissement, ficheDepuisSirene,
+} from '../src/helpers/inseeLabels.ts';
+
 import { STATUSES, PLANS_CONFIG } from '../src/config.ts';
 
 // ---------------------------------------------------------------------------
@@ -1042,4 +1047,138 @@ test('jaugeScore : un score hors bornes ne déborde pas du cercle', () => {
   const j = jaugeScore(150, 40);
   assert.equal(j.decalage, 0);
   assert.ok(jaugeScore(-20, 40).decalage <= jaugeScore(-20, 40).circonference);
+});
+
+
+// ===========================================================================
+// Codes INSEE → libellés lisibles
+// ===========================================================================
+test('categorieEffectif : les quatre catégories, bornes comprises', () => {
+  assert.equal(categorieEffectif('00'), 'Micro/TPE');
+  assert.equal(categorieEffectif('03'), 'Micro/TPE');
+  assert.equal(categorieEffectif('11'), 'PME');
+  assert.equal(categorieEffectif('31'), 'PME');
+  assert.equal(categorieEffectif('32'), 'ETI');
+  assert.equal(categorieEffectif('51'), 'ETI');
+  assert.equal(categorieEffectif('53'), 'GE');
+});
+
+test('categorieEffectif : une tranche inconnue n’invente pas de taille', () => {
+  // Des critères d'allotissement se jouent sur la catégorie : mieux vaut ne
+  // rien afficher qu'une valeur fausse.
+  for (const v of ['99', '', null, undefined]) {
+    assert.equal(categorieEffectif(v as any), '');
+  }
+  // La tranche arrive parfois en nombre depuis l'API.
+  assert.equal(categorieEffectif(12 as any), 'PME');
+});
+
+test('dateLisible : format français, et repli sur la valeur d’origine', () => {
+  assert.equal(dateLisible('2026-03-14'), '14/03/2026');
+  assert.equal(dateLisible(''), '');
+  // `Intl` écrirait « Invalid Date » en toutes lettres ; la valeur brute reste
+  // au moins un indice exploitable.
+  assert.equal(dateLisible('pas-une-date'), 'pas-une-date');
+});
+
+test('formeJuridiqueLisible : un libellé déjà résolu est conservé', () => {
+  assert.equal(formeJuridiqueLisible('5710'), 'SAS / SASU');
+  // Forme absente de la table mais déjà lisible en base : la remplacer par le
+  // code serait une régression pour une fiche saisie à la main.
+  assert.equal(
+    formeJuridiqueLisible('9220', 'Association déclarée'),
+    'Association déclarée'
+  );
+  // Un libellé purement numérique n'en est pas un.
+  assert.equal(formeJuridiqueLisible('5710', '5710000000'), 'SAS / SASU');
+  assert.equal(formeJuridiqueLisible(null), 'Non défini');
+});
+
+test('secteurLisible : une section INSEE est traduite, un libellé passe tel quel', () => {
+  assert.equal(secteurLisible('Travaux de couverture'), 'Travaux de couverture');
+  assert.equal(secteurLisible(''), 'Non défini');
+  // Une section inconnue est rendue telle quelle plutôt que masquée.
+  assert.equal(secteurLisible('Z'), 'Z');
+});
+
+// ===========================================================================
+// Fiche entreprise depuis l'annuaire
+// ===========================================================================
+const REPONSE = {
+  nom_complet: 'TOITURES DU PONANT',
+  nature_juridique: '5710',
+  activite_principale: '43.91B',
+  tranche_effectif_salarie: '12',
+  date_creation: '2015-06-01',
+  siege: {
+    siret: '11111111111111',
+    numero_voie: '2', type_voie: 'RUE', libelle_voie: 'DU SIEGE',
+    code_postal: '35000', libelle_commune: 'RENNES',
+  },
+  matching_etablissements: [{
+    siret: '22222222222222',
+    numero_voie: '14', type_voie: 'AVENUE', libelle_voie: 'DES CHANTIERS',
+    code_postal: '29200', libelle_commune: 'BREST',
+  }],
+};
+
+test('ficheDepuisSirene : l’établissement recherché prime sur le siège', () => {
+  // L'adresse figure sur les actes d'engagement : renseigner le siège pour une
+  // agence est une erreur qui se retrouve dans le dossier déposé.
+  const f = ficheDepuisSirene(REPONSE, '22222222222222');
+  assert.equal(f.adresse, '14 AVENUE DES CHANTIERS');
+  assert.equal(f.ville, 'BREST');
+  assert.equal(f.code_postal, '29200');
+});
+
+test('ficheDepuisSirene : sans établissement correspondant, on retombe sur le siège', () => {
+  const f = ficheDepuisSirene(REPONSE, '99999999999999');
+  assert.equal(f.ville, 'RENNES');
+  // Le SIRET retenu reste celui qui a été cherché, pas celui du siège.
+  assert.equal(f.siret, '99999999999999');
+});
+
+test('ficheDepuisSirene : l’état civil du dirigeant n’est repris que pour un individuel', () => {
+  const dirigeants = [{ prenoms: 'Marie', nom: 'Le Goff' }];
+
+  const societe = ficheDepuisSirene({ ...REPONSE, dirigeants }, '22222222222222');
+  // Pour une société, le dirigeant n'est pas l'entreprise : mélanger les deux
+  // confondrait deux identités juridiques distinctes.
+  assert.equal(societe.prenom, '');
+  assert.equal(societe.nom_famille, '');
+
+  const individuel = ficheDepuisSirene(
+    { ...REPONSE, dirigeants, complements: { est_entrepreneur_individuel: true } },
+    '22222222222222'
+  );
+  assert.equal(individuel.prenom, 'Marie');
+  assert.equal(individuel.nom_famille, 'Le Goff');
+});
+
+test('ficheDepuisSirene : les champs absents restent indéfinis, jamais vides', () => {
+  // C'est ce qui permet à l'appelant de conserver une saisie manuelle plutôt
+  // que de l'écraser avec du vide.
+  const f = ficheDepuisSirene({ siege: {} }, '33333333333333');
+  assert.equal(f.nom, undefined);
+  assert.equal(f.ville, undefined);
+  assert.equal(f.forme_juridique, undefined);
+});
+
+test('rueDepuisEtablissement : code postal et commune retirés de l’adresse en bloc', () => {
+  // Sans cela, la ville apparaissait deux fois sur les documents générés.
+  const rue = rueDepuisEtablissement({
+    adresse: '14 AVENUE DES CHANTIERS 29200 BREST',
+    code_postal: '29200',
+    libelle_commune: 'BREST',
+  });
+  assert.equal(rue, '14 AVENUE DES CHANTIERS');
+});
+
+test('rueDepuisEtablissement : les composants de voie priment sur l’adresse en bloc', () => {
+  const rue = rueDepuisEtablissement({
+    numero_voie: '14', type_voie: 'AVENUE', libelle_voie: 'DES CHANTIERS',
+    adresse: 'adresse en bloc à ignorer',
+  });
+  assert.equal(rue, '14 AVENUE DES CHANTIERS');
+  assert.equal(rueDepuisEtablissement({}), '');
 });

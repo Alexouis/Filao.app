@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useModale } from '../../helpers/useModale';
+import { FondModale } from './FondModale';
 
 /**
  * Boîte de confirmation de l'application.
@@ -65,7 +66,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={onAnnuler}></div>
+            <FondModale onFermer={onAnnuler} className="bg-[#0B1F38]/40 backdrop-blur-sm" />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

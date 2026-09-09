@@ -2,6 +2,7 @@ import React, { useState, useEffect, memo } from 'react';
 import { Info, Loader2, Plus, Trash2, X } from 'lucide-react';
 import type { CriteresAttribution } from '../helpers/boampHelpers';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Critères d'attribution d'un marché : libellés et pondérations.
@@ -78,7 +79,7 @@ const CriteresModalBase: React.FC<CriteresModalProps> = ({
 
         return (
             <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => onFermer()}></div>
+                <FondModale />
                 <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"

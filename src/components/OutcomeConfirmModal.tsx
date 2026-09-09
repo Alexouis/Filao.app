@@ -1,6 +1,7 @@
 import React from 'react';
 import { Trophy, Frown } from 'lucide-react';
 import { useModale } from '../helpers/useModale';
+import { FondModale } from './ui/FondModale';
 
 /**
  * Confirmation de l'issue d'un marché — gagné ou perdu.
@@ -33,7 +34,7 @@ export const OutcomeConfirmModal: React.FC<OutcomeConfirmModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={onAnnuler}></div>
+            <FondModale onFermer={onAnnuler} className="bg-[#0B1F38]/60 backdrop-blur-sm" />
             <div
                 ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
