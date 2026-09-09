@@ -9,7 +9,7 @@
  * Couvre les modules sensibles : validation SIREN/SIRET/email/date, détection
  * de type de fichier par octets (sécurité dépôt), quotas de forfait, statut
  * effectif d'un dossier, génération du rétroplanning, nommage des pièces,
- * codes d'accès invité.
+ * codes d'accès invité, repli des forfaits.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,7 +62,11 @@ import {
   calculerProgression, progressionDossier, libelleStatut,
 } from '../src/helpers/progressionHelpers.ts';
 
-import { STATUSES } from '../src/config.ts';
+import {
+  forfait, tousLesForfaits, illimite, prixLisible, type Forfait,
+} from '../src/helpers/planLimits.ts';
+
+import { STATUSES, PLANS_CONFIG } from '../src/config.ts';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -847,4 +851,68 @@ test('filtrerEtTrierDossiers : ne modifie pas le tableau reçu', () => {
 test('filtrerEtTrierDossiers : entrée vide ou nulle → liste vide', () => {
   assert.deepEqual(filtrerEtTrierDossiers([], {}, moiListe), []);
   assert.deepEqual(filtrerEtTrierDossiers(null, {}, moiListe), []);
+});
+
+
+// ===========================================================================
+// Forfaits — repli local (planLimits)
+// ===========================================================================
+// `chargerForfaits()` n'est jamais appelé ici : le cache reste vide, donc ces
+// tests décrivent le REPLI sur `PLANS_CONFIG`. C'est précisément le chemin
+// emprunté au démarrage de l'app et lors d'une indisponibilité de la table —
+// celui où une erreur laisse passer un utilisateur au-delà de son offre.
+
+test('forfait : un code inconnu retombe sur le forfait le plus restrictif', () => {
+  // Rien ne doit s'ouvrir par défaut : un code absent de la base ou mal
+  // orthographié ne doit pas donner accès aux quotas d'une offre payante.
+  for (const code of ['inconnu', '', null, undefined]) {
+    assert.equal(forfait(code as any).code, 'partenaire');
+  }
+});
+
+test('forfait : le repli Réseau n’autorise aucun dossier porté', () => {
+  // L'écart relevé en recette : `PLANS_CONFIG` annonçait 1 dossier, la base 0,
+  // et l'interface affichait « 1/1 » pour un forfait qui n'en permet aucun.
+  assert.equal(forfait('partenaire').maxAoSimultanes, 0);
+});
+
+test('forfait : le repli n’est jamais plus permissif que la configuration', () => {
+  // Une divergence ici rouvrirait le même défaut sur un autre forfait.
+  for (const [code, conf] of Object.entries(PLANS_CONFIG)) {
+    const f = forfait(code);
+    assert.equal(f.maxAoSimultanes, conf.limits.activeTenders, code);
+    assert.equal(f.maxUtilisateurs, conf.limits.users, code);
+    assert.equal(f.maxStockageOctets, conf.limits.storage, code);
+    assert.equal(f.fonctionnalites.ia, conf.limits.aiAccess, code);
+  }
+});
+
+test('forfait : le repli n’expose pas d’argumentaire commercial', () => {
+  // Le comparatif doit venir de la table. Un descriptif en dur donnerait
+  // l'illusion d'une offre à jour alors que la source n'a pas répondu.
+  assert.deepEqual(forfait('solo').descriptif, []);
+  assert.equal(forfait('solo').populaire, false);
+});
+
+test('illimite : aucun forfait de repli n’est illimité', () => {
+  // `organisation` est borné à 9999 en repli, pas à null : le temps du
+  // chargement, on préfère une borne haute à une absence de limite.
+  for (const f of tousLesForfaits()) assert.equal(illimite(f), false);
+  assert.equal(illimite({ maxAoSimultanes: null } as Forfait), true);
+});
+
+test('tousLesForfaits : les quatre offres, triées par ordre croissant', () => {
+  const codes = tousLesForfaits().map((f) => f.code);
+  assert.deepEqual(codes, ['partenaire', 'solo', 'equipe', 'organisation']);
+  const ordres = tousLesForfaits().map((f) => f.ordre);
+  assert.deepEqual(ordres, [...ordres].sort((a, b) => a - b));
+});
+
+test('prixLisible : centimes convertis en euros, gratuité et devis nommés', () => {
+  assert.equal(prixLisible(forfait('partenaire')), 'Gratuit');
+  assert.equal(prixLisible(forfait('solo')), '79 € / mois');
+  assert.equal(prixLisible(forfait('equipe')), '159 € / mois');
+  // « Sur devis » prime sur le prix : `organisation` est à 0 en repli, et
+  // afficher « Gratuit » pour une offre négociée serait un contresens.
+  assert.equal(prixLisible({ surDevis: true, prixMensuelHt: 0 } as Forfait), 'Sur devis');
 });

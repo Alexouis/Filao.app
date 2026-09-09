@@ -115,12 +115,6 @@ export const progressionDossier = (
  */
 export const libelleStatut = (tender: Tender): string => getEffectiveStatus(tender);
 
-/** Statuts pour lesquels la progression a encore un sens. */
-export const progressionPertinente = (tender: Tender): boolean => {
-  const s = getEffectiveStatus(tender);
-  return s === STATUSES.on || s === STATUSES.draft;
-};
-
 /** Une ligne de `avancement_dossiers` : un membre d'un dossier. */
 export interface LigneAvancement {
   tender_id: string;

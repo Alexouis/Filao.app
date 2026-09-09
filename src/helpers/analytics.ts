@@ -27,7 +27,7 @@
 // cette table est retirée de l'événement — c'est la barrière anti-fuite.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const EVENEMENTS = {
+const EVENEMENTS = {
   // Entonnoir 1 — activation
   inscription_terminee: [],
   onboarding_termine: [],

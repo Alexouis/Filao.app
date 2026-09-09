@@ -83,6 +83,3 @@ export const cpvLisible = (code: string, codeFormate?: string): string => {
     const affiche = codeFormate ?? code;
     return libelle ? `${affiche} — ${libelle}` : affiche;
 };
-
-/** Nombre de divisions couvertes, pour vérification. */
-export const NB_DIVISIONS = Object.keys(DIVISIONS).length;

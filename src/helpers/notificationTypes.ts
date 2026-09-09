@@ -41,7 +41,7 @@ export interface NotifTypeDef {
  * document est à la fois « documents » et « échéances ») : `categoriesExtra`
  * couvre ce cas sans dupliquer l'entrée principale.
  */
-export const NOTIFICATION_TYPES: (NotifTypeDef & { categoriesExtra?: NotifCategorie[] })[] = [
+const NOTIFICATION_TYPES: (NotifTypeDef & { categoriesExtra?: NotifCategorie[] })[] = [
   { type: 'collaborator_invited',      categorie: 'invitations', prefKey: null },
   { type: 'collaboration_accepted',    categorie: 'invitations', prefKey: null },
   { type: 'collaboration_rejected',    categorie: 'invitations', prefKey: null },
@@ -64,12 +64,6 @@ const PAR_TYPE = new Map(NOTIFICATION_TYPES.map((d) => [d.type, d]));
 
 /** Renvoie la définition d'un type, ou undefined si inconnu. */
 export const typeDef = (type: string) => PAR_TYPE.get(type);
-
-/** Tous les types techniques appartenant à une catégorie de filtre donnée. */
-export const typesDeCategorie = (categorie: NotifCategorie): string[] =>
-  NOTIFICATION_TYPES
-    .filter((d) => d.categorie === categorie || d.categoriesExtra?.includes(categorie))
-    .map((d) => d.type);
 
 /** Un type appartient-il à la catégorie (principale ou extra) ? */
 export const estDeCategorie = (type: string, categorie: NotifCategorie): boolean => {

@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabaseClient';
  */
 
 /** Durée de validité d'une URL signée, en secondes. */
-export const DUREE_SIGNATURE = 3600; // 1 h
+const DUREE_SIGNATURE = 3600; // 1 h
 
 /**
  * Cache des URL déjà signées.
@@ -33,7 +33,7 @@ const MARGE_MS = 60_000;
  *
  * Un chemin vide n'est pas une erreur : il signifie « document non fourni ».
  */
-export const urlSignee = async (chemin: string | null | undefined): Promise<string | null> => {
+const urlSignee = async (chemin: string | null | undefined): Promise<string | null> => {
     if (!chemin) return null;
 
     // Tolérance aux données non converties : une valeur encore sous forme d'URL
@@ -54,44 +54,6 @@ export const urlSignee = async (chemin: string | null | undefined): Promise<stri
 
     cache.set(chemin, { url: data.signedUrl, expireA: Date.now() + DUREE_SIGNATURE * 1000 });
     return data.signedUrl;
-};
-
-/**
- * Signe plusieurs chemins en un seul appel réseau.
- *
- * @returns une correspondance chemin → URL. Les chemins non signables en sont
- *          absents, ce qui permet à l'appelant de distinguer un document
- *          inaccessible d'un document non fourni.
- */
-export const urlsSignees = async (chemins: (string | null | undefined)[]): Promise<Map<string, string>> => {
-    const resultat = new Map<string, string>();
-    const aSigner: string[] = [];
-
-    for (const chemin of chemins) {
-        if (!chemin) continue;
-        if (chemin.startsWith('http')) { resultat.set(chemin, chemin); continue; }
-        const enCache = cache.get(chemin);
-        if (enCache && enCache.expireA > Date.now() + MARGE_MS) resultat.set(chemin, enCache.url);
-        else aSigner.push(chemin);
-    }
-
-    if (aSigner.length === 0) return resultat;
-
-    const { data, error } = await supabase.storage
-        .from('documents')
-        .createSignedUrls(aSigner, DUREE_SIGNATURE);
-
-    if (error) {
-        console.warn('Signature groupée impossible', error);
-        return resultat;
-    }
-
-    for (const entree of data ?? []) {
-        if (!entree.signedUrl || !entree.path) continue;
-        cache.set(entree.path, { url: entree.signedUrl, expireA: Date.now() + DUREE_SIGNATURE * 1000 });
-        resultat.set(entree.path, entree.signedUrl);
-    }
-    return resultat;
 };
 
 /**

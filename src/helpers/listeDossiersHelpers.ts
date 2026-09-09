@@ -128,7 +128,7 @@ export const dossierVisible = (
  * de liste avant tout autre critère : ce sont des dossiers sur lesquels il n'y
  * a plus rien à décider.
  */
-export const comparerDossiers = (
+const comparerDossiers = (
     criteres: CriteresListe,
     profil?: ProfilListe | null,
 ) => (a: any, b: any): number => {

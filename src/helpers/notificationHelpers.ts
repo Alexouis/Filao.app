@@ -7,57 +7,6 @@ import { Notifications } from '@/config';
 import { typeDef, type NotifPrefKey } from './notificationTypes';
 
 /**
- * Fetch a user's notification preferences
- */
-const getUserPreferences = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('utilisateurs')
-    .select('notification_preferences, email, prenom, nom')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  return data;
-};
-
-/**
- * Send a notification email via the send-notification-email Edge Function
- */
-const sendNotificationEmail = async (
-  recipientEmail: string,
-  recipientName: string,
-  eventType: NotifPrefKey,
-  senderName: string | undefined,
-  tenderTitle: string,
-  detail: string
-) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
-    await fetch(`${supabaseUrl}/functions/v1/send-notification-email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        recipientEmail,
-        recipientName,
-        eventType,
-        senderName,
-        tenderTitle,
-        detail,
-      }),
-    });
-  } catch (err) {
-    console.error('Error sending notification email:', err);
-  }
-};
-
-/**
  * Add a notification to a user's notification array.
  * Routes through the `notify-user` Edge Function which uses SUPABASE_SERVICE_ROLE_KEY
  * to bypass RLS — enabling cross-user notifications safely from the client.
@@ -65,7 +14,7 @@ const sendNotificationEmail = async (
  * If prefKey is provided, the edge function checks user preferences before writing.
  * If prefKey is null, the notification is always created (critical system events).
  */
-export const addNotification = async (
+const addNotification = async (
   userId: string,
   notificationData: Omit<Notifications, 'id' | 'date' | 'read'>,
   prefKey?: NotifPrefKey | null
@@ -141,25 +90,6 @@ export const notifyDocumentAdded = async (
   );
 
   return Promise.all(promises);
-};
-
-/**
- * Notify about an upcoming deadline (3 days before)
- * prefKey: rappels
- */
-export const notifyDeadlineReminder = async (
-  userId: string,
-  tenderId: string,
-  tenderTitle: string,
-  deadlineDate: string
-) => {
-  return addNotification(userId, {
-    type: 'deadline_reminder',
-    titre: 'Date limite proche',
-    message: `La date limite pour l'appel d'offres approche :`,
-    related_tender_id: tenderId,
-    related_tender_titre: `${tenderTitle} (${new Date(deadlineDate).toLocaleDateString('fr-FR')})`
-  }, 'rappels');
 };
 
 /**
@@ -337,53 +267,6 @@ export const notifyCollaboratorInvited = async (
 };
 
 /**
- * Deletes the 'collaborator_invited' notification for a specific tender from a user's list.
- * Used when a creator revokes a pending invitation.
- * Routes through the notify-user edge function to bypass RLS.
- */
-export const deleteInvitationNotification = async (
-  userId: string,
-  tenderId: string
-) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!session || !supabaseUrl) return;
-
-    const reponse = await fetch(`${supabaseUrl}/functions/v1/notify-user`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        userId,
-        action: 'delete',
-        deleteFilter: { type: 'collaborator_invited', related_tender_id: tenderId },
-      }),
-    });
-
-    // `fetch` ne lève pas d'exception sur un statut d'erreur : sans ce
-    // contrôle, un 404 « Target user not found » passait inaperçu et donnait
-    // l'illusion d'une suppression réussie. On remonte le motif exact.
-    if (!reponse.ok) {
-      const motif = await reponse.text().catch(() => '');
-      console.error(
-        `Suppression de notification refusée (${reponse.status}) pour userId=${userId} : ${motif}`
-      );
-      return false;
-    }
-    return true;
-  } catch (error) {
-    console.error('Error removing notification:', error);
-  }
-};
-
-/**
- * Notify when a user accepts a network invitation.
- * Sent to the original inviter.
- */
-/**
  * Notify participants of a new chat message on a tender
  * prefKey: messages_feed
  *
@@ -415,6 +298,10 @@ export const notifyChatMessage = async (
   return Promise.all(promises);
 };
 
+/**
+ * Notify when a user accepts a network invitation.
+ * Sent to the original inviter.
+ */
 export const notifyNetworkInviteAccepted = async (
   recipientId: string,
   accepterName: string,

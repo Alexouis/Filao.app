@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "tsx --test tests/unit.test.ts && tsx --test --test-force-exit tests/composants.test.ts",
+    "test": "tsx --test tests/unit.test.ts && tsx --test --test-force-exit tests/navigateur.test.ts tests/composants.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,4 +1,3 @@
-import { PLANS_CONFIG, PlanType, PLANS_TYPES, STATUSES } from '../config';
 import { Tender } from '../types';
 import { consommeQuota } from './tenderHelpers';
 import { forfait, illimite } from './planLimits';
@@ -56,39 +55,3 @@ export const canCreateTender = (
 
   return { allowed: true };
 };
-
-/**
- * Check AI Access
- */
-export const hasAIAccess = (userProfile: any): boolean =>
-  Boolean(forfait(userProfile?.plan).fonctionnalites.ia);
-
-/**
- * @returns le quota de stockage du forfait, en octets. null = illimité.
- */
-export const quotaStockage = (userProfile: any): number | null =>
-  forfait(userProfile?.plan).maxStockageOctets;
-
-/**
- * @returns le nombre d'utilisateurs autorisés. null = illimité.
- */
-export const quotaUtilisateurs = (userProfile: any): number | null =>
-  forfait(userProfile?.plan).maxUtilisateurs;
-
-/**
- * Dossiers portés au-delà du quota.
- *
- * Sert au cas du critère 4 : après une résiliation, un échec de paiement ou une
- * rétrogradation, le quota peut devenir inférieur à l'usage. `canCreateTender`
- * ne couvre que la création — il ne dit rien d'un dépassement survenu
- * rétroactivement.
- *
- * @returns 0 si l'usage tient dans l'offre.
- */
-export const depassementQuota = (userProfile: any, currentTenders: Tender[]): number => {
-  const offre = forfait(userProfile?.plan);
-  if (offre.maxAoSimultanes === null) return 0;
-
-  const portes = currentTenders.filter(t => consommeQuota(t, userProfile?.id)).length;
-  return Math.max(portes - offre.maxAoSimultanes, 0);
-}

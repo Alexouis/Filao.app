@@ -28,3 +28,6 @@ dist-ssr
 .env.*
 !.env.example
 tests/cloisonnement.env
+
+# Sorties de compilation TypeScript redirigées à la main (tsc > fichier)
+tsc_output*.txt

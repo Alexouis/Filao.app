@@ -106,12 +106,3 @@ export const deposerFichier = async (
     if (data?.error) return { erreur: data.error };
     return { chemin: data?.chemin, bucket: data?.bucket, urlPublique: data?.urlPublique };
 };
-
-/** Plafond de taille du point de dépôt, pour l'annoncer avant l'envoi. */
-export const plafondLisible = (point: PointDepot): string => {
-    const octets = REGLES[point].tailleMaxOctets;
-    return `${Math.round(octets / (1024 * 1024))} Mo`;
-};
-
-/** Formats acceptés, pour l'annoncer avant l'envoi. */
-export const formatsLisibles = (point: PointDepot): string => REGLES[point].libelle;
