@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { REQUIRED_DOCS_BY_ROLE, ROLES, GROUPEMENT_STATUSES } from '../config';
 import { UIGroupementMember } from '../types';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Fiche détaillée d'un membre du groupement : ses pièces, son rôle, son
@@ -50,6 +51,7 @@ const MemberDetailModalBase: React.FC<MemberDetailModalProps> = ({
     onFermer, onTelechargerPiece, onTelechargerTout, onDeposer,
     onChoisirDepuisEntreprise, onRelancer, onChangerRole,
 }) => {
+    useModale(selectedMemberIndex !== null, onFermer);
     if (selectedMemberIndex === null) return null;
         const activeMembers = groupementMembers.filter(m => !m.deleted);
         const member = activeMembers[selectedMemberIndex];

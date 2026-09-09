@@ -1,5 +1,6 @@
 import React from 'react';
 import { Trophy, Frown } from 'lucide-react';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Confirmation de l'issue d'un marché — gagné ou perdu.
@@ -26,6 +27,7 @@ export interface OutcomeConfirmModalProps {
 export const OutcomeConfirmModal: React.FC<OutcomeConfirmModalProps> = ({
     issue, onConfirmer, onAnnuler,
 }) => {
+    useModale(!!issue, onAnnuler);
     if (!issue) return null;
     const gagne = issue === 'won';
 

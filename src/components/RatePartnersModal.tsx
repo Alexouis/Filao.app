@@ -3,6 +3,7 @@ import { X, Star, MessageSquare, Briefcase, Trophy, AlertTriangle, Users } from 
 import { supabase } from '../lib/supabaseClient';
 import { useToast } from './ui/Toast';
 import { STATUSES } from '@/config';
+import { useModale } from '../helpers/useModale';
 
 interface RatePartnersModalProps {
     isOpen: boolean;
@@ -19,6 +20,7 @@ interface RatePartnersModalProps {
 export const RatePartnersModal: React.FC<RatePartnersModalProps> = ({
     isOpen, onClose, onSubmit, tenderId, tenderTitle, currentUserId, currentUserCompanyId, partners, currentStatus
 }) => {
+    useModale(isOpen, onClose);
     const { showToast } = useToast();
     const [ratings, setRatings] = useState<Record<string, number>>({});
     const [comments, setComments] = useState<Record<string, string>>({});

@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import {
   X, Building2, Calendar, Euro, Users, Lock, Briefcase, MapPin, Tag, Clock
 } from 'lucide-react'; 
 import type { Tender } from '../types';
 import { reparerEncodage } from '../helpers/boampHelpers';
 import { getEffectiveStatus } from '@/helpers/tenderHelpers';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Consultation d'un dossier porté par un collègue.
@@ -51,14 +52,7 @@ const joursRestants = (valeur?: string) => {
 };
 
 export const TenderReadOnlyPanel: React.FC<TenderReadOnlyPanelProps> = ({ tender, onClose }) => {
-  // Échap ferme le panneau : c'est le réflexe attendu d'un tiroir, et cela évite
-  // de piéger l'utilisateur sur un écran sans action.
-  useEffect(() => {
-    if (!tender) return;
-    const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', surTouche);
-    return () => window.removeEventListener('keydown', surTouche);
-  }, [tender, onClose]);
+  useModale(!!tender, onClose);
 
   if (!tender) return null;
 

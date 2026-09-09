@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { estEnRetard } from '../helpers/jalonHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Modale « Rétroplanning » — jalons et échéances clés du dossier.
@@ -65,6 +66,7 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
     ouvert, jalons, isOwner, groupementMembers,
     onJalonsChange, onFermer, showToast,
 }) => {
+    useModale(ouvert, onFermer);
     // États d'édition, locaux à la modale.
     const [editingJalonIndex, setEditingJalonIndex] = useState<number | null>(null);
     const [editingJalon, setEditingJalon] = useState<Partial<Jalon> | null>(null);

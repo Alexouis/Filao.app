@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle, ChevronDown, Download, Loader2, Mail, X } f
 import { REQUIRED_DOCS_BY_ROLE } from '../config';
 import { UIGroupementMember } from '../types';
 import { EmailLogPanel } from './EmailLogPanel';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Coordination documentaire : suivi global des pièces du groupement, membre
@@ -50,6 +51,7 @@ const DocDetailsModalBase: React.FC<DocDetailsModalProps> = ({
     resentInvitations, loading,
     onFermer, onRelancer, onTelechargerTout, onTelechargerPiece, onDeposer,
 }) => {
+    useModale(ouvert, onFermer);
     if (!ouvert || !isOwner) return null;
 
     const activeMembers = groupementMembers.filter(m => !m.deleted);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { Target, X, Search, CheckCircle, Plus, Loader2 } from 'lucide-react';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Modale « Compétences requises ».
@@ -69,6 +70,7 @@ const SkillsModalBase: React.FC<SkillsModalProps> = ({
     cpvCodes, suggererDomainesDepuisCpv,
     onAjouter, onRetirer, onFermer, onValider,
 }) => {
+    useModale(ouvert, onFermer);
     // État purement visuel, local à la modale.
     const [selectedNature, setSelectedNature] = useState<string | null>(null);
     const [skillQuery, setSkillQuery] = useState('');

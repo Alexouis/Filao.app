@@ -34,6 +34,8 @@ import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
 import { DocDetailsModal } from './DocDetailsModal';
 import { CriteresModal } from './CriteresModal';
+import { TenderCreationWizard } from './TenderCreationWizard';
+import { useModale } from '../helpers/useModale';
 import { BandeauInvitation } from './BandeauInvitation';
 import { EnteteDossier } from './EnteteDossier';
 import { PiedDossier } from './PiedDossier';
@@ -163,7 +165,6 @@ const isValidUUID = (id: any): id is string => {
     return uuidRegex.test(id);
 };
 
-import { TenderCreationWizard } from './TenderCreationWizard';
 
 // --- SUB-COMPONENTS ---
 const AddManualPartnerModal = ({ onClose, onAdd, emailsDejaInvites = [] }: { onClose: () => void, onAdd: (data: any) => void, emailsDejaInvites?: string[] }) => {
@@ -3634,29 +3635,12 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
-    /**
-     * Fermeture des modales par la touche Échap.
-     *
-     * Aucune ne le permettait : seule la croix fonctionnait. C'est le
-     * comportement attendu de toute boîte de dialogue, et le premier réflexe
-     * d'un utilisateur au clavier.
-     *
-     * L'écouteur est posé une seule fois et ferme la modale ouverte la plus
-     * « intérieure » : sans cet ordre, fermer la modale d'édition d'un jalon
-     * fermerait aussi la vue qui la contient.
-     */
-    useEffect(() => {
-        const surEchap = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
-            if (showCompanyDocPicker) { setShowCompanyDocPicker(false); return; }
-            if (showCriteresModal) { setShowCriteresModal(false); return; }
-            if (showContextEditModal) { setShowContextEditModal(false); return; }
-            if (showDocDetails) { setShowDocDetails(false); return; }
-            if (showSkillsModal) { setShowSkillsModal(false); return; }
-        };
-        document.addEventListener('keydown', surEchap);
-        return () => document.removeEventListener('keydown', surEchap);
-    }, [showCompanyDocPicker, showCriteresModal, showContextEditModal, showDocDetails, showSkillsModal]);
+    // Échap : chaque modale extraite s'en charge via `useModale`, qui empile
+    // les dialogues ouverts et ne ferme que celui du dessus. La cascade de
+    // conditions qui vivait ici faisait le même travail à la main, et il
+    // fallait penser à l'allonger à chaque nouvelle modale. Ne reste que le
+    // sélecteur de pièces d'entreprise, encore rendu en ligne.
+    useModale(showCompanyDocPicker, () => setShowCompanyDocPicker(false));
 
     // --- MODAL: DOCUMENT DETAILS ---
 

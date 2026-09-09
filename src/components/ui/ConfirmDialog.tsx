@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertCircle } from 'lucide-react';
+import { useModale } from '../../helpers/useModale';
 
 /**
  * Boîte de confirmation de l'application.
@@ -59,6 +60,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     icone,
     onConfirmer, onAnnuler,
 }) => {
+    useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (

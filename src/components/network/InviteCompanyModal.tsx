@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Mail, Send, CheckCircle, Loader2, AlertCircle, UserPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useToast } from '../ui/Toast';
+import { useModale } from '../../helpers/useModale';
 
 interface InviteCompanyModalProps {
     isOpen: boolean;

@@ -3,6 +3,7 @@ import { X, Send, Loader2, Mail, User, MessageSquare, CheckCircle } from 'lucide
 import { supabase } from '../lib/supabaseClient';
 import { ROLES } from '../config';
 import { notifyCollaboratorInvited } from '../helpers/notificationHelpers';
+import { useModale } from '../helpers/useModale';
 
 interface InvitePartnerModalProps {
     isOpen: boolean;
@@ -25,6 +26,7 @@ export const InvitePartnerModal: React.FC<InvitePartnerModalProps> = ({
     initialRole = 'Sous-traitant',
     accessCode
 }) => {
+    useModale(isOpen, onClose);
     const [email, setEmail] = useState(initialEmail);
     const [role, setRole] = useState(initialRole);
     const [message, setMessage] = useState('');

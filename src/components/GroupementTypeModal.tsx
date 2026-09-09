@@ -1,5 +1,6 @@
 import React from 'react';
 import { Users, Briefcase, CheckCircle } from 'lucide-react';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Choix du type de groupement, avant la vérification du dossier.
@@ -23,6 +24,7 @@ export interface GroupementTypeModalProps {
 export const GroupementTypeModal: React.FC<GroupementTypeModalProps> = ({
     ouvert, onChoisir, onAnnuler,
 }) => {
+    useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (

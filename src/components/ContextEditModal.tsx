@@ -10,6 +10,7 @@ import { TenderFormData } from '../types';
 import { formatCpv } from '../helpers/boampHelpers';
 import { libelleCpv } from '../helpers/cpvLabels';
 import { lienExterne } from '../helpers/textHelpers';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Modale « Détails de l'appel d'offres » (contexte du marché).
@@ -61,6 +62,7 @@ const ContextEditModalBase: React.FC<ContextEditModalProps> = ({
     inputGlass, inputGlassPlain, labelStyle,
     onFermer, onValider, showToast,
 }) => {
+    useModale(ouvert, onFermer);
     // Brouillon local : c'est lui qu'on édite. Réinitialisé à chaque ouverture
     // pour repartir des valeurs à jour du dossier.
     const [brouillon, setBrouillon] = useState<TenderFormData>(valeurs);

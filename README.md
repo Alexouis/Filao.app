@@ -59,6 +59,12 @@ Trois fichiers, exécutés par `node:test` via `tsx` — ni Vitest ni Jest.
 - `tests/navigateur.test.ts` — helpers lisant `window`, `document`, `sessionStorage`
 - `tests/composants.test.ts` — rendu et décisions d'affichage (happy-dom)
 
+`npm test` passe par `tests/lancer.mjs`, qui donne à chaque suite son
+invocation et désactive l'isolation de processus. Ce n'est pas décoratif : la
+combinaison précédente rapportait un nombre de tests variable d'un lancement à
+l'autre, en affichant toujours zéro échec. Le script explique le pourquoi en
+tête de fichier — le lire avant d'y toucher.
+
 `tests/cloisonnement.sh` vérifie l'isolation multi-entreprises contre un projet
 Supabase réel : il demande un environnement dédié (voir
 `tests/cloisonnement.env.example`) et ne fait pas partie de `npm test`.

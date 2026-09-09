@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { X, Maximize2, Minimize2 } from 'lucide-react';
 import { ChatWindow } from './ChatWindow';
 import { GLASS_MODAL_STYLE } from '../../lib/styles';
+import { useModale } from '../../helpers/useModale';
 
 interface ChatDrawerProps {
     isOpen: boolean;
@@ -18,14 +19,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    // Close on Escape
-    useEffect(() => {
-        const handleEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, [onClose]);
+    useModale(isOpen, onClose);
 
     return (
         <>

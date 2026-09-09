@@ -30,12 +30,14 @@ import { InfoItem, VerifiedBadge, UnverifiedBadge } from '../src/components/sett
 import { CompanyInfoReadOnly } from '../src/components/settings/CompanyInfoReadOnly.tsx';
 import { OnboardingCompanyStep } from '../src/components/OnboardingCompanyStep.tsx';
 import { BarreFiltresDossiers } from '../src/components/BarreFiltresDossiers.tsx';
+import { supabase } from '../src/lib/supabaseClient.ts';
 import { GroupementTypeModal } from '../src/components/GroupementTypeModal.tsx';
 import { MandatairePromotionModal, MandataireSuccessionModal } from '../src/components/MandataireModals.tsx';
 import { OutcomeConfirmModal } from '../src/components/OutcomeConfirmModal.tsx';
 import { BandeauInvitation } from '../src/components/BandeauInvitation.tsx';
 import { EnteteDossier, couleurEcheance } from '../src/components/EnteteDossier.tsx';
 import { PiedDossier } from '../src/components/PiedDossier.tsx';
+import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -894,11 +896,178 @@ test('PiedDossier : un statut terminal ne propose plus rien au porteur', () => {
     assert.ok(screen.getByText('Supprimer'));
 });
 
-// Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans
-// fermeture explicite, le processus de test ne rend jamais la main et la CI
-// resterait bloquée jusqu'au délai d'expiration.
+// ===========================================================================
+// useModale — Échap et restauration du focus
+// ===========================================================================
+// L'empilement est le point délicat : trois implémentations séparées posaient
+// chacune leur écouteur, si bien qu'Échap fermait TOUTES les modales ouvertes
+// d'un coup. Ces tests décrivent le comportement attendu à la place.
+
+/** Modale minimale, réduite à ce que le hook doit garantir. */
+const ModaleTest: React.FC<{ ouvert: boolean; onFermer: () => void; nom?: string }> =
+    ({ ouvert, onFermer, nom = 'modale' }) => {
+        useModale(ouvert, onFermer);
+        if (!ouvert) return null;
+        return React.createElement('div', { role: 'dialog' },
+            React.createElement('button', { onClick: onFermer }, `fermer-${nom}`));
+    };
+
+const echap = () => fireEvent.keyDown(document, { key: 'Escape' });
+
+test('useModale : Échap ferme la modale ouverte', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    render(React.createElement(ModaleTest, { ouvert: true, onFermer: () => { ferme = true; } }));
+    echap();
+    assert.equal(ferme, true);
+});
+
+test('useModale : une modale fermée n’intercepte pas Échap', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    render(React.createElement(ModaleTest, { ouvert: false, onFermer: () => { ferme = true; } }));
+    echap();
+    assert.equal(ferme, false);
+});
+
+test('useModale : Échap ne ferme QUE la modale du dessus', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    const fermees: string[] = [];
+    render(React.createElement(React.Fragment, null,
+        React.createElement(ModaleTest, {
+            ouvert: true, nom: 'fond', onFermer: () => fermees.push('fond'),
+        }),
+        React.createElement(ModaleTest, {
+            ouvert: true, nom: 'dessus', onFermer: () => fermees.push('dessus'),
+        }),
+    ));
+    echap();
+    // Le défaut d'origine : une confirmation ouverte au-dessus du détail d'un
+    // membre fermait les deux d'un seul appui.
+    assert.deepEqual(fermees, ['dessus']);
+});
+
+test('useModale : après fermeture du dessus, Échap revient à celle du dessous', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    const fermees: string[] = [];
+
+    const Empilees: React.FC<{ dessus: boolean }> = ({ dessus }) =>
+        React.createElement(React.Fragment, null,
+            React.createElement(ModaleTest, {
+                ouvert: true, nom: 'fond', onFermer: () => fermees.push('fond'),
+            }),
+            React.createElement(ModaleTest, {
+                ouvert: dessus, nom: 'dessus', onFermer: () => fermees.push('dessus'),
+            }),
+        );
+
+    const { rerender } = render(React.createElement(Empilees, { dessus: true }));
+    echap();
+    rerender(React.createElement(Empilees, { dessus: false }));
+    echap();
+    assert.deepEqual(fermees, ['dessus', 'fond']);
+});
+
+test('useModale : le focus revient sur l’élément qui a ouvert la modale', () => {
+    cleanup();
+    __reinitialiserPileModales();
+
+    const Ecran: React.FC<{ ouvert: boolean }> = ({ ouvert }) =>
+        React.createElement(React.Fragment, null,
+            React.createElement('button', { id: 'declencheur' }, 'Ouvrir'),
+            React.createElement(ModaleTest, { ouvert, onFermer: rien }),
+        );
+
+    const { rerender } = render(React.createElement(Ecran, { ouvert: false }));
+    const declencheur = document.getElementById('declencheur') as HTMLButtonElement;
+    declencheur.focus();
+    assert.equal(document.activeElement, declencheur);
+
+    rerender(React.createElement(Ecran, { ouvert: true }));
+    rerender(React.createElement(Ecran, { ouvert: false }));
+
+    // Sans restauration, le focus retombe sur <body> et la tabulation suivante
+    // repart du haut de la page — tout le formulaire à retraverser.
+    assert.equal(document.activeElement, declencheur);
+});
+
+test('useModale : rien ne casse si l’élément d’origine a disparu', () => {
+    cleanup();
+    __reinitialiserPileModales();
+
+    const Ecran: React.FC<{ ouvert: boolean; avecBouton: boolean }> = ({ ouvert, avecBouton }) =>
+        React.createElement(React.Fragment, null,
+            avecBouton ? React.createElement('button', { id: 'ephemere' }, 'Ouvrir') : null,
+            React.createElement(ModaleTest, { ouvert, onFermer: rien }),
+        );
+
+    const { rerender } = render(React.createElement(Ecran, { ouvert: false, avecBouton: true }));
+    (document.getElementById('ephemere') as HTMLButtonElement).focus();
+    rerender(React.createElement(Ecran, { ouvert: true, avecBouton: true }));
+    // La ligne qui portait le focus est retirée pendant que la modale est ouverte.
+    rerender(React.createElement(Ecran, { ouvert: true, avecBouton: false }));
+    rerender(React.createElement(Ecran, { ouvert: false, avecBouton: false }));
+    assert.ok(true, 'aucune exception à la fermeture');
+});
+
+test('useModale : plus aucun écouteur ne subsiste une fois tout fermé', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+
+    const { rerender } = render(React.createElement(ModaleTest, {
+        ouvert: true, onFermer: () => { ferme = true; },
+    }));
+    rerender(React.createElement(ModaleTest, { ouvert: false, onFermer: () => { ferme = true; } }));
+    echap();
+    assert.equal(ferme, false);
+});
+
+test('ConfirmDialog : Échap annule, sans confirmer', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let annule = false, confirme = false;
+    render(React.createElement(ConfirmDialog, {
+        ouvert: true,
+        titre: 'Supprimer ce document ?',
+        message: 'Action irréversible.',
+        onConfirmer: () => { confirme = true; },
+        onAnnuler: () => { annule = true; },
+    }));
+    echap();
+    // Échap est une SORTIE, jamais une validation : le confondre avec la
+    // confirmation sur une action destructrice serait un défaut grave.
+    assert.equal(annule, true);
+    assert.equal(confirme, false);
+});
+
+// ---------------------------------------------------------------------------
+// Fermeture propre
+// ---------------------------------------------------------------------------
+// POURQUOI CE BLOC EXISTE
+// Les composants testés importent `supabaseClient`, et `createClient()` arme
+// dès l'import un minuteur de rafraîchissement de jeton ET une connexion
+// temps réel. Ces deux poignées gardent la boucle d'événements ouverte : le
+// processus ne rendait jamais la main.
+//
+// La parade était `--test-force-exit`, qui coupe le processus sans attendre.
+// Elle marchait tant que la suite était courte, puis s'est mise à TRONQUER le
+// compte-rendu au-delà d'une cinquantaine de tests : le nombre de tests
+// exécutés variait d'un lancement à l'autre (66, 68, 43…) en rapportant
+// toujours zéro échec. Une CI verte ne prouvait plus que la suite entière
+// était passée.
+//
+// On ferme donc explicitement ce qu'on a ouvert, et le processus se termine
+// de lui-même — sans `--test-force-exit`, donc avec un compte fiable.
 after(async () => {
     cleanup();
+    await supabase.auth.stopAutoRefresh();
+    await supabase.removeAllChannels();
+    (supabase.realtime as any)?.disconnect?.();
     const { GlobalRegistrator } = await import('@happy-dom/global-registrator');
     await GlobalRegistrator.unregister();
 });

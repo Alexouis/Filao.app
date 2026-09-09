@@ -1,6 +1,7 @@
 import React, { useState, useEffect, memo } from 'react';
 import { Info, Loader2, Plus, Trash2, X } from 'lucide-react';
 import type { CriteresAttribution } from '../helpers/boampHelpers';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Critères d'attribution d'un marché : libellés et pondérations.
@@ -35,6 +36,7 @@ export interface CriteresModalProps {
 const CriteresModalBase: React.FC<CriteresModalProps> = ({
     ouvert, criteresExistants, isOwner, isLocked, loading, inputGlassPlain, onFermer, onValider,
 }) => {
+    useModale(ouvert, onFermer);
     const [criteresDraft, setCriteresDraft] = useState<{ libelle: string; poids?: number }[]>([]);
 
     // Amorçage à chaque ouverture. Depuis la forme `priorites`, on reprend les

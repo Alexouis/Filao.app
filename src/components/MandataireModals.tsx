@@ -1,6 +1,7 @@
 import React from 'react';
 import { Crown } from 'lucide-react';
 import type { UIGroupementMember } from '../types';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Les deux modales qui changent le mandataire d'un groupement.
@@ -42,6 +43,7 @@ const nomAffiche = (m: UIGroupementMember | null | undefined): string =>
 export const MandatairePromotionModal: React.FC<MandatairePromotionModalProps> = ({
     cible, mandataireActuel, onPromouvoir, onAnnuler,
 }) => {
+    useModale(!!cible, onAnnuler);
     if (!cible) return null;
 
     // Le sortant n'est mentionné que s'il existe ET qu'il n'est pas la cible :
@@ -116,6 +118,7 @@ export interface MandataireSuccessionModalProps {
 export const MandataireSuccessionModal: React.FC<MandataireSuccessionModalProps> = ({
     ouvert, successeurs, onChoisir, onAnnuler,
 }) => {
+    useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (

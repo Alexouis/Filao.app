@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2, FileText, Users, CheckCircle, Bell } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
+import { useModale } from '../helpers/useModale';
 
 interface Notification {
   id: string;
@@ -29,6 +30,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   onOpenTender,
   unreadCount = 0
 }) => {
+    useModale(true, onClose);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 

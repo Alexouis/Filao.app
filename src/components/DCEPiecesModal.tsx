@@ -3,6 +3,7 @@ import {
     Files, Download, Loader2, X, Info, UploadCloud, FileText,
     Eye, Trash2, RefreshCw,
 } from 'lucide-react';
+import { useModale } from '../helpers/useModale';
 
 /**
  * Typologie des pièces d'un dossier de consultation.
@@ -64,6 +65,7 @@ const DCEPiecesModalBase: React.FC<DCEPiecesModalProps> = ({
     onFermer, onDeposer, onRemplacer, onSupprimer, onMajPiece,
     onOuvrir, onTelecharger, onToutTelecharger,
 }) => {
+    useModale(ouvert, onFermer);
     if (!ouvert) return null;
 
 
