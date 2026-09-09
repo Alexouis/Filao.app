@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 /**
  * Comportement clavier commun à toutes les boîtes de dialogue.
@@ -24,36 +24,95 @@ import { useEffect, useRef } from 'react';
  * module : seule la modale du dessus réagit, et un seul écouteur est posé,
  * quel que soit le nombre de dialogues ouverts.
  *
- * CE QU'IL NE FAIT PAS ENCORE
- * Le focus n'est pas piégé dans la modale : en tabulant, on finit par
- * atteindre des éléments situés derrière le voile. `aria-modal="true"` traite
- * déjà le cas des lecteurs d'écran ; reste l'utilisateur clavier voyant. Un
- * piège mal écrit enferme pour de bon (WCAG 2.1.2), donc ce sera un lot à
- * part, avec ses propres tests.
+ * 3. LE FOCUS RESTE DANS LA MODALE. En tabulant, on finissait par atteindre
+ *    les éléments situés DERRIÈRE le voile : l'indicateur de focus disparaît,
+ *    et l'on agit à l'aveugle sur une page censée être hors d'atteinte.
+ *    `aria-modal="true"` traitait déjà le cas des lecteurs d'écran ; il
+ *    restait l'utilisateur clavier voyant.
+ *
+ *    Le confinement n'est appliqué QUE si `refModale` est attachée et qu'elle
+ *    contient au moins un élément focalisable. Un piège dont on ne peut pas
+ *    sortir est une infraction plus grave que celle qu'on corrige (WCAG 2.1.2,
+ *    niveau A) : à défaut de cible sûre, on préfère ne rien confiner. Échap
+ *    reste de toute façon une sortie, en toutes circonstances.
  *
  * USAGE
  *
  *   export const MaModale = ({ ouvert, onFermer }) => {
- *       useModale(ouvert, onFermer);
+ *       const refModale = useModale(ouvert, onFermer);
  *       if (!ouvert) return null;
- *       return <div role="dialog" aria-modal="true">…</div>;
+ *       return <div ref={refModale} role="dialog" aria-modal="true">…</div>;
  *   };
+ *
+ * Ignorer la référence retournée reste valable : on garde alors Échap et la
+ * restauration du focus, sans confinement.
  */
 
+/**
+ * Sélecteur des éléments atteignables au clavier.
+ *
+ * `tabindex="-1"` est exclu : ces éléments se focalisent par programme mais ne
+ * sont pas dans l'ordre de tabulation, les inclure ferait boucler sur des
+ * cibles que l'utilisateur ne peut pas atteindre lui-même.
+ */
+const FOCALISABLES = [
+    'a[href]', 'button', 'input', 'select', 'textarea',
+    '[tabindex]', 'audio[controls]', 'video[controls]', '[contenteditable]',
+].map((s) => `${s}:not([disabled]):not([tabindex="-1"])`).join(',');
+
+/** Éléments réellement atteignables : ni désactivés, ni masqués. */
+const cibles = (racine: HTMLElement): HTMLElement[] =>
+    Array.from(racine.querySelectorAll<HTMLElement>(FOCALISABLES))
+        // `offsetParent` vaut `null` pour un élément en `display:none` — un
+        // panneau replié ne doit pas capter le focus.
+        .filter((el) => el.offsetParent !== null || el === document.activeElement);
+
 /** Modales ouvertes, de la plus ancienne à la plus récente. */
-type Entree = { fermer: () => void };
+type Entree = { fermer: () => void; racine: RefObject<HTMLElement | null> };
 const pile: Entree[] = [];
 
 let ecouteurPose = false;
 
 const surTouche = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape') return;
     const dessus = pile[pile.length - 1];
     if (!dessus) return;
-    // `stopPropagation` n'aurait pas suffi : les écouteurs sont posés sur le
-    // même nœud, l'ordre d'appel n'est donc pas garanti par l'imbrication.
-    e.stopPropagation();
-    dessus.fermer();
+
+    if (e.key === 'Escape') {
+        // `stopPropagation` n'aurait pas suffi : les écouteurs sont posés sur
+        // le même nœud, l'ordre d'appel n'est donc pas garanti par
+        // l'imbrication.
+        e.stopPropagation();
+        dessus.fermer();
+        return;
+    }
+
+    if (e.key !== 'Tab') return;
+
+    const racine = dessus.racine.current;
+    if (!racine) return;                       // référence non attachée
+    const atteignables = cibles(racine);
+    if (atteignables.length === 0) return;     // rien où confiner
+
+    const premier = atteignables[0];
+    const dernier = atteignables[atteignables.length - 1];
+    const actif = document.activeElement;
+
+    // Le focus a pu rester dehors — la modale vient de s'ouvrir, ou l'on
+    // revient d'un clic sur le fond. On le ramène plutôt que de le laisser
+    // filer vers la page.
+    if (!racine.contains(actif)) {
+        e.preventDefault();
+        (e.shiftKey ? dernier : premier).focus();
+        return;
+    }
+
+    if (!e.shiftKey && actif === dernier) {
+        e.preventDefault();
+        premier.focus();
+    } else if (e.shiftKey && actif === premier) {
+        e.preventDefault();
+        dernier.focus();
+    }
 };
 
 const poserEcouteur = () => {
@@ -72,7 +131,12 @@ const retirerEcouteur = () => {
  * @param ouvert la modale est-elle affichée ? Passer `false` désinscrit tout.
  * @param onFermer fermeture demandée par l'utilisateur (Échap).
  */
-export const useModale = (ouvert: boolean, onFermer: () => void): void => {
+export const useModale = (
+    ouvert: boolean,
+    onFermer: () => void
+): RefObject<HTMLElement | null> => {
+    const refModale = useRef<HTMLElement | null>(null);
+
     // Le rappel change d'identité à chaque rendu du parent. On le lit par
     // référence pour ne pas réinscrire la modale — ce qui la ferait remonter
     // au sommet de la pile et volerait Échap à celle réellement au-dessus.
@@ -84,9 +148,19 @@ export const useModale = (ouvert: boolean, onFermer: () => void): void => {
 
         const precedent = document.activeElement as HTMLElement | null;
 
-        const entree: Entree = { fermer: () => rappel.current() };
+        const entree: Entree = { fermer: () => rappel.current(), racine: refModale };
         pile.push(entree);
         poserEcouteur();
+
+        // Le focus entre dans la modale à l'ouverture. Sans cela, la première
+        // tabulation partirait vers la page derrière le voile, et un lecteur
+        // d'écran continuerait d'annoncer le contenu précédent.
+        const racine = refModale.current;
+        if (racine) {
+            const premier = cibles(racine)[0];
+            if (premier) premier.focus();
+            else if (racine.tabIndex >= 0) racine.focus();
+        }
 
         return () => {
             const i = pile.indexOf(entree);
@@ -101,6 +175,8 @@ export const useModale = (ouvert: boolean, onFermer: () => void): void => {
             }
         };
     }, [ouvert]);
+
+    return refModale;
 };
 
 /** Remise à zéro entre deux tests. Sans usage en production. */

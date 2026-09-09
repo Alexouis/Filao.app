@@ -70,7 +70,7 @@ const SkillsModalBase: React.FC<SkillsModalProps> = ({
     cpvCodes, suggererDomainesDepuisCpv,
     onAjouter, onRetirer, onFermer, onValider,
 }) => {
-    useModale(ouvert, onFermer);
+    const refModale = useModale(ouvert, onFermer);
     // État purement visuel, local à la modale.
     const [selectedNature, setSelectedNature] = useState<string | null>(null);
     const [skillQuery, setSkillQuery] = useState('');
@@ -102,7 +102,11 @@ const SkillsModalBase: React.FC<SkillsModalProps> = ({
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onFermer}></div>
-            <div className="relative bg-white rounded-2xl w-full max-w-md max-h-[85vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-2xl w-full max-w-md max-h-[85vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
 
                 {/* Header */}
                 <div className="p-3 border-b border-[#0B1F38]/5 flex justify-between items-center bg-[#0B1F38]/2 shrink-0">

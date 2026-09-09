@@ -60,13 +60,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     icone,
     onConfirmer, onAnnuler,
 }) => {
-    useModale(ouvert, onAnnuler);
+    const refModale = useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={onAnnuler}></div>
             <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="titre-confirmation"

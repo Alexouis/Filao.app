@@ -19,7 +19,7 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    useModale(isOpen, onClose);
+    const refModale = useModale(isOpen, onClose);
 
     return (
         <>
@@ -32,7 +32,12 @@ export const ChatDrawer: React.FC<ChatDrawerProps> = ({
             )}
 
             {/* Sidebar drawer */}
-            <div className={`
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Messagerie du dossier"
+                className={`
                 fixed top-0 right-0 h-full z-[110] transition-all duration-500 ease-in-out shadow-2xl
                 ${isOpen ? 'translate-x-0' : 'translate-x-full'}
                 ${isExpanded ? 'w-full md:w-[600px]' : 'w-full md:w-[450px]'}

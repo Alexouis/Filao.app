@@ -20,7 +20,7 @@ export const LimitReachedModal: React.FC<LimitReachedModalProps> = ({
     planLabel = 'Gratuit',
     message
 }) => {
-    useModale(isOpen, onClose);
+    const refModale = useModale(isOpen, onClose);
     // Analytics : paywall affiché. `useEffect` avant le retour anticipé pour
     // respecter les règles des hooks ; ne s'émet qu'à l'ouverture réelle.
     useEffect(() => {
@@ -52,7 +52,11 @@ export const LimitReachedModal: React.FC<LimitReachedModalProps> = ({
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-            <div className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in-up transform transition-all scale-100 opacity-100">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in-up transform transition-all scale-100 opacity-100">
                 {/* Header with gradient */}
                 <div className="bg-gradient-to-br from-[#FF8575] to-[#E65100] p-8 text-white text-center relative overflow-hidden">
                     {/* Decorative background circles */}

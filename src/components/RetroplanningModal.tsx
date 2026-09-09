@@ -66,7 +66,7 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
     ouvert, jalons, isOwner, groupementMembers,
     onJalonsChange, onFermer, showToast,
 }) => {
-    useModale(ouvert, onFermer);
+    const refModale = useModale(ouvert, onFermer);
     // États d'édition, locaux à la modale.
     const [editingJalonIndex, setEditingJalonIndex] = useState<number | null>(null);
     const [editingJalon, setEditingJalon] = useState<Partial<Jalon> | null>(null);
@@ -104,7 +104,11 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white rounded-[2.5rem] p-0 w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden flex flex-col h-[85vh] max-h-[800px]">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="bg-white rounded-[2.5rem] p-0 w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-300 overflow-hidden flex flex-col h-[85vh] max-h-[800px]">
                 {/* Header */}
                 <div className="p-8 pb-6 border-b border-[#0B1F38]/5 bg-[#F8FAFC] shrink-0">
                     <div className="flex justify-between items-start">

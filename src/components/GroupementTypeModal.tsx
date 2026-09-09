@@ -24,13 +24,14 @@ export interface GroupementTypeModalProps {
 export const GroupementTypeModal: React.FC<GroupementTypeModalProps> = ({
     ouvert, onChoisir, onAnnuler,
 }) => {
-    useModale(ouvert, onAnnuler);
+    const refModale = useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
             <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="titre-type-groupement"

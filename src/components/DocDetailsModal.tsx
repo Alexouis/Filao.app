@@ -51,7 +51,7 @@ const DocDetailsModalBase: React.FC<DocDetailsModalProps> = ({
     resentInvitations, loading,
     onFermer, onRelancer, onTelechargerTout, onTelechargerPiece, onDeposer,
 }) => {
-    useModale(ouvert, onFermer);
+    const refModale = useModale(ouvert, onFermer);
     if (!ouvert || !isOwner) return null;
 
     const activeMembers = groupementMembers.filter(m => !m.deleted);
@@ -63,6 +63,7 @@ const DocDetailsModalBase: React.FC<DocDetailsModalProps> = ({
                 // propagés depuis l'intérieur de la modale, qui la fermeraient
                 // en plein remplissage de formulaire.
                 onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-label="Coordination documentaire"

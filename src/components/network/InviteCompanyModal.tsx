@@ -17,6 +17,8 @@ export const InviteCompanyModal: React.FC<InviteCompanyModalProps> = ({ isOpen, 
     const [success, setSuccess] = useState(false);
     const [recipientFound, setRecipientFound] = useState<boolean | null>(null);
 
+    const refModale = useModale(isOpen, onClose);
+
     if (!isOpen) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -81,7 +83,11 @@ export const InviteCompanyModal: React.FC<InviteCompanyModalProps> = ({ isOpen, 
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 relative">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 relative">
                 <button
                     onClick={handleClose}
                     className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors z-10"

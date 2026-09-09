@@ -5,7 +5,7 @@ import { CollaboratorPicker } from './ui/CollaboratorPicker';
 import { LimitReachedModal } from './LimitReachedModal';
 import {
     Calendar as CalendarIcon, MapPin, Briefcase, Link, Users, UploadCloud,
-    CheckCircle, FileText, X, Search, ArrowRight, ArrowLeft, ChevronDown,
+    FileText, X, Search, ArrowLeft, ChevronDown,
     Loader2, Plus, Trash2, Euro, Globe, FileInput, PenTool,
     Target, AlertTriangle, XCircle, Mail, Building,
     CalendarCheck, Download, UserPlus,
@@ -34,8 +34,9 @@ import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
 import { DocDetailsModal } from './DocDetailsModal';
 import { CriteresModal } from './CriteresModal';
+import { CompanyDocPickerModal } from './CompanyDocPickerModal';
+import { SaisieManuelleView } from './SaisieManuelleView';
 import { TenderCreationWizard } from './TenderCreationWizard';
-import { useModale } from '../helpers/useModale';
 import { BandeauInvitation } from './BandeauInvitation';
 import { EnteteDossier } from './EnteteDossier';
 import { PiedDossier } from './PiedDossier';
@@ -50,7 +51,7 @@ import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
-import { emailValide, nettoyerTexteLibre, contientBalise, messageErreurIdentifiantAcheteur, dateValide } from '../helpers/validationHelpers';
+import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
@@ -78,7 +79,7 @@ import { CommentsView } from './ui/CommentsView';
 import { BadgeAVenir } from './ui/BadgeAVenir';
 import { supabase } from '../lib/supabaseClient';
 import { forfait } from '../helpers/planLimits';
-import { DEPARTEMENTS, SECTORS, SECTORS_LABELS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, departementDepuisCode, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
+import { DEPARTEMENTS, SECTORS, MARKET_TYPES, MARKET_TYPES_LABELS, HANDOVER_TYPES, HANDOVER_TYPES_LABELS, BOAMP_BaseUrl, REQUIRED_DOCS_BY_ROLE, ROLES, SKILLS, DEPARTEMENTS_OBJ, departementDepuisCode, STATUSES, GROUPEMENT_STATUSES, PLANS_CONFIG, PlanType, PLANS_TYPES } from '../config';
 import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from '../types';
 import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useAuth } from '../context/AuthContext';
@@ -384,7 +385,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const [targetDocType, setTargetDocType] = useState<string | null>(null);
     const [companyDocs, setCompanyDocs] = useState<any>(null);
     const [companyCustomDocs, setCompanyCustomDocs] = useState<any[]>([]);
-    const [companyDocSearch, setCompanyDocSearch] = useState('');
     const [isCopyingDoc, setIsCopyingDoc] = useState(false);
     const [isUploadingDCE, setIsUploadingDCE] = useState(false);
     const [showSuccessorPicker, setShowSuccessorPicker] = useState<{ memberIdx: number; newRole: string } | null>(null);
@@ -3635,12 +3635,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
-    // Échap : chaque modale extraite s'en charge via `useModale`, qui empile
-    // les dialogues ouverts et ne ferme que celui du dessus. La cascade de
-    // conditions qui vivait ici faisait le même travail à la main, et il
-    // fallait penser à l'allonger à chaque nouvelle modale. Ne reste que le
-    // sélecteur de pièces d'entreprise, encore rendu en ligne.
-    useModale(showCompanyDocPicker, () => setShowCompanyDocPicker(false));
 
     // --- MODAL: DOCUMENT DETAILS ---
 
@@ -3663,119 +3657,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }));
     };
 
-    const renderCompanyDocPicker = () => {
-        if (!showCompanyDocPicker) return null;
-
-        return (
-            /* z-[130] : ce sélecteur s'ouvre DEPUIS la modale « détail membre »
-               (z-[100]) et depuis la coordination documentaire (z-[60]). En
-               z-[70] il passait derrière la première, donc invisible au moment
-               précis où on venait de le demander. Il doit dominer toute modale
-               susceptible de l'ouvrir. */
-            <div
-                className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-[#0B1F38]/60 backdrop-blur-md animate-in fade-in duration-200"
-                onClick={(e) => { if (e.target === e.currentTarget) setShowCompanyDocPicker(false); }}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Documents de l'entreprise"
-            >
-                <div className="bg-white rounded-3xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 overflow-hidden">
-                    <div className="p-6 border-b border-[#0B1F38]/10 flex justify-between items-center shrink-0">
-                        <div>
-                            <h3 className="text-xl font-bold text-[#0B1F38]">Documents de l'entreprise</h3>
-                            <p className="text-sm text-[#0B1F38]/60">Sélectionnez un document à importer</p>
-                        </div>
-                        <button onClick={() => { setShowCompanyDocPicker(false); setCompanyDocSearch(''); }} className="p-2 hover:bg-[#0B1F38]/5 rounded-full text-[#0B1F38]/40 hover:text-[#0B1F38]">
-                            <X size={24} />
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar-dark space-y-6">
-                        {/* Standard Legal Docs */}
-                        <section>
-                            <h4 className="text-xs font-bold text-[#0B1F38]/40 uppercase tracking-widest mb-3">Documents légaux obligatoires</h4>
-                            <div className="space-y-2">
-                                {companyDocs ? Object.entries(companyDocs).map(([label, url]) => (
-                                    <button
-                                        key={label}
-                                        disabled={!url || isCopyingDoc}
-                                        onClick={() => url && handleSelectCompanyDoc(url as string, label)}
-                                        className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left ${url ? 'hover:bg-gray-50 border-gray-100' : 'opacity-40 cursor-not-allowed border-dashed bg-gray-50/50'}`}
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-[#00A3E0]/5 text-[#00A3E0] rounded-lg">
-                                                <ShieldAlert size={18} />
-                                            </div>
-                                            <span className="text-sm font-bold text-[#0B1F38]">{label}</span>
-                                        </div>
-                                        {isCopyingDoc && targetDocType === label ? (
-                                            <Loader2 size={16} className="animate-spin text-[#00A3E0]" />
-                                        ) : url ? (
-                                            <ArrowRight size={16} className="text-[#0B1F38]/20" />
-                                        ) : (
-                                            <span className="text-[10px] font-bold text-[#0B1F38]/30 italic uppercase">Non renseigné</span>
-                                        )}
-                                    </button>
-                                )) : (
-                                    <div className="flex justify-center p-4"><Loader2 size={24} className="animate-spin text-[#00A3E0]/40" /></div>
-                                )}
-                            </div>
-                        </section>
-
-                        {/* Custom Docs */}
-                        <section>
-                            <h4 className="text-xs font-bold text-[#0B1F38]/40 uppercase tracking-widest mb-3">Autres documents</h4>
-                            {companyCustomDocs.length > 0 && (
-                                <div className="relative mb-3">
-                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/30 pointer-events-none" />
-                                    <input
-                                        type="text"
-                                        placeholder="Rechercher..."
-                                        value={companyDocSearch}
-                                        onChange={(e) => setCompanyDocSearch(e.target.value)}
-                                        className="w-full pl-8 pr-4 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-1 focus:ring-[#00A3E0] focus:border-[#00A3E0] transition-colors"
-                                    />
-                                </div>
-                            )}
-                            <div className="space-y-2">
-                                {companyCustomDocs.length > 0 ? (
-                                    companyCustomDocs
-                                        .filter(doc => !companyDocSearch || doc.label?.toLowerCase().includes(companyDocSearch.toLowerCase()) || doc.categorie?.toLowerCase().includes(companyDocSearch.toLowerCase()))
-                                        .map((doc) => (
-                                            <button
-                                                key={doc.id}
-                                                disabled={isCopyingDoc}
-                                                onClick={() => handleSelectCompanyDoc(doc.url, doc.label)}
-                                                className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition-all text-left"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-2 bg-gray-100 text-[#0B1F38]/40 rounded-lg">
-                                                        <FileText size={18} />
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-sm font-bold text-[#0B1F38] block leading-tight">{doc.label}</span>
-                                                        <span className="text-[10px] text-[#0B1F38]/40 italic">{doc.categorie || 'Autres'}</span>
-                                                    </div>
-                                                </div>
-                                                <ArrowRight size={16} className="text-[#0B1F38]/20" />
-                                            </button>
-                                        ))
-                                ) : companyDocs && (
-                                    <p className="text-center text-[#0B1F38]/30 text-xs italic py-4">Aucun document personnalisé trouvé.</p>
-                                )}
-                            </div>
-                        </section>
-                    </div>
-
-                    <div className="p-4 border-t border-[#0B1F38]/10 bg-gray-50/50 shrink-0">
-                        <button onClick={() => { setShowCompanyDocPicker(false); setCompanyDocSearch(''); }} className="w-full py-3 bg-[#0B1F38] text-white font-bold text-sm rounded-xl hover:bg-[#0B1F38]/90 transition-all">
-                            Fermer
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
     const addComp = (s: { id: string, label: string }) => {
         if (!formData.required_specialty_ids.includes(s.id)) {
             setFormData(prev => ({
@@ -3825,171 +3706,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         setPreviousView('manual');
         setCurrentView('wizard_steps');
     };
-
-    const renderManualView = () => (
-        <div className="w-full h-full flex flex-col animate-in slide-in-from-right-4 duration-500 overflow-hidden">
-
-            {/* HEADER - fixed, won't scroll */}
-            <div className="flex items-center gap-4 px-8 py-4 border-b border-white/30 bg-white/40 backdrop-blur-sm shrink-0">
-                <button onClick={() => naviguerVue('start')} className="p-2 bg-white/50 hover:bg-white rounded-xl transition-all text-[#0B1F38]/60 hover:text-[#00A3E0]">
-                    <ArrowLeft size={24} />
-                </button>
-                <div>
-                    <h2 className="text-2xl font-bold text-[#0B1F38]">Saisie manuelle du dossier</h2>
-                    <p className="text-sm text-[#0B1F38]/60">Saisissez les informations de l'appel d'offres</p>
-                </div>
-            </div>
-
-            {/* CONTENT - scrollable middle */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar-dark p-6">
-                <div className="bg-white/60 border border-white/60 rounded-3xl p-6 shadow-sm relative overflow-hidden">
-
-                    {/* SIRET search bar - compact top row */}
-                    <div className="bg-[#0B1F38]/5 rounded-xl p-3 mb-6">
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-[#0B1F38]/60 uppercase shrink-0">Recherche acheteur</span>
-                            <div className="flex gap-2 flex-1">
-                                <input value={siretQuery} onChange={e => setSiretQuery(e.target.value)} type="text" placeholder="SIRET, SIREN ou nom..." className={`${inputGlassPlain} w-full`} />
-                                <button onClick={handleSiretSearch} disabled={siretLoading} className="px-4 py-2 bg-[#0B1F38] text-white rounded-xl hover:bg-[#00A3E0] font-bold shadow-sm transition-all shrink-0">
-                                    {siretLoading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                                </button>
-                            </div>
-                            {siretError && <p className="text-xs text-red-500 font-bold shrink-0">{siretError}</p>}
-                        </div>
-                        {/* Contrôle de clé en temps réel : informatif, jamais bloquant.
-                            La recherche par nom passe sans avertissement. */}
-                        {(() => {
-                            const avert = messageErreurIdentifiantAcheteur(siretQuery);
-                            return avert ? <p className="text-[11px] text-amber-600 font-medium mt-1.5">{avert}</p> : null;
-                        })()}
-                    </div>
-
-                    {/* ALL FIELDS in a single dense grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Acheteur */}
-                        <div className="md:col-span-2">
-                            <label className={labelStyle}>Nom de l'acheteur <span className="text-red-500">*</span></label>
-                            <input value={formData.organisme_acheteur} onChange={e => setFormData(prev => ({ ...prev, organisme_acheteur: e.target.value }))} type="text" placeholder="Ex: Mairie de Paris" className={`${inputGlassPlain} w-full`} />
-                        </div>
-
-                        {/* Titre */}
-                        <div className="md:col-span-2">
-                            <label className={labelStyle}>Intitulé de l'appel d'offres <span className="text-red-500">*</span></label>
-                            <input value={formData.titre} onChange={e => setFormData(prev => ({ ...prev, titre: e.target.value }))} type="text" placeholder="Titre complet du marché" className={`${inputGlassPlain} w-full`} />
-                        </div>
-
-                        {/* Type marché / Mode passation */}
-                        <div>
-                            <label className={labelStyle}>Type de marché <span className="text-red-500">*</span></label>
-                            <select value={formData.type_marche?.[0] || ''} onChange={e => setFormData(prev => ({ ...prev, type_marche: [e.target.value] }))} className={`${inputGlassPlain} w-full`}>
-                                <option value="" disabled>Sélectionner...</option>
-                                {MARKET_TYPES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className={labelStyle}>Mode de passation <span className="text-red-500">*</span></label>
-                            <select value={formData.mode_passation || ''} onChange={e => setFormData(prev => ({ ...prev, mode_passation: e.target.value }))} className={`${inputGlassPlain} w-full`}>
-                                <option value="" disabled>Sélectionner...</option>
-                                {Object.entries(HANDOVER_TYPES_LABELS).map(([value, label]) => (
-                                    <option key={value} value={value}>{label as string}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Secteur / Date limite */}
-                        <div>
-                            <label className={labelStyle}>Secteur d'activité <span className="text-red-500">*</span></label>
-                            <select value={formData.secteur_activite || ''} onChange={e => setFormData(prev => ({ ...prev, secteur_activite: e.target.value }))} className={`${inputGlassPlain} w-full`}>
-                                <option value="" disabled>Sélectionner...</option>
-                                {Object.keys(SECTORS_LABELS).map(k => <option key={k} value={k}>{(SECTORS_LABELS as any)[k]}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className={labelStyle}>Date limite <span className="text-red-500">*</span></label>
-                            <input value={formData.date_limite} onChange={e => setFormData(prev => ({ ...prev, date_limite: e.target.value }))} type="date" className={`${inputGlassPlain} w-full`} />
-                            {/* Cohérence de date, informatif et non bloquant : l'input
-                                natif garantit déjà le format, on ne signale qu'une
-                                date limite déjà passée. */}
-                            {(() => {
-                                if (!dateValide(formData.date_limite)) {
-                                    return <p className="text-[11px] text-amber-600 font-medium mt-1.5">Cette date n'est pas valide.</p>;
-                                }
-                                if (formData.date_limite) {
-                                    const auj = new Date(); auj.setHours(0, 0, 0, 0);
-                                    if (new Date(formData.date_limite) < auj) {
-                                        return <p className="text-[11px] text-amber-600 font-medium mt-1.5">La date limite est déjà passée.</p>;
-                                    }
-                                }
-                                return null;
-                            })()}
-                        </div>
-
-                        {/* Lieu d'exécution.
-                            Ce champ est exigé par `validateAndGoToTeam` mais ne figurait
-                            pas dans ce formulaire : l'utilisateur était bloqué à la
-                            validation sur un champ qu'il n'avait aucun moyen de
-                            renseigner. Même composant que la fiche détaillée : sélection
-                            multiple par région, avec retrait au clic. */}
-                        <div className="md:col-span-2">
-                            <label className={labelStyle}>Lieu d'exécution <span className="text-red-500">*</span></label>
-                            <div className="relative">
-                                <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none z-10" />
-                                <select
-                                    value=""
-                                    onChange={(e) => {
-                                        if (e.target.value && !formData.lieu_execution.includes(e.target.value)) {
-                                            setFormData(prev => ({ ...prev, lieu_execution: [...prev.lieu_execution, e.target.value] }));
-                                        }
-                                    }}
-                                    className={`${inputGlassPlain} w-full appearance-none cursor-pointer pl-9`}
-                                >
-                                    <option value="">Ajouter une région...</option>
-                                    {DEPARTEMENTS.map(d => (
-                                        <option key={d} value={d} disabled={formData.lieu_execution.includes(d)}>{d}</option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40 pointer-events-none" />
-                            </div>
-                            {formData.lieu_execution.length > 0 && (
-                                <div className="flex flex-wrap gap-2 mt-3">
-                                    {formData.lieu_execution.map(lieu => (
-                                        <span key={lieu} className="bg-[#E8F4FD] text-[#0078B8] text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 border border-[#00A3E0]/10">
-                                            {lieu}
-                                            <button
-                                                onClick={() => setFormData(prev => ({
-                                                    ...prev,
-                                                    lieu_execution: prev.lieu_execution.filter(l => l !== lieu),
-                                                }))}
-                                                className="hover:text-red-500 transition-colors"
-                                            >
-                                                <X size={11} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Montant — optional */}
-                        <div className="md:col-span-2">
-                            <label className={labelStyle}>Montant estimé (€ HT) <span className="text-[#0B1F38]/30 font-normal normal-case">— optionnel</span></label>
-                            <input value={formData.montant_estime || ''} onChange={e => setFormData(prev => ({ ...prev, montant_estime: parseFloat(e.target.value) || 0 }))} type="number" placeholder="Ex: 150000" className={`${inputGlassPlain} w-full`} />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* FOOTER - fixed at bottom, never scrolls */}
-            <div className="p-4 border-t border-white/30 flex justify-end items-center shrink-0 bg-white/40 backdrop-blur-sm gap-4">
-                <button onClick={() => naviguerVue('start')} className="px-6 py-2.5 font-bold text-[#0B1F38]/60 hover:text-[#0B1F38] bg-white border border-[#0B1F38]/10 hover:border-[#0B1F38]/20 transition-colors rounded-xl flex items-center gap-2">
-                    <XCircle size={18} /> Annuler
-                </button>
-                <button onClick={handleManualSubmit} disabled={loading} className="px-8 py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold rounded-xl shadow-lg transition-transform hover:scale-[1.02] active:scale-95 flex items-center gap-2">
-                    {loading ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle size={18} />} Convertir en dossier
-                </button>
-            </div>
-        </div>
-    );
 
     const renderDecisionView = () => {
         const activeMembers = groupementMembers.filter(m => !m.deleted);
@@ -4780,7 +4496,22 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     )}
 
                     {currentView === 'decision' && renderDecisionView()}
-                    {currentView === 'manual' && renderManualView()}
+                    {currentView === 'manual' && (
+                        <SaisieManuelleView
+                            formData={formData}
+                            setFormData={setFormData}
+                            siretQuery={siretQuery}
+                            setSiretQuery={setSiretQuery}
+                            siretLoading={siretLoading}
+                            siretError={siretError}
+                            inputGlassPlain={inputGlassPlain}
+                            labelStyle={labelStyle}
+                            loading={loading}
+                            onRechercherAcheteur={handleSiretSearch}
+                            onConvertir={handleManualSubmit}
+                            onAnnuler={() => naviguerVue('start')}
+                        />
+                    )}
                     {currentView === 'wizard_steps' && (
                         <TenderCreationWizard
                             formData={formData}
@@ -4982,7 +4713,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     onTelecharger={telechargerDocument}
                     onToutTelecharger={telechargerToutLeDCE}
                 />
-                {renderCompanyDocPicker()}
+                <CompanyDocPickerModal
+                    ouvert={showCompanyDocPicker}
+                    documentsLegaux={companyDocs}
+                    documentsPersonnalises={companyCustomDocs}
+                    copieEnCours={isCopyingDoc}
+                    libelleEnCours={targetDocType}
+                    onChoisir={handleSelectCompanyDoc}
+                    onFermer={() => setShowCompanyDocPicker(false)}
+                />
                 {renderFinalizeConfirmModal()}
 
                 {/* Exit Confirmation Modal */}

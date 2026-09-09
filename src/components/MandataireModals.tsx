@@ -43,7 +43,7 @@ const nomAffiche = (m: UIGroupementMember | null | undefined): string =>
 export const MandatairePromotionModal: React.FC<MandatairePromotionModalProps> = ({
     cible, mandataireActuel, onPromouvoir, onAnnuler,
 }) => {
-    useModale(!!cible, onAnnuler);
+    const refModale = useModale(!!cible, onAnnuler);
     if (!cible) return null;
 
     // Le sortant n'est mentionné que s'il existe ET qu'il n'est pas la cible :
@@ -54,6 +54,7 @@ export const MandatairePromotionModal: React.FC<MandatairePromotionModalProps> =
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
             <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="titre-promotion-mandataire"
@@ -118,13 +119,14 @@ export interface MandataireSuccessionModalProps {
 export const MandataireSuccessionModal: React.FC<MandataireSuccessionModalProps> = ({
     ouvert, successeurs, onChoisir, onAnnuler,
 }) => {
-    useModale(ouvert, onAnnuler);
+    const refModale = useModale(ouvert, onAnnuler);
     if (!ouvert) return null;
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onAnnuler}></div>
             <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="titre-succession-mandataire"

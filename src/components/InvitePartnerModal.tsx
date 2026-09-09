@@ -26,7 +26,7 @@ export const InvitePartnerModal: React.FC<InvitePartnerModalProps> = ({
     initialRole = 'Sous-traitant',
     accessCode
 }) => {
-    useModale(isOpen, onClose);
+    const refModale = useModale(isOpen, onClose);
     const [email, setEmail] = useState(initialEmail);
     const [role, setRole] = useState(initialRole);
     const [message, setMessage] = useState('');
@@ -128,7 +128,11 @@ export const InvitePartnerModal: React.FC<InvitePartnerModalProps> = ({
             />
 
             {/* Modal */}
-            <div className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in-up">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in-up">
                 {/* Header */}
                 <div className="bg-gradient-to-r from-[#0B1F38] to-[#1B5D7A] p-6 text-white">
                     <button

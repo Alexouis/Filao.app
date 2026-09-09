@@ -36,7 +36,7 @@ export interface CriteresModalProps {
 const CriteresModalBase: React.FC<CriteresModalProps> = ({
     ouvert, criteresExistants, isOwner, isLocked, loading, inputGlassPlain, onFermer, onValider,
 }) => {
-    useModale(ouvert, onFermer);
+    const refModale = useModale(ouvert, onFermer);
     const [criteresDraft, setCriteresDraft] = useState<{ libelle: string; poids?: number }[]>([]);
 
     // Amorçage à chaque ouverture. Depuis la forme `priorites`, on reprend les
@@ -79,7 +79,11 @@ const CriteresModalBase: React.FC<CriteresModalProps> = ({
         return (
             <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => onFermer()}></div>
-                <div className="relative bg-white rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+                <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-3xl w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
 
                     <div className="p-6 border-b border-[#0B1F38]/5 flex justify-between items-center shrink-0">
                         <div>

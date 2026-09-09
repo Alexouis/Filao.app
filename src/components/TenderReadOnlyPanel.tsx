@@ -52,7 +52,7 @@ const joursRestants = (valeur?: string) => {
 };
 
 export const TenderReadOnlyPanel: React.FC<TenderReadOnlyPanelProps> = ({ tender, onClose }) => {
-  useModale(!!tender, onClose);
+  const refModale = useModale(!!tender, onClose);
 
   if (!tender) return null;
 
@@ -92,7 +92,8 @@ export const TenderReadOnlyPanel: React.FC<TenderReadOnlyPanelProps> = ({ tender
       />
 
       <aside
-        role="dialog"
+        ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
         aria-modal="true"
         aria-label={`Consultation du dossier ${tender.titre || ''}`}
         className="relative h-full w-full max-w-md bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"

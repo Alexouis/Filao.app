@@ -30,7 +30,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   onOpenTender,
   unreadCount = 0
 }) => {
-    useModale(true, onClose);
+    const refModale = useModale(true, onClose);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -140,7 +140,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
       {/* Modal Container — clean white card */}
       <div
         className="fixed left-4 md:left-24 bottom-20 w-[calc(100%-2rem)] md:w-[400px] rounded-2xl bg-white border border-[#0B1F38]/8 shadow-2xl shadow-[#0B1F38]/10 z-50 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-bottom-left"
-        role="dialog"
+        ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
         aria-label="Notifications"
       >
         {/* Header */}

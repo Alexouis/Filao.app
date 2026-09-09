@@ -37,6 +37,8 @@ import { OutcomeConfirmModal } from '../src/components/OutcomeConfirmModal.tsx';
 import { BandeauInvitation } from '../src/components/BandeauInvitation.tsx';
 import { EnteteDossier, couleurEcheance } from '../src/components/EnteteDossier.tsx';
 import { PiedDossier } from '../src/components/PiedDossier.tsx';
+import { CompanyDocPickerModal, filtrerDocuments } from '../src/components/CompanyDocPickerModal.tsx';
+import { SaisieManuelleView } from '../src/components/SaisieManuelleView.tsx';
 import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
 
 // ---------------------------------------------------------------------------
@@ -904,13 +906,16 @@ test('PiedDossier : un statut terminal ne propose plus rien au porteur', () => {
 // d'un coup. Ces tests décrivent le comportement attendu à la place.
 
 /** Modale minimale, réduite à ce que le hook doit garantir. */
-const ModaleTest: React.FC<{ ouvert: boolean; onFermer: () => void; nom?: string }> =
-    ({ ouvert, onFermer, nom = 'modale' }) => {
-        useModale(ouvert, onFermer);
-        if (!ouvert) return null;
-        return React.createElement('div', { role: 'dialog' },
-            React.createElement('button', { onClick: onFermer }, `fermer-${nom}`));
-    };
+const ModaleTest: React.FC<{
+    ouvert: boolean; onFermer: () => void; nom?: string; boutons?: string[]; sansRef?: boolean;
+}> = ({ ouvert, onFermer, nom = 'modale', boutons, sansRef }) => {
+    const refModale = useModale(ouvert, onFermer);
+    if (!ouvert) return null;
+    const libelles = boutons ?? [`fermer-${nom}`];
+    return React.createElement('div',
+        { role: 'dialog', ref: sansRef ? undefined : (refModale as React.RefObject<HTMLDivElement>) },
+        ...libelles.map((l) => React.createElement('button', { key: l, onClick: onFermer }, l)));
+};
 
 const echap = () => fireEvent.keyDown(document, { key: 'Escape' });
 
@@ -1043,6 +1048,278 @@ test('ConfirmDialog : Échap annule, sans confirmer', () => {
     // confirmation sur une action destructrice serait un défaut grave.
     assert.equal(annule, true);
     assert.equal(confirme, false);
+});
+
+// --- Confinement du focus ---------------------------------------------------
+const tab = (shift = false) => fireEvent.keyDown(document, { key: 'Tab', shiftKey: shift });
+
+test('useModale : le focus entre dans la modale dès l’ouverture', () => {
+    cleanup();
+    __reinitialiserPileModales();
+
+    const Ecran: React.FC<{ ouvert: boolean }> = ({ ouvert }) =>
+        React.createElement(React.Fragment, null,
+            React.createElement('button', { id: 'dehors' }, 'Dehors'),
+            React.createElement(ModaleTest, { ouvert, onFermer: rien, boutons: ['premier', 'second'] }),
+        );
+
+    const { rerender } = render(React.createElement(Ecran, { ouvert: false }));
+    (document.getElementById('dehors') as HTMLButtonElement).focus();
+    rerender(React.createElement(Ecran, { ouvert: true }));
+
+    // Sans cela, la première tabulation partait vers la page derrière le voile.
+    assert.equal(document.activeElement?.textContent, 'premier');
+});
+
+test('useModale : Tab boucle du dernier élément vers le premier', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(ModaleTest, {
+        ouvert: true, onFermer: rien, boutons: ['un', 'deux', 'trois'],
+    }));
+
+    (screen.getByText('trois') as HTMLButtonElement).focus();
+    tab();
+    assert.equal(document.activeElement?.textContent, 'un');
+});
+
+test('useModale : Maj+Tab boucle du premier vers le dernier', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(ModaleTest, {
+        ouvert: true, onFermer: rien, boutons: ['un', 'deux', 'trois'],
+    }));
+
+    (screen.getByText('un') as HTMLButtonElement).focus();
+    tab(true);
+    assert.equal(document.activeElement?.textContent, 'trois');
+});
+
+test('useModale : un focus égaré hors de la modale y est ramené', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(React.Fragment, null,
+        React.createElement('button', { id: 'dehors' }, 'Dehors'),
+        React.createElement(ModaleTest, { ouvert: true, onFermer: rien, boutons: ['un', 'deux'] }),
+    ));
+
+    // Cas réel : un clic sur le fond flouté sort le focus de la modale.
+    (document.getElementById('dehors') as HTMLButtonElement).focus();
+    tab();
+    assert.equal(document.activeElement?.textContent, 'un');
+});
+
+test('useModale : seule la modale du dessus confine le focus', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(React.Fragment, null,
+        React.createElement(ModaleTest, { ouvert: true, nom: 'fond', onFermer: rien, boutons: ['fond-a', 'fond-b'] }),
+        React.createElement(ModaleTest, { ouvert: true, nom: 'dessus', onFermer: rien, boutons: ['dessus-a', 'dessus-b'] }),
+    ));
+
+    (screen.getByText('dessus-b') as HTMLButtonElement).focus();
+    tab();
+    assert.equal(document.activeElement?.textContent, 'dessus-a');
+});
+
+test('useModale : sans référence attachée, Tab n’est pas intercepté', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(React.Fragment, null,
+        React.createElement('button', { id: 'dehors' }, 'Dehors'),
+        React.createElement(ModaleTest, { ouvert: true, onFermer: rien, boutons: ['un'], sansRef: true }),
+    ));
+
+    const dehors = document.getElementById('dehors') as HTMLButtonElement;
+    dehors.focus();
+    tab();
+    // Dégradation volontaire : à défaut de cible sûre, on préfère ne rien
+    // confiner plutôt que risquer un piège dont on ne sort pas (WCAG 2.1.2).
+    assert.equal(document.activeElement, dehors);
+});
+
+test('useModale : Échap sort même quand le focus est confiné', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let ferme = false;
+    render(React.createElement(ModaleTest, {
+        ouvert: true, onFermer: () => { ferme = true; }, boutons: ['un', 'deux'],
+    }));
+    tab();
+    echap();
+    // La garantie qui rend le confinement acceptable : il existe toujours une
+    // sortie au clavier.
+    assert.equal(ferme, true);
+});
+
+// ===========================================================================
+// Sélecteur de pièces d'entreprise
+// ===========================================================================
+const docsLegaux = { 'Attestation URSSAF': 'https://x/urssaf.pdf', 'Kbis': null };
+const docsPerso = [
+    { id: 'd1', label: 'Qualibat 2026', url: 'https://x/q.pdf', categorie: 'Qualifications' },
+    { id: 'd2', label: 'Plan de charge', url: 'https://x/p.pdf', categorie: 'Interne' },
+];
+
+const proprietesPicker = (surcharge: any = {}) => ({
+    ouvert: true,
+    documentsLegaux: docsLegaux,
+    documentsPersonnalises: docsPerso,
+    onChoisir: rien,
+    onFermer: rien,
+    ...surcharge,
+});
+
+test('filtrerDocuments : la recherche porte aussi sur la catégorie', () => {
+    // On cherche souvent « qualification » sans se rappeler l'intitulé exact
+    // du fichier.
+    assert.deepEqual(filtrerDocuments(docsPerso, 'qualif').map(d => d.id), ['d1']);
+    assert.deepEqual(filtrerDocuments(docsPerso, 'CHARGE').map(d => d.id), ['d2']);
+    assert.equal(filtrerDocuments(docsPerso, '   ').length, 2);
+    assert.equal(filtrerDocuments(docsPerso, 'introuvable').length, 0);
+});
+
+test('CompanyDocPickerModal : une pièce légale absente reste visible et désactivée', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(CompanyDocPickerModal, proprietesPicker()));
+
+    // La masquer laisserait croire qu'elle n'est pas attendue, alors qu'elle
+    // manque en fiche entreprise — le seul endroit où la corriger.
+    assert.ok(screen.getByText('Kbis'));
+    assert.ok(screen.getByText('Non renseigné'));
+    const bouton = screen.getByText('Kbis').closest('button') as HTMLButtonElement;
+    assert.equal(bouton.disabled, true);
+});
+
+test('CompanyDocPickerModal : choisir une pièce remonte son URL et son libellé', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    let recu: any = null;
+    render(React.createElement(CompanyDocPickerModal, proprietesPicker({
+        onChoisir: (url: string, libelle: string) => { recu = { url, libelle }; },
+    })));
+    fireEvent.click(screen.getByText('Attestation URSSAF'));
+    assert.deepEqual(recu, { url: 'https://x/urssaf.pdf', libelle: 'Attestation URSSAF' });
+});
+
+test('CompanyDocPickerModal : pendant une copie, plus rien n’est cliquable', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(CompanyDocPickerModal, proprietesPicker({
+        copieEnCours: true, libelleEnCours: 'Attestation URSSAF',
+    })));
+    // Deux copies simultanées écriraient dans le même emplacement de pièce.
+    const urssaf = screen.getByText('Attestation URSSAF').closest('button') as HTMLButtonElement;
+    const qualibat = screen.getByText('Qualibat 2026').closest('button') as HTMLButtonElement;
+    assert.equal(urssaf.disabled, true);
+    assert.equal(qualibat.disabled, true);
+});
+
+test('CompanyDocPickerModal : la recherche filtre et explique un résultat vide', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(CompanyDocPickerModal, proprietesPicker()));
+
+    fireEvent.change(screen.getByLabelText('Rechercher un document'), { target: { value: 'qualif' } });
+    assert.ok(screen.getByText('Qualibat 2026'));
+    assert.equal(screen.queryByText('Plan de charge'), null);
+
+    fireEvent.change(screen.getByLabelText('Rechercher un document'), { target: { value: 'zzz' } });
+    // Message distinct de « aucun document personnalisé » : sinon on croit sa
+    // fiche entreprise vide alors qu'un filtre est actif.
+    assert.ok(screen.getByText(/Aucun document ne correspond à cette recherche/));
+});
+
+test('CompanyDocPickerModal : le chargement ne se confond pas avec une fiche vide', () => {
+    cleanup();
+    __reinitialiserPileModales();
+    render(React.createElement(CompanyDocPickerModal, proprietesPicker({
+        documentsLegaux: null, documentsPersonnalises: [],
+    })));
+    assert.equal(screen.queryByText(/Aucun document personnalisé/), null);
+});
+
+// ===========================================================================
+// Saisie manuelle d'un dossier
+// ===========================================================================
+const formulaireVide = (surcharge: any = {}) => ({
+    titre: '', organisme_acheteur: '', lieu_execution: [], type_marche: [],
+    mode_passation: '', secteur_activite: '', date_limite: '', montant_estime: 0,
+    ...surcharge,
+});
+
+const proprietesSaisie = (surcharge: any = {}) => ({
+    formData: formulaireVide(),
+    setFormData: rien,
+    siretQuery: '',
+    setSiretQuery: rien,
+    siretLoading: false,
+    inputGlassPlain: '',
+    labelStyle: '',
+    loading: false,
+    onRechercherAcheteur: rien,
+    onConvertir: rien,
+    onAnnuler: rien,
+    ...surcharge,
+});
+
+test('SaisieManuelleView : le lieu d’exécution est proposé et marqué obligatoire', () => {
+    cleanup();
+    render(React.createElement(SaisieManuelleView, proprietesSaisie()));
+    // Ce champ manquait : `validateAndGoToTeam` l'exige, et l'utilisateur
+    // était bloqué sur une saisie impossible depuis cet écran.
+    assert.ok(screen.getByText("Lieu d'exécution"));
+    assert.ok(screen.getByText('Ajouter une région...'));
+});
+
+test('SaisieManuelleView : un SIRET à clé fausse est signalé sans bloquer', () => {
+    cleanup();
+    render(React.createElement(SaisieManuelleView, proprietesSaisie({
+        siretQuery: '12345678901234',
+    })));
+    assert.ok(screen.getByText(/clé de contrôle|n'est pas valide|invalide/i));
+    // Le bouton de recherche reste actionnable : un avis peut porter un
+    // identifiant qu'on recopie tel quel.
+    const recherche = screen.getByPlaceholderText('SIRET, SIREN ou nom...');
+    assert.equal((recherche as HTMLInputElement).disabled, false);
+});
+
+test('SaisieManuelleView : une date limite passée est signalée sans bloquer', () => {
+    cleanup();
+    render(React.createElement(SaisieManuelleView, proprietesSaisie({
+        formData: formulaireVide({ date_limite: '2020-01-01' }),
+    })));
+    assert.ok(screen.getByText(/déjà passée/));
+    // On saisit parfois un dossier après coup, pour l'archiver.
+    const convertir = screen.getByText(/Convertir en dossier/).closest('button') as HTMLButtonElement;
+    assert.equal(convertir.disabled, false);
+});
+
+test('SaisieManuelleView : les régions retenues sont affichées avec leur retrait', () => {
+    cleanup();
+    let recu: any = null;
+    render(React.createElement(SaisieManuelleView, proprietesSaisie({
+        formData: formulaireVide({ lieu_execution: ['Bretagne', 'Normandie'] }),
+        setFormData: (maj: any) => { recu = maj(formulaireVide({ lieu_execution: ['Bretagne', 'Normandie'] })); },
+    })));
+    assert.ok(screen.getByText('Bretagne'));
+
+    const retrait = screen.getByText('Normandie').querySelector('button') as HTMLButtonElement;
+    fireEvent.click(retrait);
+    assert.deepEqual(recu.lieu_execution, ['Bretagne']);
+});
+
+test('SaisieManuelleView : convertir et annuler remontent au parent', () => {
+    cleanup();
+    let converti = false, annule = false;
+    render(React.createElement(SaisieManuelleView, proprietesSaisie({
+        onConvertir: () => { converti = true; },
+        onAnnuler: () => { annule = true; },
+    })));
+    fireEvent.click(screen.getByText(/Convertir en dossier/));
+    fireEvent.click(screen.getByText('Annuler'));
+    assert.ok(converti && annule);
 });
 
 // ---------------------------------------------------------------------------

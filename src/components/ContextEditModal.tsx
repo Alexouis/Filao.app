@@ -62,7 +62,7 @@ const ContextEditModalBase: React.FC<ContextEditModalProps> = ({
     inputGlass, inputGlassPlain, labelStyle,
     onFermer, onValider, showToast,
 }) => {
-    useModale(ouvert, onFermer);
+    const refModale = useModale(ouvert, onFermer);
     // Brouillon local : c'est lui qu'on édite. Réinitialisé à chaque ouverture
     // pour repartir des valeurs à jour du dossier.
     const [brouillon, setBrouillon] = useState<TenderFormData>(valeurs);
@@ -84,7 +84,11 @@ const ContextEditModalBase: React.FC<ContextEditModalProps> = ({
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={onFermer}></div>
-            <div className="relative bg-white rounded-3xl w-full max-w-4xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-3xl w-full max-w-4xl max-h-[80vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
 
                 {/* Header */}
                 <div className="p-6 border-b border-[#0B1F38]/5 flex justify-between items-center bg-[#0B1F38]/2 shrink-0">

@@ -27,7 +27,7 @@ export interface OutcomeConfirmModalProps {
 export const OutcomeConfirmModal: React.FC<OutcomeConfirmModalProps> = ({
     issue, onConfirmer, onAnnuler,
 }) => {
-    useModale(!!issue, onAnnuler);
+    const refModale = useModale(!!issue, onAnnuler);
     if (!issue) return null;
     const gagne = issue === 'won';
 
@@ -35,6 +35,7 @@ export const OutcomeConfirmModal: React.FC<OutcomeConfirmModalProps> = ({
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={onAnnuler}></div>
             <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="titre-issue-marche"

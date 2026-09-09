@@ -20,7 +20,7 @@ interface RatePartnersModalProps {
 export const RatePartnersModal: React.FC<RatePartnersModalProps> = ({
     isOpen, onClose, onSubmit, tenderId, tenderTitle, currentUserId, currentUserCompanyId, partners, currentStatus
 }) => {
-    useModale(isOpen, onClose);
+    const refModale = useModale(isOpen, onClose);
     const { showToast } = useToast();
     const [ratings, setRatings] = useState<Record<string, number>>({});
     const [comments, setComments] = useState<Record<string, string>>({});
@@ -95,7 +95,11 @@ export const RatePartnersModal: React.FC<RatePartnersModalProps> = ({
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
-            <div className="relative bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                 <button
                     onClick={onClose}
                     className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition-colors"

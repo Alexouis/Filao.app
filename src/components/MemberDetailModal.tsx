@@ -51,7 +51,7 @@ const MemberDetailModalBase: React.FC<MemberDetailModalProps> = ({
     onFermer, onTelechargerPiece, onTelechargerTout, onDeposer,
     onChoisirDepuisEntreprise, onRelancer, onChangerRole,
 }) => {
-    useModale(selectedMemberIndex !== null, onFermer);
+    const refModale = useModale(selectedMemberIndex !== null, onFermer);
     if (selectedMemberIndex === null) return null;
         const activeMembers = groupementMembers.filter(m => !m.deleted);
         const member = activeMembers[selectedMemberIndex];
@@ -151,7 +151,11 @@ const MemberDetailModalBase: React.FC<MemberDetailModalProps> = ({
         return (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={() => onFermer()}></div>
-                <div className="relative bg-[#F4F6F9] rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+                <div
+                ref={refModale as React.RefObject<HTMLDivElement>}
+                role="dialog"
+                aria-modal="true"
+                className="relative bg-[#F4F6F9] rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
 
                     {/* Top Identity Bar - Improved Layout */}
                     <div className="bg-white p-8 border-b border-[#0B1F38]/5 shrink-0 relative overflow-hidden">
