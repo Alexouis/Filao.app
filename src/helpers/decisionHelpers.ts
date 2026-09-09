@@ -149,3 +149,34 @@ export const dossierTermine = (tender: any): boolean => {
     const s = getEffectiveStatus(tender);
     return s === STATUSES.won || s === STATUSES.lost || s === STATUSES.expired;
 };
+
+/**
+ * Géométrie et couleur de la jauge de score, en un seul endroit.
+ *
+ * POURQUOI UNE FONCTION
+ * `scoreSucces` renvoie `null` quand les compétences n'ont pas pu être lues.
+ * L'arc doit alors être VIDE et GRIS. Dessiner 0 % en rouge ferait passer un
+ * défaut de lecture pour un dossier mal couvert : l'utilisateur chercherait à
+ * corriger un problème qui n'existe pas. Le calcul vivait dans le JSX de la
+ * vue décision, hors de portée des tests.
+ *
+ * @param rayon rayon de l'arc SVG, en unités du viewBox.
+ */
+export const jaugeScore = (score: number | null, rayon: number): {
+    circonference: number;
+    /** `stroke-dashoffset` : circonférence entière = arc vide. */
+    decalage: number;
+    couleur: string;
+} => {
+    const circonference = 2 * Math.PI * rayon;
+    if (score === null) return { circonference, decalage: circonference, couleur: '#9CA3AF' };
+
+    // Un score hors bornes viendrait d'un appelant fautif ; on préfère un arc
+    // valide à un tracé qui déborde du cercle.
+    const borne = Math.min(Math.max(score, 0), 100);
+    return {
+        circonference,
+        decalage: circonference - (borne / 100) * circonference,
+        couleur: borne >= 70 ? '#10B981' : borne >= 40 ? '#F59E0B' : '#EF4444',
+    };
+};

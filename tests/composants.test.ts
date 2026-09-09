@@ -33,6 +33,9 @@ import { BarreFiltresDossiers } from '../src/components/BarreFiltresDossiers.tsx
 import { GroupementTypeModal } from '../src/components/GroupementTypeModal.tsx';
 import { MandatairePromotionModal, MandataireSuccessionModal } from '../src/components/MandataireModals.tsx';
 import { OutcomeConfirmModal } from '../src/components/OutcomeConfirmModal.tsx';
+import { BandeauInvitation } from '../src/components/BandeauInvitation.tsx';
+import { EnteteDossier, couleurEcheance } from '../src/components/EnteteDossier.tsx';
+import { PiedDossier } from '../src/components/PiedDossier.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -703,6 +706,192 @@ test('OutcomeConfirmModal : sans issue en attente, rien n’est rendu', () => {
         issue: null, onConfirmer: rien, onAnnuler: rien,
     }));
     assert.equal(container.innerHTML, '');
+});
+
+// ===========================================================================
+// Vue décision — bandeau, en-tête, pied
+// ===========================================================================
+const proprietesBandeau = (surcharge: any = {}) => ({
+    titreDossier: 'Réfection de la toiture du gymnase',
+    role: 'Co-traitant',
+    dossierTermine: false,
+    onAccepter: rien,
+    onRefuser: rien,
+    ...surcharge,
+});
+
+test('BandeauInvitation : sur un dossier vivant, on rejoint pour contribuer', () => {
+    cleanup();
+    render(React.createElement(BandeauInvitation, proprietesBandeau()));
+    assert.ok(screen.getByText('Accepter et rejoindre'));
+    assert.ok(screen.getByText(/Acceptez pour accéder à l'ensemble du dossier/));
+});
+
+test('BandeauInvitation : sur un dossier clos, l’accès en consultation est annoncé', () => {
+    cleanup();
+    render(React.createElement(BandeauInvitation, proprietesBandeau({
+        dossierTermine: true, issue: 'perdu',
+    })));
+    // Sans cette distinction, l'invité croyait rejoindre un dossier en cours.
+    assert.ok(screen.getByText('Rejoindre en consultation'));
+    assert.ok(screen.getByText('Invitation sur un dossier clôturé'));
+    assert.ok(screen.getByText('perdu'));
+});
+
+test('BandeauInvitation : les deux réponses sont remontées au parent', () => {
+    cleanup();
+    let accepte = false, refuse = false;
+    render(React.createElement(BandeauInvitation, proprietesBandeau({
+        onAccepter: () => { accepte = true; },
+        onRefuser: () => { refuse = true; },
+    })));
+    fireEvent.click(screen.getByText('Refuser'));
+    fireEvent.click(screen.getByText('Accepter et rejoindre'));
+    assert.ok(accepte && refuse);
+});
+
+test('BandeauInvitation : pendant l’écriture, on ne peut pas répondre deux fois', () => {
+    cleanup();
+    render(React.createElement(BandeauInvitation, proprietesBandeau({ enCours: true })));
+    assert.equal((screen.getByText('Refuser') as HTMLButtonElement).disabled, true);
+});
+
+const proprietesEntete = (surcharge: any = {}) => ({
+    titre: 'Réfection de la toiture',
+    tenderId: 'ao-1',
+    isOwner: true,
+    statutLabel: 'En cours',
+    statutClasses: '',
+    joursRestants: 20,
+    afficherMessagerie: true,
+    onRetour: rien,
+    onOuvrirMessagerie: rien,
+    ...surcharge,
+});
+
+test('EnteteDossier : le badge « Partenaire » n’apparaît que si l’on n’est pas porteur', () => {
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({ isOwner: true })));
+    assert.equal(screen.queryByText('Partenaire'), null);
+
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({ isOwner: false })));
+    // Les actions de pilotage sont masquées de toute façon ; ce badge dit
+    // POURQUOI, sinon l'interface paraît incomplète.
+    assert.ok(screen.getByText('Partenaire'));
+});
+
+test('EnteteDossier : les jours écoulés sont préfixés d’un « + »', () => {
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({
+        dateLimite: '2026-01-10', joursRestants: -4,
+    })));
+    // « 4 jours » se lirait « il reste 4 jours » : le signe change le sens.
+    assert.ok(screen.getByText(/\+4/));
+});
+
+test('EnteteDossier : sans date limite, pas de compte à rebours', () => {
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({ dateLimite: null })));
+    assert.equal(screen.queryByText('Date limite'), null);
+});
+
+test('EnteteDossier : le compteur de messages non lus est annoncé, pas seulement affiché', () => {
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({ messagesNonLus: 3 })));
+    assert.ok(screen.getByLabelText(/3 message/));
+
+    cleanup();
+    render(React.createElement(EnteteDossier, proprietesEntete({ afficherMessagerie: false })));
+    assert.equal(screen.queryByTitle('Ouvrir la messagerie'), null);
+});
+
+test('couleurEcheance : gris une fois l’échéance passée, jamais rouge', () => {
+    // Le rouge signale une urgence ; après la date limite, il n'y en a plus.
+    assert.ok(couleurEcheance(-1).includes('gray'));
+    assert.ok(couleurEcheance(3).includes('red'));
+    assert.ok(couleurEcheance(10).includes('amber'));
+    assert.ok(couleurEcheance(30).includes('00A3E0'));
+    assert.ok(couleurEcheance(null).includes('0B1F38'));
+});
+
+const proprietesPied = (surcharge: any = {}) => ({
+    tenderId: 'ao-1',
+    isOwner: true,
+    statut: 'En cours',
+    statutEnCours: 'En cours',
+    statutDepose: 'Déposé',
+    aUnMandataire: true,
+    onSupprimer: rien,
+    onAbandonner: rien,
+    onConfirmerReponse: rien,
+    onFinaliser: rien,
+    onMandataireManquant: rien,
+    onSaisirIssue: rien,
+    ...surcharge,
+});
+
+test('PiedDossier : un partenaire ne voit aucune action, mais on lui dit pourquoi', () => {
+    cleanup();
+    render(React.createElement(PiedDossier, proprietesPied({ isOwner: false })));
+    assert.equal(screen.queryByText('Finaliser le dossier'), null);
+    assert.equal(screen.queryByText('Supprimer'), null);
+    assert.ok(screen.getByText(/Seul le propriétaire du marché/));
+});
+
+test('PiedDossier : dossier pas encore créé → confirmer ou abandonner', () => {
+    cleanup();
+    render(React.createElement(PiedDossier, proprietesPied({ tenderId: null })));
+    assert.ok(screen.getByText('Confirmer la réponse'));
+    assert.ok(screen.getByText('Abandonner le dossier'));
+    // Rien à supprimer tant que rien n'existe en base.
+    assert.equal(screen.queryByText('Supprimer'), null);
+});
+
+test('PiedDossier : une fois déposé, on saisit l’issue au lieu de finaliser', () => {
+    cleanup();
+    let issue: string | null = null;
+    render(React.createElement(PiedDossier, proprietesPied({
+        statut: 'Déposé', onSaisirIssue: (i: string) => { issue = i; },
+    })));
+    assert.equal(screen.queryByText('Finaliser le dossier'), null);
+    fireEvent.click(screen.getByText('GAGNÉ'));
+    assert.equal(issue, 'won');
+});
+
+test('PiedDossier : finaliser sans mandataire est refusé avant toute confirmation', () => {
+    cleanup();
+    let finalise = false, alerte = false;
+    render(React.createElement(PiedDossier, proprietesPied({
+        aUnMandataire: false,
+        onFinaliser: () => { finalise = true; },
+        onMandataireManquant: () => { alerte = true; },
+    })));
+    fireEvent.click(screen.getByText('Finaliser le dossier'));
+    // Un groupement sans mandataire n'a pas d'interlocuteur responsable :
+    // mieux vaut refuser tout de suite que d'ouvrir une confirmation vouée
+    // à échouer.
+    assert.equal(finalise, false);
+    assert.equal(alerte, true);
+});
+
+test('PiedDossier : avec mandataire, la finalisation part normalement', () => {
+    cleanup();
+    let finalise = false;
+    render(React.createElement(PiedDossier, proprietesPied({
+        aUnMandataire: true, onFinaliser: () => { finalise = true; },
+    })));
+    fireEvent.click(screen.getByText('Finaliser le dossier'));
+    assert.equal(finalise, true);
+});
+
+test('PiedDossier : un statut terminal ne propose plus rien au porteur', () => {
+    cleanup();
+    render(React.createElement(PiedDossier, proprietesPied({ statut: 'Gagné' })));
+    assert.equal(screen.queryByText('Finaliser le dossier'), null);
+    assert.equal(screen.queryByText('GAGNÉ'), null);
+    // La suppression, elle, reste offerte au porteur.
+    assert.ok(screen.getByText('Supprimer'));
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans

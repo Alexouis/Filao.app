@@ -28,7 +28,9 @@ import {
   URGENCE_SEUIL_JOURS,
 } from '../src/helpers/tenderHelpers.ts';
 
-import { genererJalons, estEnRetard } from '../src/helpers/jalonHelpers.ts';
+import {
+  genererJalons, estEnRetard, jalonsAffichables, prochainJalon,
+} from '../src/helpers/jalonHelpers.ts';
 
 import {
   nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur, concernePiece,
@@ -55,6 +57,7 @@ import {
 import {
   specialitesCouvertes, specialitesManquantes, lectureCompetencesEchouee,
   scoreSucces, gainPotentiel, joursRestants, roleUtilisateur, dossierTermine,
+  jaugeScore,
 } from '../src/helpers/decisionHelpers.ts';
 
 import {
@@ -915,4 +918,128 @@ test('prixLisible : centimes convertis en euros, gratuité et devis nommés', ()
   // « Sur devis » prime sur le prix : `organisation` est à 0 en repli, et
   // afficher « Gratuit » pour une offre négociée serait un contresens.
   assert.equal(prixLisible({ surDevis: true, prixMensuelHt: 0 } as Forfait), 'Sur devis');
+});
+
+
+// ===========================================================================
+// Jalons affichés — tri et urgence (jalonHelpers)
+// ===========================================================================
+// La carte du dossier n'affiche que les TROIS premiers jalons : l'ordre n'est
+// pas cosmétique, il décide de ce que l'utilisateur voit.
+
+const LE_15_JUIN = new Date('2026-06-15T12:00:00Z');
+const jalon = (o: any = {}) => ({
+  label: 'Jalon', date: '2026-06-30', color: '', source: 'auto', editable: true, ...o,
+});
+
+test('jalonsAffichables : tri par date, quel que soit l’ordre du tableau', () => {
+  // Un jalon ajouté à la main atterrit en FIN de tableau. Sans tri, il ne
+  // pouvait jamais entrer dans les trois premiers affichés.
+  const r = jalonsAffichables([
+    jalon({ label: 'Tardif', date: '2026-08-01' }),
+    jalon({ label: 'Ajouté à la main', date: '2026-06-20' }),
+    jalon({ label: 'Tôt', date: '2026-06-16' }),
+  ], {}, LE_15_JUIN);
+  assert.deepEqual(r.map(j => j.label), ['Tôt', 'Ajouté à la main', 'Tardif']);
+});
+
+test('jalonsAffichables : c’est le statut qui fait foi, pas la date', () => {
+  const r = jalonsAffichables([
+    // Daté du futur mais coché fait : il ne doit pas rester « à venir ».
+    jalon({ label: 'Fait en avance', date: '2026-07-30', statut: 'fait' }),
+    // Daté du passé et NON fait : en retard, jamais « fait ».
+    jalon({ label: 'En retard', date: '2026-05-01', statut: 'a_faire' }),
+  ], {}, LE_15_JUIN);
+  const par = Object.fromEntries(r.map(j => [j.label, j.status]));
+  assert.equal(par['Fait en avance'], 'done');
+  assert.equal(par['En retard'], 'danger');
+});
+
+test('jalonsAffichables : paliers d’urgence à 3 et 7 jours', () => {
+  const r = jalonsAffichables([
+    jalon({ label: 'j+2', date: '2026-06-17' }),
+    jalon({ label: 'j+5', date: '2026-06-20' }),
+    jalon({ label: 'j+20', date: '2026-07-05' }),
+  ], {}, LE_15_JUIN);
+  const par = Object.fromEntries(r.map(j => [j.label, j.status]));
+  assert.equal(par['j+2'], 'danger');
+  assert.equal(par['j+5'], 'warning');
+  assert.equal(par['j+20'], 'upcoming');
+});
+
+test('jalonsAffichables : sans rétroplanning, repli sur les dates du dossier', () => {
+  // Un panneau vide ne dit rien ; trois dates connues valent un planning.
+  const r = jalonsAffichables(null, {
+    date_publication: '2026-05-01',
+    date_depot_souhaitee: '2026-06-25',
+    date_limite: '2026-06-30',
+  }, LE_15_JUIN);
+  assert.deepEqual(r.map(j => j.label), ['Retrait DCE', 'Dépôt souhaité', 'Date limite']);
+  assert.equal(r[0].status, 'done', 'publication passée');
+});
+
+test('jalonsAffichables : le repli ignore les dates absentes', () => {
+  const r = jalonsAffichables([], { date_limite: '2026-06-30' }, LE_15_JUIN);
+  assert.deepEqual(r.map(j => j.label), ['Date limite']);
+});
+
+test('jalonsAffichables : sans jalon ni date, liste vide plutôt qu’une erreur', () => {
+  assert.deepEqual(jalonsAffichables(null, {}, LE_15_JUIN), []);
+});
+
+test('jalonsAffichables : ne modifie pas le tableau reçu', () => {
+  const source = [jalon({ label: 'B', date: '2026-07-01' }), jalon({ label: 'A', date: '2026-06-16' })];
+  jalonsAffichables(source, {}, LE_15_JUIN);
+  assert.deepEqual(source.map(j => j.label), ['B', 'A']);
+});
+
+test('prochainJalon : le premier non fait, sinon le dernier', () => {
+  const liste = jalonsAffichables([
+    jalon({ label: 'Fait', date: '2026-06-16', statut: 'fait' }),
+    jalon({ label: 'À faire', date: '2026-06-20' }),
+  ], {}, LE_15_JUIN);
+  assert.equal(prochainJalon(liste)?.label, 'À faire');
+
+  // Tout est fait : on montre le dernier plutôt que rien.
+  const tousFaits = jalonsAffichables([
+    jalon({ label: 'Un', date: '2026-06-16', statut: 'fait' }),
+    jalon({ label: 'Deux', date: '2026-06-20', statut: 'fait' }),
+  ], {}, LE_15_JUIN);
+  assert.equal(prochainJalon(tousFaits)?.label, 'Deux');
+  assert.equal(prochainJalon([]), undefined);
+});
+
+// ===========================================================================
+// Jauge de score (decisionHelpers)
+// ===========================================================================
+test('jaugeScore : score illisible → arc vide et gris, jamais 0 %', () => {
+  // Dessiner 0 % en rouge ferait passer un défaut de LECTURE pour un dossier
+  // mal couvert : l'utilisateur chercherait à corriger un problème inexistant.
+  const j = jaugeScore(null, 40);
+  assert.equal(j.decalage, j.circonference, 'arc entièrement vide');
+  assert.equal(j.couleur, '#9CA3AF');
+});
+
+test('jaugeScore : 0 % est rouge et distinct de l’illisible', () => {
+  const zero = jaugeScore(0, 40);
+  const illisible = jaugeScore(null, 40);
+  assert.equal(zero.decalage, zero.circonference);
+  assert.notEqual(zero.couleur, illisible.couleur);
+});
+
+test('jaugeScore : paliers de couleur à 40 et 70', () => {
+  assert.equal(jaugeScore(39, 40).couleur, '#EF4444');
+  assert.equal(jaugeScore(40, 40).couleur, '#F59E0B');
+  assert.equal(jaugeScore(69, 40).couleur, '#F59E0B');
+  assert.equal(jaugeScore(70, 40).couleur, '#10B981');
+});
+
+test('jaugeScore : 100 % remplit l’arc complètement', () => {
+  assert.equal(jaugeScore(100, 40).decalage, 0);
+});
+
+test('jaugeScore : un score hors bornes ne déborde pas du cercle', () => {
+  const j = jaugeScore(150, 40);
+  assert.equal(j.decalage, 0);
+  assert.ok(jaugeScore(-20, 40).decalage <= jaugeScore(-20, 40).circonference);
 });

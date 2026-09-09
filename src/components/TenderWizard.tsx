@@ -9,8 +9,8 @@ import {
     Loader2, Plus, Trash2, Euro, Globe, FileInput, PenTool,
     Target, AlertTriangle, XCircle, Mail, Building,
     CalendarCheck, Download, UserPlus,
-    Files, Save, Send, ShieldAlert, MessageSquare, RefreshCw,
-    UserCheck, LogOut, Trophy, Frown, Pencil, Lock,
+    Files, Save, Send, ShieldAlert, RefreshCw,
+    LogOut, Pencil, Lock,
     Eye,
     Building2
 } from 'lucide-react';
@@ -18,12 +18,12 @@ import { ChatDrawer } from './chat/ChatDrawer';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
-import { estEnRetard } from '../helpers/jalonHelpers';
+import { estEnRetard, jalonsAffichables, prochainJalon } from '../helpers/jalonHelpers';
 import { getEffectiveStatus } from '../helpers/tenderHelpers';
 import { calculerProgression, piecesAttenduesPourRole, libelleStatut, membreComptabilise } from '../helpers/progressionHelpers';
 import {
     specialitesCouvertes, specialitesManquantes, scoreSucces, gainPotentiel,
-    joursRestants, roleUtilisateur, dossierTermine,
+    joursRestants, roleUtilisateur, dossierTermine, jaugeScore,
 } from '../helpers/decisionHelpers';
 import { lienExterne } from '../helpers/textHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -34,6 +34,9 @@ import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
 import { DocDetailsModal } from './DocDetailsModal';
 import { CriteresModal } from './CriteresModal';
+import { BandeauInvitation } from './BandeauInvitation';
+import { EnteteDossier } from './EnteteDossier';
+import { PiedDossier } from './PiedDossier';
 import { GroupementTypeModal } from './GroupementTypeModal';
 import { MandatairePromotionModal, MandataireSuccessionModal } from './MandataireModals';
 import { OutcomeConfirmModal } from './OutcomeConfirmModal';
@@ -4087,52 +4090,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             return { received: p.recues, total: p.attendues, percent: p.percent };
         })();
 
-        // Count overdue pieces (placeholder: pieces with 0% on members who were invited > 3 days ago)
-        const overduePieces = activeMembers.reduce((acc, m, i) => {
-            const p = getMemberProgress(m, i);
-            return acc + (p.total - p.received);
-        }, 0);
-
-        // Retroplanning milestones (derived from jalons or fallback to dates)
-        //
-        // Deux correctifs ici :
-        //  1. TRI PAR DATE. La liste était affichée dans l'ordre du tableau, et
-        //     la carte n'en montre que les 3 premiers. Un jalon ajouté à la main
-        //     étant ajouté EN FIN de tableau, il n'apparaissait jamais — d'où
-        //     l'impression d'une carte figée sur des libellés « mockés ».
-        //     La modale, elle, triait déjà : les deux écrans divergeaient.
-        //  2. STATUT RÉEL. « Fait » se déduisait de la date passée. Un jalon en
-        //     retard s'affichait donc en vert, et un jalon coché « fait » mais
-        //     daté du futur restait gris.
-        const milestones = formData.jalons && formData.jalons.length > 0
-            ? [...formData.jalons]
-                .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                .map((j: any) => {
-                    const joursRestants = Math.ceil((new Date(j.date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                    return {
-                        label: j.label,
-                        date: j.date,
-                        status: j.statut === 'fait' ? 'done'
-                            : new Date(j.date) < new Date() ? 'danger'   // échéance dépassée, non faite
-                                : joursRestants <= 3 ? 'danger'
-                                    : joursRestants <= 7 ? 'warning' : 'upcoming'
-                    };
-                })
-            : [
-                formData.date_publication ? { label: 'Retrait DCE', date: formData.date_publication, status: new Date(formData.date_publication) < new Date() ? 'done' : 'upcoming' } : null,
-                formData.date_depot_souhaitee ? { label: 'Dépôt souhaité', date: formData.date_depot_souhaitee, status: new Date(formData.date_depot_souhaitee) < new Date() ? 'done' : daysLeft !== null && daysLeft <= 7 ? 'warning' : 'upcoming' } : null,
-                formData.date_limite ? { label: 'Date limite', date: formData.date_limite, status: daysLeft !== null && daysLeft < 0 ? 'done' : daysLeft !== null && daysLeft <= 3 ? 'danger' : 'upcoming' } : null,
-            ].filter(Boolean) as { label: string; date: string; status: string }[];
-
-        // Next milestone
-        const nextMilestone = milestones.find(m => m.status !== 'done') || milestones[milestones.length - 1];
-
-        // Deadline color
-        const deadlineColor = daysLeft === null ? 'text-[#0B1F38]/50 bg-[#0B1F38]/5 border-[#0B1F38]/10'
-            : daysLeft < 0 ? 'text-gray-400 bg-gray-50 border-gray-200'
-                : daysLeft <= 5 ? 'text-red-600 bg-red-50 border-red-200'
-                    : daysLeft <= 14 ? 'text-amber-600 bg-amber-50 border-amber-200'
-                        : 'text-[#00A3E0] bg-[#00A3E0]/5 border-[#00A3E0]/20';
+        // Tri et qualification : voir `jalonHelpers.jalonsAffichables`, où les
+        // deux défauts corrigés (ordre d'affichage, statut réel) sont testés.
+        const milestones = jalonsAffichables(formData.jalons as any, {
+            date_publication: formData.date_publication,
+            date_depot_souhaitee: formData.date_depot_souhaitee,
+            date_limite: formData.date_limite,
+        });
+        const nextMilestone = prochainJalon(milestones);
 
         // Libellé de statut : LE MÊME que sur la carte du tableau de bord.
         // L'ancien mappage local affichait « En préparation » pour `En cours`
@@ -4147,135 +4112,50 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     : formData.statut === STATUSES.draft ? 'bg-gray-100 text-gray-600 border-gray-200'
                         : 'bg-[#00A3E0]/10 text-[#00A3E0] border-[#00A3E0]/20';
 
-        // SVG Gauge helper
         const gaugeRadius = 40;
-        const gaugeCircumference = 2 * Math.PI * gaugeRadius;
-        // Jauge vide et neutre quand le score n'est pas calculable : afficher
-        // une valeur — 0 ou 85 — ferait passer un défaut de lecture pour une
-        // réalité du dossier.
-        const gaugeOffset = successScore === null
-            ? gaugeCircumference
-            : gaugeCircumference - (successScore / 100) * gaugeCircumference;
-        const gaugeColor = successScore === null ? '#9CA3AF'
-            : successScore >= 70 ? '#10B981' : successScore >= 40 ? '#F59E0B' : '#EF4444';
-
-        // Budget formatting
-
+        const { circonference: gaugeCircumference, decalage: gaugeOffset, couleur: gaugeColor } =
+            jaugeScore(successScore, gaugeRadius);
 
         return (
             <div className="w-full h-full flex flex-col animate-in slide-in-from-right-4 duration-500 overflow-hidden">
 
-                {/* Invitation Banner — shown only for pending invitees (not refused) */}
+                {/* Invité en attente de réponse — ni le porteur, ni un refus. */}
                 {amIInvitee && !isRefused && (
-                    <div className="mx-4 mt-4 p-5 bg-gradient-to-r from-[#0B1F38] to-[#1B5D7A] text-white rounded-2xl shadow-xl flex flex-col md:flex-row items-center justify-between gap-4 shrink-0 animate-in fade-in slide-in-from-top-4 duration-500">
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-white/10 rounded-xl shrink-0"><Mail size={22} className="text-white" /></div>
-                            <div>
-                                <h3 className="font-bold text-base">
-                                    {dossierTermine_ ? 'Invitation sur un dossier clôturé' : 'Invitation à collaborer'}
-                                </h3>
-                                <p className="text-white/75 text-sm">
-                                    Vous avez été invité à travailler sur <strong>"{formData.titre}"</strong> en tant que <strong>{myGroupementEntry.role}</strong>.
-                                    {dossierTermine_ ? (
-                                        <>
-                                            {' '}Ce dossier est <strong>
-                                                {statutEffectif === STATUSES.won ? 'remporté'
-                                                    : statutEffectif === STATUSES.lost ? 'perdu'
-                                                        : 'expiré'}
-                                            </strong> : la réponse a déjà été jouée. En rejoignant, vous y accédez <strong>en consultation</strong>.
-                                        </>
-                                    ) : (
-                                        <> Acceptez pour accéder à l'ensemble du dossier.</>
-                                    )}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex gap-3 shrink-0">
-                            <button onClick={() => setRefusAConfirmer(true)} disabled={loading} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-bold text-sm transition-colors">Refuser</button>
-                            <button onClick={() => handleInvitationResponse(true)} disabled={loading} className="px-5 py-2.5 bg-white text-[#0B1F38] font-bold rounded-xl hover:bg-gray-100 transition-colors shadow-lg text-sm flex items-center gap-2">
-                                {loading ? <Loader2 size={16} className="animate-spin" /> : <><UserCheck size={16} /> {dossierTermine_ ? 'Rejoindre en consultation' : 'Accepter et rejoindre'}</>}
-                            </button>
-                        </div>
-                    </div>
+                    <BandeauInvitation
+                        titreDossier={formData.titre}
+                        role={myGroupementEntry.role}
+                        dossierTermine={dossierTermine_}
+                        issue={statutEffectif === STATUSES.won ? 'remporté'
+                            : statutEffectif === STATUSES.lost ? 'perdu' : 'expiré'}
+                        enCours={loading}
+                        onAccepter={() => handleInvitationResponse(true)}
+                        onRefuser={() => setRefusAConfirmer(true)}
+                    />
                 )}
 
-
-                {/* ============================== */}
-                {/* ZONE 1 — HEADER                */}
-                {/* ============================== */}
-                <div className="px-5 pt-5 pb-3 shrink-0">
-                    <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-3 min-w-0 flex-1">
-                            <button
-                                onClick={() => onCancel()}
-                                className="mt-1 p-2 hover:bg-[#0B1F38]/5 rounded-xl transition-colors shrink-0"
-                                title="Retour"
-                            >
-                                <ArrowLeft size={20} className="text-[#0B1F38]/60" />
-                            </button>
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                    <h1 className="text-xl font-bold text-[#0B1F38] leading-tight line-clamp-2">{formData.titre || 'Nouvel appel d\'offres'}</h1>
-                                    {/* Repère permanent pour qui n'est pas le porteur du
-                                        dossier. Les actions de pilotage sont déjà masquées,
-                                        mais rien ne disait POURQUOI : on pouvait croire à une
-                                        interface incomplète plutôt qu'à un rôle différent. */}
-                                    {tenderId && !isOwner && (
-                                        <span
-                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border shrink-0 bg-violet-50 text-violet-700 border-violet-200 flex items-center gap-1"
-                                            title="Ce dossier est piloté par une autre entreprise. Vous y participez comme partenaire : vous déposez vos pièces, sans action sur le cycle de vie du dossier."
-                                        >
-                                            <Users size={11} /> Partenaire
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-3 mt-1.5 flex-wrap text-[#0B1F38]/50">
-                                    {tenderId && <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border shrink-0 ${statusColor}`}>{statusLabel}</span>}
-                                    {formData.organisme_acheteur && (
-                                        <span className="flex items-center gap-1 text-xs font-medium"><Building size={12} className="shrink-0" />{formData.organisme_acheteur}</span>
-                                    )}
-                                    {formData.lieu_execution.length > 0 && (
-                                        <span className="flex items-center gap-1 text-xs font-medium"><MapPin size={12} className="shrink-0" />{formData.lieu_execution.slice(0, 2).join(', ')}{formData.lieu_execution.length > 2 ? ` +${formData.lieu_execution.length - 2}` : ''}</span>
-                                    )}
-                                    {formData.mode_passation && (
-                                        <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-[#0B1F38]/5 border-[#0B1F38]/10 text-[#0B1F38]/60`}>
-                                            {(HANDOVER_TYPES_LABELS as any)[formData.mode_passation] || formData.mode_passation}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="flex items-center gap-2 shrink-0">
-                            {tenderId && !amIInvitee && (
-                                <button
-                                    onClick={() => {
-                                        setIsSidebarCollapsed?.(true);
-                                        setShowChatDrawer(true);
-                                    }}
-                                    className="p-2.5 bg-white/60 hover:bg-white rounded-xl transition-all shadow-sm border border-white/60 text-[#0B1F38]/60 hover:text-[#00A3E0] group relative"
-                                    title="Ouvrir la messagerie"
-                                >
-                                    <MessageSquare size={20} className="group-hover:scale-110 transition-transform" />
-                                    {tenderId && unreadCounts[tenderId] > 0 && (
-                                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-white">
-                                            {unreadCounts[tenderId]}
-                                        </span>
-                                    )}
-                                </button>
-                            )}
-                            {/* Date Limite Badge */}
-                            {formData.date_limite && (
-                                <div className={`shrink-0 rounded-2xl border px-5 py-3 text-center ${deadlineColor}`}>
-                                    <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">Date limite</p>
-                                    <p className="text-2xl font-extrabold leading-tight">{daysLeft !== null ? (daysLeft >= 0 ? `${daysLeft}` : `+${Math.abs(daysLeft)}`) : '—'}<span className="text-sm font-bold ml-1">jours</span></p>
-                                    <p className="text-[10px] font-medium opacity-60">{new Date(formData.date_limite).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <EnteteDossier
+                    titre={formData.titre}
+                    tenderId={tenderId}
+                    isOwner={isOwner}
+                    statutLabel={statusLabel}
+                    statutClasses={statusColor}
+                    organismeAcheteur={formData.organisme_acheteur}
+                    lieuExecution={formData.lieu_execution}
+                    modePassationLabel={formData.mode_passation
+                        ? ((HANDOVER_TYPES_LABELS as any)[formData.mode_passation] || formData.mode_passation)
+                        : undefined}
+                    dateLimite={formData.date_limite}
+                    joursRestants={daysLeft}
+                    // Un invité qui n'a pas encore répondu n'a pas accès au fil
+                    // de discussion du dossier.
+                    afficherMessagerie={!!tenderId && !amIInvitee}
+                    messagesNonLus={tenderId ? unreadCounts[tenderId] : 0}
+                    onRetour={() => onCancel()}
+                    onOuvrirMessagerie={() => {
+                        setIsSidebarCollapsed?.(true);
+                        setShowChatDrawer(true);
+                    }}
+                />
 
                 {/* SCROLLABLE BODY                */}
                 {/* ============================== */}
@@ -4362,66 +4242,24 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     </div>
                 </div>
 
-                {/* ============================== */}
-                {/* FOOTER                         */}
-                {/* ============================== */}
-                <div className="px-5 py-3 border-t border-white/30 flex justify-between items-center shrink-0 bg-white/40 backdrop-blur-sm">
-                    <div className="flex items-center gap-4">
-                        {tenderId && isOwner && (
-                            <button
-                                onClick={() => setShowDeleteTenderModal(true)}
-                                className="px-4 py-2.5 flex items-center gap-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-all border border-red-100 text-xs font-bold"
-                                title="Supprimer le dossier"
-                            >
-                                <Trash2 size={14} /> Supprimer
-                            </button>
-                        )}
-                        {!tenderId && <div className="flex items-center gap-4">
-                            <div className="bg-[#0B1F38]/5 p-2 rounded-xl"><Target size={20} className="text-[#0B1F38]" /></div>
-                            <div><h3 className="font-bold text-[#0B1F38] text-base">Décision finale</h3><p className="text-xs text-[#0B1F38]/60">Validez pour créer l'espace collaboratif</p></div>
-                        </div>}
-                    </div>
-
-                    {!tenderId ? (
-                        <div className="flex gap-3">
-                            <button onClick={() => naviguerVue('results')} className="px-5 py-2.5 bg-white border-2 border-red-100 hover:border-red-200 text-red-500 font-bold text-sm rounded-xl shadow-sm transition-all flex items-center gap-2">
-                                <XCircle size={18} /> Abandonner le dossier
-                            </button>
-                            <button onClick={() => handleGoToVerification()} className="px-6 py-2.5 bg-[#00A3E0] hover:bg-[#008CC1] text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center gap-2">
-                                {loading ? <Loader2 className="animate-spin" /> : <><CheckCircle size={18} /> Confirmer la réponse</>}
-                            </button>
-                        </div>
-                    ) : isOwner ? (
-                        <div className="flex gap-3">
-                            {formData.statut === STATUSES.submitted ? (
-                                <>
-                                    <button onClick={() => setShowOutcomeModal('won')} className="px-6 py-2.5 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 font-bold text-sm rounded-xl transition-all shadow-sm flex items-center gap-2">
-                                        <Trophy size={18} /> GAGNÉ
-                                    </button>
-                                    <button onClick={() => setShowOutcomeModal('lost')} className="px-6 py-2.5 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 font-bold text-sm rounded-xl transition-all shadow-sm flex items-center gap-2">
-                                        <Frown size={18} /> PERDU
-                                    </button>
-                                </>
-                            ) : formData.statut === STATUSES.on ? (
-                                <button 
-                                    onClick={() => {
-                                        const hasMandataire = groupementMembers.some(m => m.role === 'Mandataire' && !m.deleted);
-                                        if (!hasMandataire) {
-                                            showToast("Action bloquée : Un Mandataire doit être désigné avant de finaliser le dossier.", "warning");
-                                            return;
-                                        }
-                                        setShowFinalizeConfirm(true);
-                                    }} 
-                                    className="flex items-center gap-2 px-6 py-3 bg-[#0B1F38] text-white font-bold text-sm rounded-xl shadow-lg hover:bg-[#00A3E0] transition-all"
-                                >
-                                    {loading ? <Loader2 className="animate-spin" /> : <><CheckCircle size={16} /> Finaliser le dossier</>}
-                                </button>
-                            ) : null}
-                        </div>
-                    ) : (
-                        <p className="text-xs text-[#0B1F38]/50 italic px-2">Seul le propriétaire du marché peut effectuer les actions de finalisation.</p>
+                <PiedDossier
+                    tenderId={tenderId}
+                    isOwner={isOwner}
+                    statut={formData.statut}
+                    statutEnCours={STATUSES.on}
+                    statutDepose={STATUSES.submitted}
+                    aUnMandataire={groupementMembers.some(m => m.role === 'Mandataire' && !m.deleted)}
+                    enCours={loading}
+                    onSupprimer={() => setShowDeleteTenderModal(true)}
+                    onAbandonner={() => naviguerVue('results')}
+                    onConfirmerReponse={() => handleGoToVerification()}
+                    onFinaliser={() => setShowFinalizeConfirm(true)}
+                    onMandataireManquant={() => showToast(
+                        "Action bloquée : Un Mandataire doit être désigné avant de finaliser le dossier.",
+                        'warning'
                     )}
-                </div>
+                    onSaisirIssue={setShowOutcomeModal}
+                />
             </div>
         );
     };

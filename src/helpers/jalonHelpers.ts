@@ -197,3 +197,91 @@ export const genererJalons = (entrees: EntreesJalons, maintenant: Date = new Dat
  */
 export const estEnRetard = (jalon: Jalon, maintenant: Date = new Date()): boolean =>
     jalon.statut !== 'fait' && parseDate(jalon.date)! < aMinuit(maintenant);
+/** Urgence d'un jalon, telle qu'affichée sur la carte du dossier. */
+export type EtatJalon = 'done' | 'danger' | 'warning' | 'upcoming';
+
+export interface JalonAffiche {
+    label: string;
+    date: string;
+    status: EtatJalon;
+}
+
+/** Dates de repli quand le dossier n'a pas encore de rétroplanning. */
+export interface DatesDossier {
+    date_publication?: string | null;
+    date_depot_souhaitee?: string | null;
+    date_limite?: string | null;
+}
+
+/**
+ * Jalons prêts à afficher : triés par date et qualifiés par leur urgence.
+ *
+ * DEUX DÉFAUTS CORRIGÉS, que ce tri encode
+ *
+ * 1. ORDRE. La liste suivait l'ordre du tableau, et la carte n'en montre que
+ *    les trois premiers. Un jalon ajouté à la main atterrissant EN FIN de
+ *    tableau, il n'apparaissait jamais — d'où l'impression d'une carte figée
+ *    sur des libellés de démonstration. La modale de rétroplanning, elle,
+ *    triait déjà : les deux écrans montraient deux plannings différents.
+ *
+ * 2. STATUT. « Fait » se déduisait de la date passée. Un jalon en retard
+ *    s'affichait donc en vert comme s'il était traité, et un jalon coché
+ *    « fait » mais daté du futur restait gris. C'est le champ `statut` qui
+ *    fait foi ; la date ne dit que l'urgence de ce qui reste à faire.
+ *
+ * Sans rétroplanning, on retombe sur les trois dates du dossier — un planning
+ * minimal vaut mieux qu'un panneau vide.
+ *
+ * @param maintenant injectable pour les tests ; ne jamais renseigner en appel réel.
+ */
+export const jalonsAffichables = (
+    jalons: Jalon[] | null | undefined,
+    dates: DatesDossier = {},
+    maintenant: Date = new Date()
+): JalonAffiche[] => {
+    const t = maintenant.getTime();
+    const joursAvant = (iso: string) => Math.ceil((new Date(iso).getTime() - t) / 86_400_000);
+
+    if (jalons && jalons.length > 0) {
+        return [...jalons]
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .map((j) => {
+                const restants = joursAvant(j.date);
+                const status: EtatJalon =
+                    j.statut === 'fait' ? 'done'
+                        : restants < 0 ? 'danger'      // échéance dépassée, non faite
+                            : restants <= 3 ? 'danger'
+                                : restants <= 7 ? 'warning'
+                                    : 'upcoming';
+                return { label: j.label, date: j.date, status };
+            });
+    }
+
+    const restantsLimite = dates.date_limite ? joursAvant(dates.date_limite) : null;
+
+    return [
+        dates.date_publication ? {
+            label: 'Retrait DCE',
+            date: dates.date_publication,
+            status: (joursAvant(dates.date_publication) < 0 ? 'done' : 'upcoming') as EtatJalon,
+        } : null,
+        dates.date_depot_souhaitee ? {
+            label: 'Dépôt souhaité',
+            date: dates.date_depot_souhaitee,
+            status: (joursAvant(dates.date_depot_souhaitee) < 0 ? 'done'
+                : restantsLimite !== null && restantsLimite <= 7 ? 'warning'
+                    : 'upcoming') as EtatJalon,
+        } : null,
+        dates.date_limite ? {
+            label: 'Date limite',
+            date: dates.date_limite,
+            status: (restantsLimite !== null && restantsLimite < 0 ? 'done'
+                : restantsLimite !== null && restantsLimite <= 3 ? 'danger'
+                    : 'upcoming') as EtatJalon,
+        } : null,
+    ].filter(Boolean) as JalonAffiche[];
+};
+
+/** Prochain jalon à traiter ; à défaut, le dernier de la liste. */
+export const prochainJalon = (jalons: JalonAffiche[]): JalonAffiche | undefined =>
+    jalons.find((j) => j.status !== 'done') || jalons[jalons.length - 1];
