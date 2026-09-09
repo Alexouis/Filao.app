@@ -3,6 +3,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Calendar as CalendarIcon,
+    CalendarArrowDown,
     Plus,
     Clock
 } from 'lucide-react';
@@ -11,6 +12,8 @@ import { ErrorState } from './ui/StateViews';
 import { PLANS_CONFIG, PLANS_TYPES, PlanType, UserProfile } from '../config';
 import { progressionParDossier, Progression } from '../helpers/progressionHelpers';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { downloadICalendar } from '../helpers/icalHelpers';
+import { useToast } from './ui/Toast';
 import { GLASS_STYLE } from '../lib/styles';
 import { supabase } from '../lib/supabaseClient';
 
@@ -41,6 +44,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     onNavigate,
     userProfile
 }) => {
+    const { showToast } = useToast();
     const [currentDate, setCurrentDate] = useState(new Date());
 
     const [tenders, setTenders] = useState<Tender[]>(cachedTenders || []);
@@ -384,6 +388,32 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         const check = canCreateTender(userProfile, tenders);
         if (!check.allowed) { setShowLimitModal(true); return; }
         onAddTender();
+    };
+
+    /**
+     * Exporte les échéances au format iCalendar.
+     *
+     * Complémentaire de la synchronisation Google, pas concurrent : le fichier
+     * s'importe dans Outlook, Apple Calendrier ou Thunderbird, et ne demande
+     * ni compte Google ni autorisation OAuth.
+     *
+     * Les dossiers clos sont exclus — un agenda personnel n'a pas à se remplir
+     * d'échéances déjà passées. Le nombre d'événements est annoncé pour éviter
+     * d'avoir à ouvrir le fichier pour savoir s'il contient quelque chose.
+     */
+    const handleExportICal = () => {
+        try {
+            const evenements = downloadICalendar(tenders);
+            showToast(
+                evenements > 0
+                    ? `${evenements} échéance${evenements > 1 ? 's' : ''} exportée${evenements > 1 ? 's' : ''}.`
+                    : "Aucune échéance à venir à exporter.",
+                evenements > 0 ? 'success' : 'info'
+            );
+        } catch (err) {
+            console.error('Export iCal :', err);
+            showToast("L'export du calendrier a échoué.", 'error');
+        }
     };
 
     const handleEventClick = (e: React.MouseEvent, tenderId: string, status: string) => {
@@ -777,6 +807,22 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                 </button>
                             ))}
                         </div>
+
+                        {/* Export iCal — action secondaire, volontairement
+                            discrète : même habillage que la navigation de
+                            date, sans le fond corail réservé à l'action
+                            principale. Le libellé n'apparaît qu'au survol et
+                            aux lecteurs d'écran, l'icône seule ne disant pas
+                            ce qui est téléchargé. */}
+                        <button
+                            onClick={handleExportICal}
+                            disabled={tenders.length === 0}
+                            title="Exporter mes échéances (.ics)"
+                            aria-label="Exporter mes échéances au format iCalendar"
+                            className="p-2.5 bg-white/40 border border-white/50 rounded-xl shadow-sm text-[#0B1F38]/60 hover:text-[#00A3E0] hover:bg-white/60 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[#0B1F38]/60 disabled:hover:bg-white/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#00A3E0]"
+                        >
+                            <CalendarArrowDown size={20} aria-hidden="true" />
+                        </button>
 
                         {/* Action Button */}
                         <button

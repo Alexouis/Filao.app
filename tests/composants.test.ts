@@ -30,6 +30,9 @@ import { InfoItem, VerifiedBadge, UnverifiedBadge } from '../src/components/sett
 import { CompanyInfoReadOnly } from '../src/components/settings/CompanyInfoReadOnly.tsx';
 import { OnboardingCompanyStep } from '../src/components/OnboardingCompanyStep.tsx';
 import { BarreFiltresDossiers } from '../src/components/BarreFiltresDossiers.tsx';
+import { GroupementTypeModal } from '../src/components/GroupementTypeModal.tsx';
+import { MandatairePromotionModal, MandataireSuccessionModal } from '../src/components/MandataireModals.tsx';
+import { OutcomeConfirmModal } from '../src/components/OutcomeConfirmModal.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -552,6 +555,154 @@ test('BarreFiltresDossiers : cliquer un statut le remonte au parent', () => {
     })));
     fireEvent.click(screen.getByText('Tous'));
     assert.equal(recu, 'Tous');
+});
+
+// ===========================================================================
+// Modales extraites de TenderWizard — gouvernance du groupement
+// ===========================================================================
+const membreGroupement = (surcharge: any = {}) => ({
+    email: 'partenaire@exemple.fr',
+    name: 'Dupont TP',
+    company: 'Dupont TP',
+    role: 'Co-traitant',
+    status: 'accepte',
+    ...surcharge,
+});
+
+test('GroupementTypeModal : fermée, elle ne rend rien', () => {
+    cleanup();
+    const { container } = render(React.createElement(GroupementTypeModal, {
+        ouvert: false, onChoisir: rien, onAnnuler: rien,
+    }));
+    assert.equal(container.innerHTML, '');
+});
+
+test('GroupementTypeModal : les deux natures d’engagement sont proposées et remontées', () => {
+    cleanup();
+    let choix: string | null = null;
+    render(React.createElement(GroupementTypeModal, {
+        ouvert: true, onChoisir: (t: string) => { choix = t; }, onAnnuler: rien,
+    }));
+
+    // Le libellé seul ne suffit pas : c'est la description de l'engagement qui
+    // permet de choisir, et se tromper n'est pas rattrapable après dépôt.
+    assert.ok(screen.getByText(/uniquement les prestations qui lui sont attribuées/));
+    assert.ok(screen.getByText(/engagé financièrement et techniquement pour la totalité/));
+
+    fireEvent.click(screen.getByText('Groupement Solidaire'));
+    assert.equal(choix, 'solidaire');
+});
+
+test('GroupementTypeModal : annoncée comme dialogue aux lecteurs d’écran', () => {
+    cleanup();
+    render(React.createElement(GroupementTypeModal, {
+        ouvert: true, onChoisir: rien, onAnnuler: rien,
+    }));
+    const dialogue = screen.getByRole('dialog');
+    assert.equal(dialogue.getAttribute('aria-modal'), 'true');
+});
+
+test('MandatairePromotionModal : sans cible, rien n’est rendu', () => {
+    cleanup();
+    const { container } = render(React.createElement(MandatairePromotionModal, {
+        cible: null, onPromouvoir: rien, onAnnuler: rien,
+    }));
+    assert.equal(container.innerHTML, '');
+});
+
+test('MandatairePromotionModal : le rôle choisi est celui du mandataire SORTANT', () => {
+    cleanup();
+    let roleSortant: string | null = null;
+    render(React.createElement(MandatairePromotionModal, {
+        cible: membreGroupement({ name: 'Dupont TP' }),
+        mandataireActuel: membreGroupement({ name: 'Martin SA', role: 'Mandataire' }),
+        onPromouvoir: (r: string) => { roleSortant = r; },
+        onAnnuler: rien,
+    }));
+
+    // Les deux noms doivent apparaître : qui monte, et qui doit être reclassé.
+    assert.ok(screen.getByText('Dupont TP'));
+    assert.ok(screen.getByText('Martin SA'));
+
+    fireEvent.click(screen.getByText('Sous-traitant'));
+    assert.equal(roleSortant, 'Sous-traitant');
+});
+
+test('MandatairePromotionModal : on ne demande pas son propre nouveau rôle au promu', () => {
+    cleanup();
+    const cible = membreGroupement({ name: 'Dupont TP', role: 'Mandataire' });
+    render(React.createElement(MandatairePromotionModal, {
+        cible, mandataireActuel: cible, onPromouvoir: rien, onAnnuler: rien,
+    }));
+    assert.equal(screen.queryByText(/Quel doit être le nouveau rôle/), null);
+});
+
+test('MandatairePromotionModal : l’e-mail sert de nom tant que l’invité n’a pas de compte', () => {
+    cleanup();
+    render(React.createElement(MandatairePromotionModal, {
+        cible: membreGroupement({ name: '', email: 'sans-compte@exemple.fr' }),
+        onPromouvoir: rien, onAnnuler: rien,
+    }));
+    assert.ok(screen.getByText('sans-compte@exemple.fr'));
+});
+
+test('MandataireSuccessionModal : la liste vide est expliquée, pas laissée blanche', () => {
+    cleanup();
+    render(React.createElement(MandataireSuccessionModal, {
+        ouvert: true, successeurs: [], onChoisir: rien, onAnnuler: rien,
+    }));
+    // Un panneau vide laisserait croire à un bug ; le mandat ne peut se
+    // transmettre qu'à un membre ayant accepté son invitation.
+    assert.ok(screen.getByText(/Aucun membre n'a encore accepté/));
+});
+
+test('MandataireSuccessionModal : choisir un successeur le remonte au parent', () => {
+    cleanup();
+    let recu: any = null;
+    const cible = membreGroupement({ id: 'u-2', name: 'Bernard SARL' });
+    render(React.createElement(MandataireSuccessionModal, {
+        ouvert: true,
+        successeurs: [cible],
+        onChoisir: (m: any) => { recu = m; },
+        onAnnuler: rien,
+    }));
+    fireEvent.click(screen.getByText('Bernard SARL'));
+    assert.equal(recu?.id, 'u-2');
+});
+
+test('OutcomeConfirmModal : la victoire et la défaite ne se ressemblent pas', () => {
+    cleanup();
+    render(React.createElement(OutcomeConfirmModal, {
+        issue: 'won', onConfirmer: rien, onAnnuler: rien,
+    }));
+    assert.ok(screen.getByText('Félicitations !'));
+
+    cleanup();
+    render(React.createElement(OutcomeConfirmModal, {
+        issue: 'lost', onConfirmer: rien, onAnnuler: rien,
+    }));
+    assert.ok(screen.getByText('Résultat du marché'));
+    assert.equal(screen.queryByText('Félicitations !'), null);
+});
+
+test('OutcomeConfirmModal : l’issue confirmée est bien celle affichée', () => {
+    cleanup();
+    let confirmee: string | null = null;
+    render(React.createElement(OutcomeConfirmModal, {
+        issue: 'lost', onConfirmer: (i: string) => { confirmee = i; }, onAnnuler: rien,
+    }));
+    fireEvent.click(screen.getByText('Confirmer'));
+    // Un statut terminal verrouille le dossier et notifie tout le groupement :
+    // se tromper d'issue n'est pas rattrapable d'un clic.
+    assert.equal(confirmee, 'lost');
+});
+
+test('OutcomeConfirmModal : sans issue en attente, rien n’est rendu', () => {
+    cleanup();
+    const { container } = render(React.createElement(OutcomeConfirmModal, {
+        issue: null, onConfirmer: rien, onAnnuler: rien,
+    }));
+    assert.equal(container.innerHTML, '');
 });
 
 // Le DOM de `happy-dom` laisse des minuteurs et un `window` ouverts : sans

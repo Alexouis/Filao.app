@@ -7,10 +7,10 @@ import {
     Calendar as CalendarIcon, MapPin, Briefcase, Link, Users, UploadCloud,
     CheckCircle, FileText, X, Search, ArrowRight, ArrowLeft, ChevronDown,
     Loader2, Plus, Trash2, Euro, Globe, FileInput, PenTool,
-    Target, AlertTriangle, AlertCircle, XCircle, Mail, Building,
+    Target, AlertTriangle, XCircle, Mail, Building,
     CalendarCheck, Download, UserPlus,
     Files, Save, Send, ShieldAlert, MessageSquare, RefreshCw,
-    UserCheck, Crown, LogOut, Trophy, Frown, Pencil, Lock,
+    UserCheck, LogOut, Trophy, Frown, Pencil, Lock,
     Eye,
     Building2
 } from 'lucide-react';
@@ -34,6 +34,9 @@ import { MemberDetailModal } from './MemberDetailModal';
 import { DCEPiecesModal } from './DCEPiecesModal';
 import { DocDetailsModal } from './DocDetailsModal';
 import { CriteresModal } from './CriteresModal';
+import { GroupementTypeModal } from './GroupementTypeModal';
+import { MandatairePromotionModal, MandataireSuccessionModal } from './MandataireModals';
+import { OutcomeConfirmModal } from './OutcomeConfirmModal';
 import { IndicateursDossier } from './IndicateursDossier';
 import { PanneauxLateraux } from './PanneauxLateraux';
 import { EquipeEtPieces } from './EquipeEtPieces';
@@ -518,37 +521,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         }
     };
 
-    const renderDeleteTenderModal = () => {
-        if (!showDeleteTenderModal) return null;
-        return (
-            <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={() => setShowDeleteTenderModal(false)}></div>
-                <div className="relative bg-white rounded-[2rem] p-10 max-w-sm w-full text-center shadow-2xl animate-in zoom-in-95 duration-200">
-                    <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-6 text-red-500">
-                        <Trash2 size={32} />
-                    </div>
-                    <h3 className="text-xl font-bold text-[#0B1F38] mb-4">Supprimer le dossier ?</h3>
-                    <p className="text-[#0B1F38]/60 mb-8 text-sm leading-relaxed">
-                        Cette action est irréversible. Toutes les données associées seront définitivement supprimées.
-                    </p>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => setShowDeleteTenderModal(false)}
-                            className="flex-1 py-3 text-sm font-bold text-[#0B1F38]/40 hover:bg-gray-50 rounded-xl transition-all border border-[#0B1F38]/10"
-                        >
-                            Annuler
-                        </button>
-                        <button
-                            onClick={handleDeleteTender}
-                            className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-bold text-sm rounded-xl transition-all shadow-lg"
-                        >
-                            Supprimer
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
     const renderFinalizeConfirmModal = () => {
         if (!showFinalizeConfirm) return null;
 
@@ -4593,255 +4565,54 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         );
     };
 
-    const renderGroupementTypeModal = () => {
-        if (!showGroupementTypeModal) return null;
+    /**
+     * Promotion d'un membre au rang de mandataire.
+     *
+     * Le tableau à jour est construit ici puis passé à la sauvegarde : lire
+     * `groupementMembers` juste après `setGroupementMembers` renverrait l'état
+     * précédent, et l'on enregistrerait le groupement d'avant la promotion.
+     */
+    const promouvoirMandataire = async (roleSortant: 'Co-traitant' | 'Sous-traitant') => {
+        if (!showPromotionPicker) return;
+        const cible = groupementMembers[showPromotionPicker.targetMemberIdx];
+        const sortantIdx = groupementMembers.findIndex(m => m.role === 'Mandataire' && !m.deleted);
 
-        return (
-            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowGroupementTypeModal(false)}></div>
-                <div className="relative bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+        const updated = [...groupementMembers];
+        updated[showPromotionPicker.targetMemberIdx] = { ...cible, role: 'Mandataire' };
+        if (sortantIdx !== -1) updated[sortantIdx] = { ...updated[sortantIdx], role: roleSortant as any };
 
-                    <div className="p-8 text-center pb-4">
-                        <div className="w-16 h-16 bg-[#00A3E0]/10 rounded-full flex items-center justify-center mx-auto mb-6 text-[#00A3E0]">
-                            <Users size={32} />
-                        </div>
-                        <h2 className="text-2xl font-bold text-[#0B1F38]">Type de groupement</h2>
-                        <p className="text-[#0B1F38]/60 mt-2 max-w-md mx-auto">
-                            Cette information est obligatoire pour la constitution du dossier et ne pourra pas être modifiée ultérieurement.
-                        </p>
-                    </div>
-
-                    <div className="p-8 pt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <button
-                            onClick={() => {
-                                setShowGroupementTypeModal(false);
-                                handleGoToVerification('conjoint');
-                            }}
-                            className="group p-6 rounded-2xl border-2 border-[#0B1F38]/10 hover:border-[#00A3E0] hover:bg-[#00A3E0]/5 transition-all text-left flex flex-col gap-3 relative overflow-hidden"
-                        >
-                            <div className="absolute top-4 right-4 text-[#00A3E0] opacity-0 group-hover:opacity-100 transition-opacity">
-                                <CheckCircle size={24} />
-                            </div>
-                            <div className="bg-white w-10 h-10 rounded-xl shadow-sm flex items-center justify-center text-[#0B1F38]">
-                                <Briefcase size={20} />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-[#0B1F38] text-lg">Groupement Conjoint</h3>
-                                <p className="text-xs text-[#0B1F38]/60 mt-1 leading-relaxed">
-                                    Chaque membre du groupement s'engage à exécuter uniquement les prestations qui lui sont attribuées.
-                                </p>
-                            </div>
-                        </button>
-
-                        <button
-                            onClick={() => {
-                                setShowGroupementTypeModal(false);
-                                handleGoToVerification('solidaire');
-                            }}
-                            className="group p-6 rounded-2xl border-2 border-[#0B1F38]/10 hover:border-[#00A3E0] hover:bg-[#00A3E0]/5 transition-all text-left flex flex-col gap-3 relative overflow-hidden"
-                        >
-                            <div className="absolute top-4 right-4 text-[#00A3E0] opacity-0 group-hover:opacity-100 transition-opacity">
-                                <CheckCircle size={24} />
-                            </div>
-                            <div className="bg-white w-10 h-10 rounded-xl shadow-sm flex items-center justify-center text-[#0B1F38]">
-                                <Users size={20} />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-[#0B1F38] text-lg">Groupement Solidaire</h3>
-                                <p className="text-xs text-[#0B1F38]/60 mt-1 leading-relaxed">
-                                    Chaque membre est engagé financièrement et techniquement pour la totalité du marché.
-                                </p>
-                            </div>
-                        </button>
-                    </div>
-
-                    <div className="p-6 bg-[#F8FAFC] flex justify-center border-t border-[#0B1F38]/5">
-                        <button onClick={() => setShowGroupementTypeModal(false)} className="text-[#0B1F38]/50 text-sm font-bold hover:text-[#0B1F38] transition-colors">
-                            Annuler
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
+        setGroupementMembers(updated);
+        setShowPromotionPicker(null);
+        await saveCollaboratorsAndInvite(updated);
+        showToast(`${cible.name || cible.email} est désormais le Mandataire.`, 'success');
     };
 
-    const renderRemoveConfirmModal = () => {
-        if (!showRemoveConfirm) return null;
-        const isQuit = showRemoveConfirm.name === 'Quitter le groupement';
-
-        return (
-            <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={() => setShowRemoveConfirm(null)}></div>
-                <div className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
-                    <div className="p-6 text-center">
-                        <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
-                            <AlertCircle size={24} />
-                        </div>
-                        <h3 className="text-lg font-bold text-[#0B1F38] mb-2">
-                            {isQuit ? 'Quitter le groupement ?' : 'Retirer ce membre ?'}
-                        </h3>
-                        <p className="text-sm text-[#0B1F38]/60 leading-relaxed">
-                            {isQuit
-                                ? 'Êtes-vous sûr de vouloir quitter ce groupement ? le mandataire sera immédiatement notifié.'
-                                : `Voulez-vous vraiment retirer ${showRemoveConfirm.name} du groupement ? Cette action est irréversible.`
-                            }
-                        </p>
-                    </div>
-                    <div className="flex border-t border-[#0B1F38]/5">
-                        <button
-                            onClick={() => setShowRemoveConfirm(null)}
-                            className="flex-1 py-4 text-sm font-bold text-[#0B1F38]/40 hover:bg-gray-50 transition-colors border-r border-[#0B1F38]/5"
-                        >
-                            Annuler
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (isQuit) handleQuitGroupement();
-                                else removeCollaborator(showRemoveConfirm.index);
-                                setShowRemoveConfirm(null);
-                            }}
-                            className="flex-1 py-4 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors"
-                        >
-                            {isQuit ? 'Quitter' : 'Retirer'}
-                        </button>
-                    </div>
-                </div>
-            </div>
+    /** Membres pouvant reprendre le mandat : ceux qui ont accepté, hors soi-même. */
+    const successeursEligibles = React.useMemo(() => {
+        if (!showSuccessorPicker) return [];
+        const moi = groupementMembers[showSuccessorPicker.memberIdx];
+        return groupementMembers.filter(m =>
+            !m.deleted && m.status === 'accepte' && (m.id || m.email) !== (moi?.id || moi?.email)
         );
-    };
+    }, [showSuccessorPicker, groupementMembers]);
 
-    const renderPromotionPicker = () => {
-        if (!showPromotionPicker) return null;
-        const target = groupementMembers[showPromotionPicker.targetMemberIdx];
-        // Find the CURRENT Mandataire (they are the one being demoted)
-        const currentMandataire = groupementMembers.find(m => m.role === 'Mandataire' && !m.deleted);
-        const ownerIdx = groupementMembers.findIndex(m => m.role === 'Mandataire' && !m.deleted);
-
-        const handlePromote = async (ownerNewRole: string) => {
-            const updated = [...groupementMembers];
-            // 1. Promote target
-            updated[showPromotionPicker.targetMemberIdx] = { ...target, role: 'Mandataire' };
-            // 2. Retrograde owner
-            if (ownerIdx !== -1) {
-                updated[ownerIdx] = { ...updated[ownerIdx], role: ownerNewRole as any };
-            }
-            setGroupementMembers(updated);
-            setShowPromotionPicker(null);
-            await saveCollaboratorsAndInvite(updated);
-            showToast(`${target.name || target.email} est désormais le Mandataire.`, 'success');
-        };
-
-        return (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowPromotionPicker(null)}></div>
-                <div className="relative bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl flex flex-col p-8 animate-in zoom-in-95 duration-200 text-center">
-                    <div className="w-16 h-16 bg-[#00A3E0]/10 rounded-2xl flex items-center justify-center mx-auto mb-4 text-[#00A3E0]">
-                        <Crown size={32} />
-                    </div>
-                    <h3 className="text-2xl font-black text-[#0B1F38] tracking-tight">Promouvoir un Mandataire</h3>
-                    <p className="text-sm text-[#0B1F38]/50 mt-2 mb-8">
-                        Vous avez choisi de nommer <strong>{target.name || target.email}</strong> comme nouveau Mandataire.
-                        {currentMandataire && currentMandataire !== target && (
-                            <> Quel doit être le nouveau rôle de <strong>{currentMandataire.name || currentMandataire.email}</strong> ? </>
-                        )}
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <button
-                            onClick={() => handlePromote('Co-traitant')}
-                            className="p-6 rounded-2xl border-2 border-gray-100 hover:border-[#00A3E0] hover:bg-[#00A3E0]/5 transition-all group"
-                        >
-                            <div className="font-black text-[#0B1F38] group-hover:text-[#00A3E0] transition-colors">Co-traitant</div>
-                            <div className="text-[10px] text-[#0B1F38]/40 uppercase mt-1">Soutien solidaire</div>
-                        </button>
-                        <button
-                            onClick={() => handlePromote('Sous-traitant')}
-                            className="p-6 rounded-2xl border-2 border-gray-100 hover:border-[#003B71] hover:bg-[#003B71]/5 transition-all group"
-                        >
-                            <div className="font-black text-[#0B1F38] group-hover:text-[#003B71] transition-colors">Sous-traitant</div>
-                            <div className="text-[10px] text-[#0B1F38]/40 uppercase mt-1">Exécution technique</div>
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={() => setShowPromotionPicker(null)}
-                        className="mt-6 text-[#0B1F38]/30 hover:text-[#0B1F38] text-sm font-bold transition-colors"
-                    >
-                        Annuler
-                    </button>
-                </div>
-            </div>
-        );
-    };
-
-    const renderSuccessorPicker = () => {
-        if (!showSuccessorPicker) return null;
-
+    /** Transmission du mandat, même construction explicite du tableau à jour. */
+    const transmettreMandat = async (successeur: UIGroupementMember) => {
+        if (!showSuccessorPicker) return;
         const { memberIdx, newRole } = showSuccessorPicker;
-        const currentActive = groupementMembers.filter(m => !m.deleted);
-        const me = groupementMembers[memberIdx];
-        const potentialSuccessors = currentActive.filter(m => m.status === 'accepte' && (m.id || m.email) !== (me.id || me.email));
+        const moi = groupementMembers[memberIdx];
 
-        return (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-md" onClick={() => setShowSuccessorPicker(null)}></div>
-                <div className="relative bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl flex flex-col p-8 animate-in zoom-in-95 duration-200">
-                    <div className="text-center mb-8">
-                        <div className="w-16 h-16 bg-yellow-100 rounded-2xl flex items-center justify-center mx-auto mb-4 text-yellow-600">
-                            <Crown size={32} />
-                        </div>
-                        <h3 className="text-2xl font-black text-[#0B1F38] tracking-tight">Désigner un successeur</h3>
-                        <p className="text-sm text-[#0B1F38]/50 mt-2">
-                            Le rôle de Mandataire est obligatoire. Veuillez choisir un collaborateur parmi ceux ayant déjà accepté l'invitation pour prendre le relais.
-                        </p>
-                    </div>
+        const succIdx = groupementMembers.findIndex(m => (m.id || m.email) === (successeur.id || successeur.email));
+        const moiIdx = groupementMembers.findIndex(m => (m.id || m.email) === (moi.id || moi.email));
 
-                    <div className="space-y-3 max-h-[40vh] overflow-y-auto px-1">
-                        {potentialSuccessors.map((succ) => (
-                            <button
-                                key={succ.id || succ.email}
-                                onClick={async () => {
-                                    // Build the updated array directly (same pattern as promotion picker)
-                                    // This avoids the React state race condition where updateCollaborator()
-                                    // is async and saveCollaboratorsAndInvite() would read stale state.
-                                    const succIdx = groupementMembers.findIndex(m => (m.id || m.email) === (succ.id || succ.email));
-                                    const currentIdx = groupementMembers.findIndex(m => (m.id || m.email) === (me.id || me.email));
-                                    const updated = [...groupementMembers];
-                                    updated[succIdx] = { ...updated[succIdx], role: 'Mandataire' };
-                                    updated[currentIdx] = { ...updated[currentIdx], role: newRole as any };
-                                    setGroupementMembers(updated);
-                                    setShowSuccessorPicker(null);
-                                    await saveCollaboratorsAndInvite(updated);
-                                    showToast(`${succ.name || succ.email} est désormais le Mandataire.`, 'success');
-                                }}
-                                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 hover:border-[#00A3E0] hover:bg-[#00A3E0]/5 transition-all group text-left"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-[#0B1F38] font-bold group-hover:bg-[#00A3E0] group-hover:text-white transition-colors overflow-hidden">
-                                    {succ.photo_url ? (
-                                        <img src={succ.photo_url} alt="" className="w-full h-full object-cover" />
-                                    ) : (
-                                        (succ.name || succ.email || 'M').charAt(0).toUpperCase()
-                                    )}
-                                </div>
-                                <div>
-                                    <p className="font-bold text-[#0B1F38]">{succ.name || succ.email}</p>
-                                    <p className="text-[10px] text-[#0B1F38]/40 uppercase font-black tracking-widest">{succ.company || 'Entreprise'}</p>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
+        const updated = [...groupementMembers];
+        updated[succIdx] = { ...updated[succIdx], role: 'Mandataire' };
+        updated[moiIdx] = { ...updated[moiIdx], role: newRole as any };
 
-                    <div className="mt-8 flex gap-3">
-                        <button
-                            onClick={() => setShowSuccessorPicker(null)}
-                            className="flex-1 px-6 py-3 border border-gray-200 rounded-2xl font-bold text-[#0B1F38]/50 hover:bg-gray-50 transition-all"
-                        >
-                            Annuler
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
+        setGroupementMembers(updated);
+        setShowSuccessorPicker(null);
+        await saveCollaboratorsAndInvite(updated);
+        showToast(`${successeur.name || successeur.email} est désormais le Mandataire.`, 'success');
     };
 
     const executeOutcome = async (outcome: 'won' | 'lost') => {
@@ -4900,43 +4671,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         } finally {
             setLoading(false);
         }
-    };
-
-    const OutcomeConfirmationModal = () => {
-        if (!showOutcomeModal) return null;
-        const isWon = showOutcomeModal === 'won';
-        return (
-            <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={() => setShowOutcomeModal(null)}></div>
-                <div className="relative bg-white rounded-[2rem] p-10 max-w-md w-full text-center shadow-2xl animate-in zoom-in-95 duration-200">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isWon ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                        {isWon ? <Trophy size={40} /> : <Frown size={40} />}
-                    </div>
-                    <h2 className="text-2xl font-bold text-[#0B1F38] mb-4">
-                        {isWon ? "Félicitations !" : "Résultat du marché"}
-                    </h2>
-                    <p className="text-[#0B1F38]/60 mb-8 font-medium">
-                        {isWon
-                            ? "Confirmez-vous que vous avez remporté ce marché ?"
-                            : "Confirmez-vous que ce marché est perdu ?"}
-                    </p>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => setShowOutcomeModal(null)}
-                            className="flex-1 py-3 px-4 border border-[#0B1F38]/10 rounded-xl font-bold text-[#0B1F38] hover:bg-gray-50 transition-all"
-                        >
-                            Annuler
-                        </button>
-                        <button
-                            onClick={() => executeOutcome(showOutcomeModal)}
-                            className={`flex-1 py-3 px-4 rounded-xl font-bold text-white transition-all shadow-lg ${isWon ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'}`}
-                        >
-                            Confirmer
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
     };
 
     // ==========================================
@@ -5320,7 +5054,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     onRelancer={handleRelancer}
                     onChangerRole={changerRoleMembre}
                 />
-                {renderGroupementTypeModal()}
+                <GroupementTypeModal
+                    ouvert={showGroupementTypeModal}
+                    onChoisir={(type) => {
+                        setShowGroupementTypeModal(false);
+                        handleGoToVerification(type);
+                    }}
+                    onAnnuler={() => setShowGroupementTypeModal(false)}
+                />
                 {renderAddManualModal()}
                 {/* Refus d'invitation : irréversible, donc confirmé — et on
                     indique le contact du mandataire, seule voie de recours
@@ -5421,9 +5162,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 />
                 {renderCompanyDocPicker()}
                 {renderFinalizeConfirmModal()}
-                {renderSuccessorPicker()}
-                {renderPromotionPicker()}
-                {renderRemoveConfirmModal()}
 
                 {/* Exit Confirmation Modal */}
                 {showExitConfirm && (
@@ -5477,10 +5215,53 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     planLabel={PLANS_CONFIG[(userProfile?.plan as PlanType) || PLANS_TYPES.free]?.label || 'Gratuit'}
                 />
 
-                {renderRemoveConfirmModal()}
-                {renderDeleteTenderModal()}
-                {renderSuccessorPicker()}
-                {OutcomeConfirmationModal()}
+                {/* Retrait d'un membre / départ volontaire. Même présentation
+                    que les autres confirmations de l'application : la modale
+                    dupliquait `ConfirmDialog` à l'identique. */}
+                <ConfirmDialog
+                    ouvert={!!showRemoveConfirm}
+                    titre={showRemoveConfirm?.name === 'Quitter le groupement' ? 'Quitter le groupement ?' : 'Retirer ce membre ?'}
+                    message={showRemoveConfirm?.name === 'Quitter le groupement'
+                        ? 'Êtes-vous sûr de vouloir quitter ce groupement ? le mandataire sera immédiatement notifié.'
+                        : `Voulez-vous vraiment retirer ${showRemoveConfirm?.name} du groupement ? Cette action est irréversible.`}
+                    libelleConfirmer={showRemoveConfirm?.name === 'Quitter le groupement' ? 'Quitter' : 'Retirer'}
+                    onConfirmer={() => {
+                        if (!showRemoveConfirm) return;
+                        if (showRemoveConfirm.name === 'Quitter le groupement') handleQuitGroupement();
+                        else removeCollaborator(showRemoveConfirm.index);
+                        setShowRemoveConfirm(null);
+                    }}
+                    onAnnuler={() => setShowRemoveConfirm(null)}
+                />
+
+                <ConfirmDialog
+                    ouvert={showDeleteTenderModal}
+                    titre="Supprimer le dossier ?"
+                    message="Cette action est irréversible. Toutes les données associées seront définitivement supprimées."
+                    icone={<Trash2 size={24} aria-hidden="true" />}
+                    onConfirmer={handleDeleteTender}
+                    onAnnuler={() => setShowDeleteTenderModal(false)}
+                />
+
+                <MandatairePromotionModal
+                    cible={showPromotionPicker ? groupementMembers[showPromotionPicker.targetMemberIdx] : null}
+                    mandataireActuel={groupementMembers.find(m => m.role === 'Mandataire' && !m.deleted)}
+                    onPromouvoir={promouvoirMandataire}
+                    onAnnuler={() => setShowPromotionPicker(null)}
+                />
+
+                <MandataireSuccessionModal
+                    ouvert={!!showSuccessorPicker}
+                    successeurs={successeursEligibles}
+                    onChoisir={transmettreMandat}
+                    onAnnuler={() => setShowSuccessorPicker(null)}
+                />
+
+                <OutcomeConfirmModal
+                    issue={showOutcomeModal}
+                    onConfirmer={executeOutcome}
+                    onAnnuler={() => setShowOutcomeModal(null)}
+                />
 
                 {showChatDrawer && tenderId && (
                     <ChatDrawer

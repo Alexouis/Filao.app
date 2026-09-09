@@ -19,6 +19,8 @@ import {
   captureAcquisitionParams, getAcquisitionParams, resolveSourceInscription,
 } from '../src/helpers/acquisitionHelpers.ts';
 
+import { downloadICalendar } from '../src/helpers/icalHelpers.ts';
+
 // ---------------------------------------------------------------------------
 // Aides
 // ---------------------------------------------------------------------------
@@ -145,5 +147,116 @@ test('resolveSourceInscription : toute issue respecte la contrainte CHECK en bas
   ];
   for (const [invitation, libelle] of cas) {
     assert.ok(SOURCES_AUTORISEES.includes(resolveSourceInscription(invitation)), libelle);
+  }
+});
+
+// ===========================================================================
+// Export iCalendar — déclenchement du téléchargement
+// ===========================================================================
+// `buildICalendar` est couvert par les tests purs. Ce qui se vérifie ici est
+// l'autre moitié : le nom du fichier, le type MIME, et le fait que l'URL objet
+// soit bien révoquée — une fuite mémoire silencieuse sinon.
+
+/** Instrumente le DOM pour observer le téléchargement sans rien télécharger. */
+const observerTelechargement = () => {
+  const cree: string[] = [];
+  const revoquees: string[] = [];
+  const clics: HTMLAnchorElement[] = [];
+
+  const creerOrigine = URL.createObjectURL;
+  const revoquerOrigine = URL.revokeObjectURL;
+  const creerElementOrigine = document.createElement.bind(document);
+
+  URL.createObjectURL = ((blob: Blob) => {
+    const url = `blob:test/${cree.length}`;
+    cree.push(url);
+    (blob as any).__url = url;
+    return url;
+  }) as typeof URL.createObjectURL;
+  URL.revokeObjectURL = ((url: string) => { revoquees.push(url); }) as typeof URL.revokeObjectURL;
+
+  document.createElement = ((nom: string) => {
+    const el = creerElementOrigine(nom);
+    if (nom === 'a') {
+      // Un vrai clic tenterait une navigation : on l'intercepte.
+      (el as HTMLAnchorElement).click = () => { clics.push(el as HTMLAnchorElement); };
+    }
+    return el;
+  }) as typeof document.createElement;
+
+  return {
+    cree, revoquees, clics,
+    restaurer: () => {
+      URL.createObjectURL = creerOrigine;
+      URL.revokeObjectURL = revoquerOrigine;
+      document.createElement = creerElementOrigine;
+    },
+  };
+};
+
+const aoAvecEcheance = () => ({
+  id: 'ao-1',
+  titre: 'Réfection de toiture',
+  statut: 'En cours',
+  date_limite: '2030-04-15',
+  jalons: [],
+});
+
+test('downloadICalendar : nomme le fichier et révoque l’URL objet', () => {
+  const espion = observerTelechargement();
+  try {
+    const nombre = downloadICalendar([aoAvecEcheance()]);
+
+    assert.equal(espion.clics.length, 1, 'un seul clic de téléchargement attendu');
+    assert.equal(espion.clics[0].download, 'filao-calendrier.ics');
+    // Sans révocation, le contenu du calendrier resterait en mémoire jusqu'au
+    // rechargement de la page.
+    assert.deepEqual(espion.revoquees, espion.cree);
+    assert.equal(nombre, 1, 'une échéance exportée');
+  } finally {
+    espion.restaurer();
+  }
+});
+
+test('downloadICalendar : le lien n’est pas laissé dans le document', () => {
+  const espion = observerTelechargement();
+  try {
+    downloadICalendar([aoAvecEcheance()]);
+    assert.equal(document.querySelectorAll('a[download]').length, 0);
+  } finally {
+    espion.restaurer();
+  }
+});
+
+test('downloadICalendar : un nom de fichier peut être imposé', () => {
+  const espion = observerTelechargement();
+  try {
+    downloadICalendar([aoAvecEcheance()], { filename: 'echeances-2030.ics' });
+    assert.equal(espion.clics[0].download, 'echeances-2030.ics');
+  } finally {
+    espion.restaurer();
+  }
+});
+
+test('downloadICalendar : les dossiers clos sont exclus, sauf demande explicite', () => {
+  // C'est ce que compte le bouton pour annoncer « n échéances exportées » :
+  // un décompte faux rendrait le message trompeur.
+  const espion = observerTelechargement();
+  try {
+    const clos = [{ ...aoAvecEcheance(), statut: 'Gagné' }];
+    assert.equal(downloadICalendar(clos), 0);
+    assert.equal(downloadICalendar(clos, { includeClosed: true }), 1);
+  } finally {
+    espion.restaurer();
+  }
+});
+
+test('downloadICalendar : liste vide → aucun événement, pas d’erreur', () => {
+  const espion = observerTelechargement();
+  try {
+    assert.equal(downloadICalendar([]), 0);
+    assert.equal(espion.clics.length, 1, 'le fichier est produit même vide');
+  } finally {
+    espion.restaurer();
   }
 });

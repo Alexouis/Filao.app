@@ -116,3 +116,34 @@ export const buildICalendar = (
     lines.push('END:VCALENDAR');
     return lines.map(foldLine).join('\r\n');
 };
+
+/**
+ * Déclenche le téléchargement d'un `.ics` dans le navigateur.
+ *
+ * Le lien est créé, cliqué et retiré dans la foulée : c'est le seul moyen de
+ * nommer le fichier téléchargé, `window.open` sur un blob laissant un nom
+ * aléatoire. L'URL objet est révoquée aussitôt, sans quoi le contenu du
+ * calendrier resterait en mémoire jusqu'au rechargement de la page.
+ *
+ * @returns le nombre d'événements écrits, pour que l'appelant puisse le dire à
+ *          l'utilisateur plutôt que de le laisser ouvrir le fichier pour savoir.
+ */
+export const downloadICalendar = (
+    tenders: TenderLike[],
+    options: { includeClosed?: boolean; filename?: string } = {}
+): number => {
+    const { includeClosed, filename = 'filao-calendrier.ics' } = options;
+    const content = buildICalendar(tenders, { includeClosed });
+
+    const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const lien = document.createElement('a');
+    lien.href = url;
+    lien.download = filename;
+    document.body.appendChild(lien);
+    lien.click();
+    document.body.removeChild(lien);
+    URL.revokeObjectURL(url);
+
+    return (content.match(/BEGIN:VEVENT/g) || []).length;
+};

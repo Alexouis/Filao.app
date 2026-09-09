@@ -39,6 +39,14 @@ export interface ConfirmDialogProps {
      * confirmation neutre, où le rouge serait un contresens.
      */
     destructif?: boolean;
+    /**
+     * Icône du bandeau. `AlertCircle` par défaut.
+     *
+     * Sert aux confirmations où le pictogramme porte du sens — une corbeille
+     * pour une suppression. Sans ce réglage, ces cas dupliquaient la modale
+     * entière pour changer une seule icône.
+     */
+    icone?: React.ReactNode;
     onConfirmer: () => void;
     onAnnuler: () => void;
 }
@@ -48,6 +56,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     libelleConfirmer = 'Supprimer',
     libelleAnnuler = 'Annuler',
     destructif = true,
+    icone,
     onConfirmer, onAnnuler,
 }) => {
     if (!ouvert) return null;
@@ -55,12 +64,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-[#0B1F38]/40 backdrop-blur-sm" onClick={onAnnuler}></div>
-            <div className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="titre-confirmation"
+                className="relative bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+            >
                 <div className="p-6 text-center">
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${destructif ? 'bg-red-50 text-red-500' : 'bg-[#00A3E0]/10 text-[#00A3E0]'}`}>
-                        <AlertCircle size={24} />
+                        {icone ?? <AlertCircle size={24} aria-hidden="true" />}
                     </div>
-                    <h3 className="text-lg font-bold text-[#0B1F38] mb-2">{titre}</h3>
+                    <h3 id="titre-confirmation" className="text-lg font-bold text-[#0B1F38] mb-2">{titre}</h3>
                     <p className="text-sm text-[#0B1F38]/60 leading-relaxed">{message}</p>
                 </div>
                 <div className="flex border-t border-[#0B1F38]/5">
