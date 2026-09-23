@@ -28,6 +28,10 @@ const EVENT_VERS_STATUT: Record<string, string> = {
   delivered: "livre",
   opened: "ouvert",
   uniqueOpened: "ouvert",
+  unique_opened: "ouvert",
+  // Rejet côté Brevo (expéditeur non validé, quota…). Non mappé, il laissait
+  // la ligne en « envoye » alors que rien n'était parti.
+  error: "erreur",
   click: "clique",
   deferred: "differe",
   soft_bounce: "differe",
