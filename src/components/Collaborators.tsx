@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { competencesDerivees, correspondCriteres, optionsFiltre, type CriteresReseau, type TaxonomieBrute } from '../helpers/reseauFiltresHelpers';
 import { useSearchParams } from 'react-router-dom';
 import {
     Search,
@@ -601,99 +602,39 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     };
 
     // --- FILTERS ---
-    /**
-     * Compétences de chaque entreprise, complétées par la hiérarchie du
-     * référentiel : une spécialité implique son domaine. Beaucoup
-     * d'entreprises renseignent leurs spécialités sans cocher le domaine
-     * correspondant ; filtrer sur la seule table `company_domains` les
-     * rendait invisibles.
-     */
-    const competences = useMemo(() => {
-        const domaineDeSpecialite = new Map<string, string>(refSpecialties.map((sp: any) => [sp.id, sp.domain_id]));
-        const res: Record<string, { domaines: Set<string>; specialites: Set<string>; tags: Set<string>; zones: string[] }> = {};
-        Object.entries(companiesSpecialties as Record<string, any>).forEach(([id, t]) => {
-            const domaines = new Set<string>(t.domains);
-            t.specialties.forEach((sid: string) => {
-                const d = domaineDeSpecialite.get(sid);
-                if (d) domaines.add(d);
-            });
-            res[id] = {
-                domaines,
-                specialites: new Set<string>(t.specialties),
-                tags: new Set<string>(t.expertise_tags),
-                zones: t.geo_zones.map((zid: string) => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean),
-            };
-        });
-        return res;
-    }, [companiesSpecialties, refSpecialties, refGeoZones]);
+    // Règles dans `reseauFiltresHelpers` (testées) : une spécialité implique
+    // son domaine, et les options viennent de l'onglet actif.
+    const competences = useMemo(
+        () => competencesDerivees(companiesSpecialties as Record<string, TaxonomieBrute>, refSpecialties, refGeoZones),
+        [companiesSpecialties, refSpecialties, refGeoZones]
+    );
 
     /** Entreprises de l'onglet actif : les filtres s'y adaptent. */
     const source = activeTab === 'network' ? myNetwork : filaoNetwork;
 
-    type Criteres = { domaine: string; specialite: string; tag: string; zone: string };
-
-    const correspond = useCallback((c: NetworkCompany, crit: Criteres) => {
-        const comp = competences[c.id];
-        if (crit.domaine && !comp?.domaines.has(crit.domaine)) return false;
-        if (crit.specialite && !comp?.specialites.has(crit.specialite)) return false;
-        if (crit.tag && !comp?.tags.has(crit.tag)) return false;
-        if (crit.zone) {
-            const z = crit.zone.toLowerCase();
-            const dansVille = !!c.ville && c.ville.toLowerCase() === z;
-            const dansZone = !!comp?.zones.some(l => l.toLowerCase() === z);
-            if (!dansVille && !dansZone) return false;
-        }
-        return true;
-    }, [competences]);
-
-    const criteres: Criteres = { domaine: filterDomain, specialite: filterSpecialty, tag: filterExpertiseTag, zone: filterRegion };
+    const criteres: CriteresReseau = { domaine: filterDomain, specialite: filterSpecialty, tag: filterExpertiseTag, zone: filterRegion };
 
     const displayedCompanies = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
-        return source.filter(c => (!q || c.nom.toLowerCase().includes(q)) && correspond(c, criteres));
+        return source.filter(c => (!q || c.nom.toLowerCase().includes(q)) && correspondCriteres(c, competences[c.id], criteres));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [source, searchQuery, correspond, filterDomain, filterSpecialty, filterExpertiseTag, filterRegion]);
+    }, [source, searchQuery, competences, filterDomain, filterSpecialty, filterExpertiseTag, filterRegion]);
 
-    /**
-     * Options d'un filtre : seulement les valeurs présentes dans l'onglet
-     * actif, avec le nombre d'entreprises qu'elles donneraient compte tenu des
-     * AUTRES filtres. Plus de choix menant à une liste vide sans le savoir.
-     * La valeur sélectionnée reste proposée, même à zéro (changement d'onglet).
-     */
-    const optionsDe = (
-        cle: keyof Criteres,
-        valeursDe: (c: NetworkCompany) => string[],
-        libelleDe: (id: string) => string | undefined,
-        selection: string,
-    ) => {
-        const compte = new Map<string, number>();
-        const autres = { ...criteres, [cle]: '' };
-        source.forEach(c => {
-            if (!correspond(c, autres)) return;
-            new Set(valeursDe(c)).forEach(v => compte.set(v, (compte.get(v) ?? 0) + 1));
-        });
-        if (selection && !compte.has(selection)) compte.set(selection, 0);
-        return [...compte]
-            .map(([id, n]) => ({ id, n, label: libelleDe(id) ?? '' }))
-            .filter(o => o.label && (o.id === selection || !/^autre/i.test(o.label)))
-            .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
-    };
+    const optionsDomaines = optionsFiltre(source, competences, criteres, 'domaine',
+        (_, comp) => [...(comp?.domaines ?? [])],
+        id => refDomains.find((d: any) => d.id === id)?.label);
 
-    const optionsDomaines = optionsDe('domaine',
-        c => [...(competences[c.id]?.domaines ?? [])],
-        id => refDomains.find((d: any) => d.id === id)?.label, filterDomain);
+    const optionsSpecialites = optionsFiltre(source, competences, criteres, 'specialite',
+        (_, comp) => [...(comp?.specialites ?? [])],
+        id => refSpecialties.find((sp: any) => sp.id === id)?.label);
 
-    const optionsSpecialites = optionsDe('specialite',
-        c => [...(competences[c.id]?.specialites ?? [])],
-        id => refSpecialties.find((sp: any) => sp.id === id)?.label, filterSpecialty);
+    const optionsTags = optionsFiltre(source, competences, criteres, 'tag',
+        (_, comp) => [...(comp?.tags ?? [])],
+        id => refExpertiseTags.find((t: any) => t.id === id)?.label);
 
-    const optionsTags = optionsDe('tag',
-        c => [...(competences[c.id]?.tags ?? [])],
-        id => refExpertiseTags.find((t: any) => t.id === id)?.label, filterExpertiseTag);
-
-    const optionsZones = optionsDe('zone',
-        c => [...(c.ville ? [c.ville] : []), ...(competences[c.id]?.zones ?? [])],
-        id => id, filterRegion);
+    const optionsZones = optionsFiltre(source, competences, criteres, 'zone',
+        (e, comp) => [...(e.ville ? [e.ville] : []), ...(comp?.zones ?? [])],
+        id => id);
 
     const activeFilterCount = [filterDomain, filterSpecialty, filterExpertiseTag, filterRegion].filter(Boolean).length;
 

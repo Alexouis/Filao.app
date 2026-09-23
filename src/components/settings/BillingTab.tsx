@@ -106,11 +106,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
 
         useEffect(() => setVal(initialValue), [initialValue, isOpen]);
 
+        const [erreurSaisie, setErreurSaisie] = useState<string | null>(null);
+
+        // Une sauvegarde refusée fermait quand même la fenêtre, comme réussie.
         const handleSave = async () => {
             setLoading(true);
-            await onSave(val);
-            setLoading(false);
-            onClose();
+            setErreurSaisie(null);
+            try {
+                await onSave(val);
+                onClose();
+            } catch (err: any) {
+                console.error('Enregistrement :', err);
+                setErreurSaisie(err?.message || "Enregistrement impossible. Réessayez.");
+            } finally {
+                setLoading(false);
+            }
         };
 
         if (!isOpen) return null;
@@ -123,6 +133,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                     <h3 className="text-lg font-bold text-gray-900 mb-4">{title}</h3>
                     <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
                     <input type={type} value={val} onChange={e => setVal(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:border-filao-primary focus:ring-1 focus:ring-filao-primary/30 transition-colors mb-4" />
+                    {erreurSaisie && <p className="text-xs text-red-600 -mt-2 mb-3">{erreurSaisie}</p>}
                     <button onClick={handleSave} disabled={loading} className="w-full bg-filao-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
                         {loading ? <Loader2 className="w-4 h-4 animate-spin inline" /> : 'Enregistrer'}
                     </button>
@@ -371,7 +382,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                 label="Numéro de TVA"
                 initialValue={userProfile?.tva || ''}
                 onSave={async (val: string) => {
-                    await supabase.from('utilisateurs').update({ tva: val }).eq('id', userProfile?.id);
+                    const { error } = await supabase.from('utilisateurs').update({ tva: val }).eq('id', userProfile?.id);
+                    if (error) throw error;
                     onUpdate();
                 }}
             />
@@ -384,7 +396,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                 type="email"
                 initialValue={userProfile?.email_facturation || userProfile?.email || ''}
                 onSave={async (val: string) => {
-                    await supabase.from('utilisateurs').update({ email_facturation: val }).eq('id', userProfile?.id);
+                    const { error } = await supabase.from('utilisateurs').update({ email_facturation: val }).eq('id', userProfile?.id);
+                    if (error) throw error;
                     onUpdate();
                 }}
             />

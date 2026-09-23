@@ -7,6 +7,7 @@ import {
   type PointDepot,
 } from "./fileValidation.ts";
 import { verifierDebit } from "./rateLimit.ts";
+import { invitationParCode } from "./invitationCode.ts";
 
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
@@ -189,12 +190,7 @@ Deno.serve(async (req: Request) => {
         const { data } = await admin.from("invitations")
           .select("email, tender_id, status, access_code, revoked_at, expires_at")
           .eq("tender_id", tenderId);
-        invitation = (data ?? []).find((i: any) =>
-          String(i.email ?? "").toLowerCase() === emailInvite.trim().toLowerCase()
-          && String(i.access_code ?? "").toUpperCase() === codeAcces.trim().toUpperCase()
-          && !i.revoked_at
-          && (!i.expires_at || new Date(i.expires_at).getTime() > Date.now())
-        ) ?? null;
+        invitation = invitationParCode(data ?? [], emailInvite, codeAcces) as any;
       }
       // Seul un invité ayant ACCEPTÉ dépose. L'écran grisait déjà les
       // emplacements avant acceptation, mais rien ne l'imposait côté serveur,

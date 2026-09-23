@@ -19,6 +19,7 @@ import {
     ficheDepuisSirene,
 } from '../../helpers/inseeLabels';
 import { dateLocaleISO } from '../../helpers/dateHelpers';
+import { enregistrerTaxonomie } from '../../helpers/taxonomieEntreprise';
 
 interface CompanyTabProps {
     userProfile: UserProfile | null;
@@ -704,7 +705,8 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             };
 
             if (entId) {
-                await supabase.from('entreprises').update(companyPayload).eq('id', entId);
+                const { error: erreurFiche } = await supabase.from('entreprises').update(companyPayload).eq('id', entId);
+                if (erreurFiche) throw erreurFiche;
             } else if (formData.nom) {
                 const { data: newEnt, error: createError } = await supabase.from('entreprises').insert({
                     ...companyPayload,
@@ -714,53 +716,24 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 entId = newEnt.id;
             }
 
-            await supabase.from('utilisateurs').update({
+            const { error: erreurProfil } = await supabase.from('utilisateurs').update({
                 entreprise_id: entId,
                 entreprise: formData.nom,
                 poste: formData.poste,
                 tva: formData.tva,
             }).eq('id', userProfile.id);
+            if (erreurProfil) throw erreurProfil;
 
-            // Start Taxonomy Update
+            // Compétences : écriture sans fenêtre de perte ni erreur ignorée
+            // (voir `enregistrerTaxonomie`).
             if (entId) {
-                // 1. Natures
-                await supabase.from('company_natures').delete().eq('entreprise_id', entId);
-                if (selectedNatures.length > 0) {
-                    await supabase.from('company_natures').insert(selectedNatures.map(n => ({ entreprise_id: entId, nature: n })));
-                }
-
-                // 2. Domains
-                await supabase.from('company_domains').delete().eq('entreprise_id', entId);
-                if (selectedDomains.length > 0) {
-                    await supabase.from('company_domains').insert(selectedDomains.map(d => ({ entreprise_id: entId, domain_id: d })));
-                }
-
-                // 3. Specialties
-                await supabase.from('company_specialties').delete().eq('entreprise_id', entId);
-                if (selectedSpecialties.length > 0) {
-                    await supabase.from('company_specialties').insert(selectedSpecialties.map(s => ({
-                        entreprise_id: entId,
-                        specialty_id: s.specialty_id,
-                        custom_label: s.custom_label || null
-                    })));
-                }
-
-                // 4. Update Hierarchical Taxonomies (Junctions)
-                // Expertise Tags
-                await supabase.from('company_expertise_tags').delete().eq('entreprise_id', entId);
-                if (selectedExpertiseTags.length > 0) {
-                    await supabase.from('company_expertise_tags').insert(
-                        selectedExpertiseTags.map(tag_id => ({ entreprise_id: entId, tag_id }))
-                    );
-                }
-
-                // Geo Zones
-                await supabase.from('company_geo_zones').delete().eq('entreprise_id', entId);
-                if (selectedGeoZones.length > 0) {
-                    await supabase.from('company_geo_zones').insert(
-                        selectedGeoZones.map(geo_zone_id => ({ entreprise_id: entId, geo_zone_id }))
-                    );
-                }
+                await enregistrerTaxonomie(entId, {
+                    natures: selectedNatures,
+                    domaines: selectedDomains,
+                    specialites: selectedSpecialties,
+                    tags: selectedExpertiseTags,
+                    zones: selectedGeoZones,
+                });
             }
 
             setSaveSuccess(true);
@@ -978,14 +951,25 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
         const rowId = standardDocIds[field];
         if (!rowId) return;
         const value = standardDocExpiry[field] || null;
-        await supabase
+        const { error: erreurExpiration } = await supabase
             .from('documents_candidature')
             .update({ date_expiration: value, updated_at: new Date().toISOString() })
             .eq('id', rowId);
+        // Une date d'expiration non enregistrée fausse les alertes
+        // d'attestation expirée : on le dit.
+        if (erreurExpiration) {
+            console.error("Date d'expiration :", erreurExpiration);
+            setError("La date d'expiration n'a pas pu être enregistrée. Réessayez.");
+        }
     };
 
     const handleValidateCustomDoc = async (docId: string) => {
-        await supabase.from('documents_candidature').update({ statut: 'valide' }).eq('id', docId);
+        const { error: erreurValidation } = await supabase.from('documents_candidature').update({ statut: 'valide' }).eq('id', docId);
+        if (erreurValidation) {
+            console.error('Validation du document :', erreurValidation);
+            setError("Le document n'a pas pu être validé. Réessayez.");
+            return;
+        }
         setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, statut: 'valide' } : d));
     };
 

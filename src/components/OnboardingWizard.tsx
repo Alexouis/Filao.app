@@ -10,6 +10,8 @@ import { OnboardingCompetences } from './OnboardingCompetences';
 import { OnboardingCompanyStep } from './OnboardingCompanyStep';
 import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS, getFormeJuridiqueLabel } from '../config';
 import { track } from '../helpers/analytics';
+import { enregistrerTaxonomie } from '../helpers/taxonomieEntreprise';
+import { useToast } from './ui/Toast';
 
 // Types for the new taxonomy
 interface RefDomain {
@@ -90,6 +92,7 @@ const FICHE_VIERGE = {
 };
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile, onComplete }) => {
+    const { showToast } = useToast();
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
 
@@ -683,10 +686,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     console.warn('Rattachement au réseau échoué', reseauErr);
                 }
 
-                await supabase.from('utilisateurs').update({
+                // Le rattachement conditionne tout le reste (rôle admin du
+                // créateur, droits d'écriture) : un échec doit arrêter l'étape.
+                const { error: erreurRattachement } = await supabase.from('utilisateurs').update({
                     entreprise_id: currentEntId,
                     poste: userData.poste || null,
                 }).eq('id', userProfile.id);
+                if (erreurRattachement) throw erreurRattachement;
             }
 
             // Sans identifiant d'entreprise, l'étape 2 n'aurait rien à quoi
@@ -717,29 +723,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
 
         setSaving(true);
         try {
-            // 1. Natures
-            await supabase.from('company_natures').delete().eq('entreprise_id', entrepriseId);
-            await supabase.from('company_natures').insert(selectedNatures.map(n => ({ entreprise_id: entrepriseId, nature: n })));
-
-            // 2. Domains
-            await supabase.from('company_domains').delete().eq('entreprise_id', entrepriseId);
-            await supabase.from('company_domains').insert(selectedDomains.map(d => ({ entreprise_id: entrepriseId, domain_id: d })));
-
-            // 3. Specialties
-            await supabase.from('company_specialties').delete().eq('entreprise_id', entrepriseId);
-            await supabase.from('company_specialties').insert(selectedSpecialties.map(s => ({
-                entreprise_id: entrepriseId,
-                specialty_id: s.specialty_id,
-                custom_label: s.custom_label || null
-            })));
-
-            // 4. Geo Zones
-            await supabase.from('company_geo_zones').delete().eq('entreprise_id', entrepriseId);
-            await supabase.from('company_geo_zones').insert(selectedZones.map(z => ({ entreprise_id: entrepriseId, geo_zone_id: z })));
+            // Écriture sans fenêtre de perte ni erreur ignorée.
+            await enregistrerTaxonomie(entrepriseId, {
+                natures: selectedNatures,
+                domaines: selectedDomains,
+                specialites: selectedSpecialties,
+                zones: selectedZones,
+            });
 
             return true;
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error saving taxonomy:', err);
+            // L'étape restait affichée sans un mot : l'utilisateur recliquait
+            // sans comprendre.
+            showToast(err?.message || "Vos compétences n'ont pas pu être enregistrées. Réessayez.", 'error');
             return false;
         } finally {
             setSaving(false);
@@ -750,13 +747,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
     const handleComplete = async (goToWizard: boolean) => {
         setSaving(true);
         try {
-            await supabase.from('utilisateurs').update({
+            const { error: erreurFin } = await supabase.from('utilisateurs').update({
                 onboarding_completed: true,
             }).eq('id', userProfile.id);
+            // Sans ce contrôle, un échec renvoyait l'utilisateur dans
+            // l'onboarding à la connexion suivante, sans explication.
+            if (erreurFin) throw erreurFin;
             track('onboarding_termine', {});
             onComplete(goToWizard);
         } catch (err) {
             console.error('Error completing onboarding:', err);
+            showToast("La fin de l'inscription n'a pas pu être enregistrée. Réessayez.", 'error');
         } finally {
             setSaving(false);
         }

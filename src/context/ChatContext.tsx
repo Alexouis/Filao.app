@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { dossiersDeMessagerie, totalNonLus } from '../helpers/messagerieHelpers';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 
@@ -12,9 +13,12 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { user } = useAuth();
+    const { user, userProfile } = useAuth();
     const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
-    const [totalUnreadCount, setTotalUnreadCount] = useState(0);
+    // Dérivé des compteurs par dossier. Il était tenu à jour à part, et
+    // décrémenté DANS une fonction de mise à jour d'état — que React exécute
+    // deux fois en mode strict : le total baissait donc de deux.
+    const totalUnreadCount = useMemo(() => totalNonLus(unreadCounts), [unreadCounts]);
 
     const refreshUnreadCounts = async () => {
         if (!user) return;
@@ -29,15 +33,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     groupements (entreprise_id, statut)
                 `);
 
-            const accessibleTenderIds = tenders?.filter(t => {
-                const isCreator = t.createur_id === user.id;
-                const isMember = t.groupements?.some((g: any) => g.statut === 'accepte');
-                return isCreator || isMember;
-            }).map(t => t.id) || [];
+            const accessibleTenderIds = dossiersDeMessagerie(tenders ?? [], user.id, userProfile?.entreprise_id);
 
             if (accessibleTenderIds.length === 0) {
                 setUnreadCounts({});
-                setTotalUnreadCount(0);
                 return;
             }
 
@@ -55,7 +54,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // 3. For each tender, count messages created AFTER last_viewed_at (or all if never viewed)
             // This is slightly inefficient but safe for small/medium teams.
             const newCounts: Record<string, number> = {};
-            let total = 0;
 
             await Promise.all(accessibleTenderIds.map(async (tid) => {
                 const lastViewedAt = lastViewedMap[tid];
@@ -73,11 +71,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const { count } = await query;
                 const c = count || 0;
                 newCounts[tid] = c;
-                total += c;
             }));
 
             setUnreadCounts(newCounts);
-            setTotalUnreadCount(total);
         } catch (err) {
             console.error('Error refreshing unread counts:', err);
         }
@@ -97,12 +93,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (!error) {
                 // Optimistic update
-                setUnreadCounts(prev => {
-                    const oldCount = prev[tenderId] || 0;
-                    const next = { ...prev, [tenderId]: 0 };
-                    setTotalUnreadCount(t => Math.max(0, t - oldCount));
-                    return next;
-                });
+                setUnreadCounts(prev => ({ ...prev, [tenderId]: 0 }));
             }
         } catch (err) {
             console.error('Error marking as read:', err);
@@ -137,9 +128,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
         } else {
             setUnreadCounts({});
-            setTotalUnreadCount(0);
         }
-    }, [user]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user, userProfile?.entreprise_id]);
 
     return (
         <ChatContext.Provider value={{ unreadCounts, totalUnreadCount, markAsRead, refreshUnreadCounts }}>

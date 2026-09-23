@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { lirePieceCollaborateur, concernePiece } from "./documentNaming.ts";
 import { verifierDebit } from "./rateLimit.ts";
+import { invitationParCode } from "./invitationCode.ts";
 
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
@@ -67,19 +68,11 @@ const resoudreInvitation = async (
     return ligne?.email ? { email: String(ligne.email), tender_id: String(ligne.tender_id), status: String(ligne.status) } : null;
   }
 
-  const code = String(accessCode ?? "").trim().toUpperCase();
-  const adresse = String(email ?? "").trim().toLowerCase();
-  if (!tenderId || !/^[0-9a-f-]{36}$/i.test(String(tenderId)) || code.length < 6 || !adresse) return null;
-
+  if (!tenderId || !/^[0-9a-f-]{36}$/i.test(String(tenderId))) return null;
   const { data } = await admin.from("invitations")
     .select("email, tender_id, status, access_code, revoked_at, expires_at")
     .eq("tender_id", tenderId);
-  const ligne = (data ?? []).find((i: any) =>
-    String(i.email ?? "").toLowerCase() === adresse
-    && String(i.access_code ?? "").toUpperCase() === code
-    && !i.revoked_at
-    && (!i.expires_at || new Date(i.expires_at).getTime() > Date.now())
-  );
+  const ligne: any = invitationParCode(data ?? [], String(email ?? ""), String(accessCode ?? ""));
   return ligne ? { email: String(ligne.email), tender_id: String(ligne.tender_id), status: String(ligne.status) } : null;
 };
 

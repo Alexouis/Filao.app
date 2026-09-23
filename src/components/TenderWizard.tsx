@@ -55,6 +55,7 @@ import { emailValide, nettoyerTexteLibre, contientBalise, motifIlikeExact } from
 import { supprimerDossier } from '../helpers/suppressionDossier';
 import { messageErreurFonction } from '../helpers/erreurFonction';
 import { enregistrerIssue } from '../helpers/issueDossier';
+import { enregistrerCompetencesDossier } from '../helpers/taxonomieEntreprise';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
@@ -1428,9 +1429,15 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const supprimerDocumentDCE = async (doc: any) => {
         if (!tenderId) return;
         try {
-            await supabase.storage.from('documents').remove([doc.path]);
             const updatedDocs = (formData.dce_documents || []).filter((d: any) => d.id !== doc.id);
-            await supabase.from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
+            // La liste d'abord : si elle ne peut pas être mise à jour, on ne
+            // supprime pas le fichier (sinon la pièce resterait listée, mais
+            // introuvable). Les deux erreurs étaient ignorées, et « supprimé »
+            // s'affichait quoi qu'il arrive.
+            const { error: erreurListe } = await supabase.from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
+            if (erreurListe) throw erreurListe;
+            const { error: erreurFichier } = await supabase.storage.from('documents').remove([doc.path]);
+            if (erreurFichier) console.warn('Fichier du DCE non supprimé (orphelin, purgé plus tard) :', erreurFichier);
             setFormData(prev => ({ ...prev, dce_documents: updatedDocs }));
             showToast(`"${doc.name}" supprimé.`, 'success');
         } catch (err) {
@@ -2513,24 +2520,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         if (!tenderId) return;
         setLoading(true);
         try {
-            // 1. Update specialty junction table
-            const { error: delError } = await supabase
-                .from('reponses_ao_specialties')
-                .delete()
-                .eq('reponse_ao_id', tenderId);
-
-            if (delError) throw delError;
-
-            if (formData.required_specialty_ids.length > 0) {
-                const specEntries = formData.required_specialty_ids.map(sid => ({
-                    reponse_ao_id: tenderId,
-                    specialty_id: sid
-                }));
-                const { error: insError } = await supabase
-                    .from('reponses_ao_specialties')
-                    .insert(specEntries);
-                if (insError) throw insError;
-            }
+            // 1. Table de liaison, sans fenêtre où le dossier n'a plus aucune
+            //    compétence requise.
+            await enregistrerCompetencesDossier(tenderId, formData.required_specialty_ids ?? []);
 
             // 2. Update required_skills list in main table
             const { error: updError } = await supabase
@@ -3145,18 +3137,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 });
             }
 
-            // 1.5 Update specialties junction table
-            if (formData.required_specialty_ids?.length > 0) {
-                // Delete existing
-                await supabase.from('reponses_ao_specialties').delete().eq('reponse_ao_id', newId);
-                // Insert new entries
-                const specEntries = formData.required_specialty_ids.map(sid => ({
-                    reponse_ao_id: newId,
-                    specialty_id: sid
-                }));
-                const { error: specError } = await supabase.from('reponses_ao_specialties').insert(specEntries);
-                if (specError) console.error("Error saving tender specialties:", specError);
-            }
+            // 1.5 Compétences requises (voir `enregistrerCompetencesDossier`).
+            await enregistrerCompetencesDossier(newId, formData.required_specialty_ids ?? []);
 
             // Also save groupement members
             await saveCollaboratorsAndInvite(updatedMembers);
@@ -4045,9 +4027,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * composant extrait ne connaît ni Supabase ni `tenderId`.
      */
     const majJalons = async (nouveauxJalons: any[]) => {
+        const precedents = formData.jalons;
         setFormData(prev => ({ ...prev, jalons: nouveauxJalons }));
         if (tenderId && isOwner) {
-            await supabase.from('reponses_ao').update({ jalons: nouveauxJalons }).eq('id', tenderId);
+            // Une modification refusée (dossier en lecture seule, droits…)
+            // restait affichée comme enregistrée, puis disparaissait au
+            // rechargement. On la signale et on revient à l'état précédent.
+            const { error } = await supabase.from('reponses_ao').update({ jalons: nouveauxJalons }).eq('id', tenderId);
+            if (error) {
+                console.error('Enregistrement du rétroplanning :', error);
+                setFormData(prev => ({ ...prev, jalons: precedents }));
+                showToast("La modification du rétroplanning n'a pas été enregistrée.", 'error');
+            }
         }
     };
 

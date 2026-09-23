@@ -68,6 +68,7 @@ if (!isolation) {
 /** `dom: true` → la suite a besoin de happy-dom, donc de la sortie forcée. */
 const SUITES = [
     { fichier: 'tests/unit.test.ts', dom: false },
+    { fichier: 'tests/regressions.test.ts', dom: false },
     { fichier: 'tests/navigateur.test.ts', dom: true },
     { fichier: 'tests/composants.test.ts', dom: true },
 ];

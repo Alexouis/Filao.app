@@ -41,6 +41,7 @@ import { CompanyDocPickerModal, filtrerDocuments } from '../src/components/Compa
 import { SaisieManuelleView } from '../src/components/SaisieManuelleView.tsx';
 import { ContextEditModal } from '../src/components/ContextEditModal.tsx';
 import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
+import { enregistrerTaxonomie, enregistrerCompetencesDossier } from '../src/helpers/taxonomieEntreprise.ts';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -362,6 +363,30 @@ test('EquipeEtPieces : ouvrir la fiche d’un membre remonte son index au parent
     assert.equal(indexRecu, 0, "le parent doit recevoir l'index du membre cliqué");
 });
 
+test('EquipeEtPieces : badge de statut selon l’avancement (Accepté → Dépôts en cours → Complet)', () => {
+    // « Actif » ne disait pas « a commencé à déposer » ; « Admin » se
+    // confondait avec l'administrateur d'entreprise.
+    const cas: Array<[number, number, RegExp]> = [[0, 5, /^Accepté$/], [2, 5, /Dépôts en cours/], [5, 5, /^Complet$/]];
+    for (const [recu, total, attendu] of cas) {
+        cleanup();
+        render(React.createElement(EquipeEtPieces, proprietesEquipe({
+            activeMembers: [membre({ id: 'autre', email: 'autre@x.fr' })],
+            getMemberProgress: () => ({ received: recu, total, percent: Math.round(recu / total * 100) }),
+        })));
+        assert.ok(screen.getByText(attendu), `attendu ${attendu} pour ${recu}/${total}`);
+        assert.equal(screen.queryByText(/^\s*Actif\s*$/), null);
+    }
+});
+
+test('EquipeEtPieces : chaque badge porte une info-bulle explicative', () => {
+    cleanup();
+    render(React.createElement(EquipeEtPieces, proprietesEquipe({
+        activeMembers: [membre({ id: 'autre', email: 'autre@x.fr', status: 'invite' })],
+    })));
+    const badge = screen.getByText(/Invité/).closest('span');
+    assert.ok(badge?.getAttribute('title'), 'info-bulle attendue sur le badge');
+});
+
 test('EquipeEtPieces : les compétences non couvertes sont signalées', () => {
     cleanup();
     render(React.createElement(EquipeEtPieces, proprietesEquipe({
@@ -608,6 +633,14 @@ test('GroupementTypeModal : annoncée comme dialogue aux lecteurs d’écran', (
     }));
     const dialogue = screen.getByRole('dialog');
     assert.equal(dialogue.getAttribute('aria-modal'), 'true');
+});
+
+test('MandatairePromotionModal : rappelle que le porteur reste gestionnaire du dossier', () => {
+    cleanup();
+    render(React.createElement(MandatairePromotionModal, {
+        cible: membreGroupement({ name: 'Dupont TP' }), onPromouvoir: rien, onAnnuler: rien,
+    }));
+    assert.ok(screen.getByText(/Vous restez gestionnaire du dossier/));
 });
 
 test('MandatairePromotionModal : sans cible, rien n’est rendu', () => {
@@ -1401,6 +1434,55 @@ test('FondModale : un clic à l’intérieur de la modale n’atteint jamais le 
 // Fermeture propre
 // ---------------------------------------------------------------------------
 // POURQUOI CE BLOC EXISTE
+// ===========================================================================
+// Enregistrement des compétences (client Supabase simulé)
+// ===========================================================================
+/** Remplace `supabase.from` le temps d'un test ; journalise les appels. */
+const simulerSupabase = (tableEnEchec?: string) => {
+    const journal: string[] = [];
+    const original = supabase.from.bind(supabase);
+    (supabase as any).from = (table: string) => {
+        const b: any = {
+            upsert: (lignes: any[]) => { journal.push(`${table} upsert ${lignes.length}`); b._op = 'upsert'; return b; },
+            delete: () => { journal.push(`${table} delete`); b._op = 'delete'; return b; },
+            eq: () => b,
+            not: (_c: string, _o: string, v: string) => { journal.push(`${table} sauf ${v}`); return b; },
+            then: (ok: any) => ok({ error: table === tableEnEchec && b._op === 'upsert' ? { message: 'refus' } : null }),
+        };
+        return b;
+    };
+    return { journal, restaurer: () => { (supabase as any).from = original; } };
+};
+
+test('enregistrerTaxonomie : écrit AVANT de retirer, et ne retire que l’abandonné', async () => {
+    const { journal, restaurer } = simulerSupabase();
+    try {
+        await enregistrerTaxonomie('e1', { natures: ['travaux'], specialites: [{ specialty_id: 'dev' }, { specialty_id: 'maint' }] });
+    } finally { restaurer(); }
+    assert.deepEqual(journal, [
+        'company_natures upsert 1', 'company_natures delete', 'company_natures sauf ("travaux")',
+        'company_specialties upsert 2', 'company_specialties delete', 'company_specialties sauf ("dev","maint")',
+    ]);
+});
+
+test('enregistrerTaxonomie : une écriture refusée interrompt tout, SANS rien effacer', async () => {
+    const { journal, restaurer } = simulerSupabase('company_domains');
+    let erreur: any = null;
+    try {
+        await enregistrerTaxonomie('e1', { domaines: ['info'], zones: ['z04'] });
+    } catch (e) { erreur = e; } finally { restaurer(); }
+    assert.ok(erreur, 'l’erreur doit remonter jusqu’à l’écran');
+    assert.ok(!journal.includes('company_domains delete'), 'aucune suppression après un refus');
+    assert.ok(!journal.some(l => l.startsWith('company_geo_zones')), 'les familles suivantes ne sont pas touchées');
+});
+
+test('enregistrerCompetencesDossier : une liste vide efface bien tout', async () => {
+    const { journal, restaurer } = simulerSupabase();
+    try { await enregistrerCompetencesDossier('d1', []); } finally { restaurer(); }
+    // L'une des anciennes versions ne faisait RIEN dans ce cas.
+    assert.deepEqual(journal, ['reponses_ao_specialties delete']);
+});
+
 // Les composants testés importent `supabaseClient`, et `createClient()` arme
 // dès l'import un minuteur de rafraîchissement de jeton ET une connexion
 // temps réel. Ces deux poignées gardent la boucle d'événements ouverte : le

@@ -109,8 +109,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
             // étant canonique, l'URL nue serait servie depuis le cache navigateur.
             const publicUrl = urlPublique
                 || supabase.storage.from(bucket || 'public-assets').getPublicUrl(chemin).data.publicUrl;
+            const { error: erreurProfil } = await supabase.from('utilisateurs').update({ photo_url: publicUrl }).eq('id', userProfile.id);
+            if (erreurProfil) throw erreurProfil;
             setFormData(prev => ({ ...prev, photo_url: publicUrl }));
-            await supabase.from('utilisateurs').update({ photo_url: publicUrl }).eq('id', userProfile.id);
             onUpdate();
         } catch (err: any) {
             // Le message du serveur nomme la cause (format refusé, taille,
@@ -133,11 +134,21 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
                 [channel]: !notifPrefs[event][channel],
             },
         };
+        const precedentes = notifPrefs;
         setNotifPrefs(updated);
-        await supabase
+        const { error: erreurPrefs } = await supabase
             .from('utilisateurs')
             .update({ notification_preferences: updated })
             .eq('id', userProfile.id);
+        // Un refus laissait l'interrupteur basculé alors que la préférence
+        // n'avait pas changé : l'utilisateur continuait de recevoir ce qu'il
+        // croyait avoir coupé.
+        if (erreurPrefs) {
+            console.error('Préférences de notification :', erreurPrefs);
+            setNotifPrefs(precedentes);
+            setError("Votre préférence n'a pas pu être enregistrée. Réessayez.");
+            return;
+        }
         onUpdate();
     };
 

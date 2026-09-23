@@ -12,6 +12,7 @@ import { ErrorState } from './ui/StateViews';
 import { PLANS_CONFIG, PLANS_TYPES, PlanType, UserProfile } from '../config';
 import { progressionParDossier, Progression } from '../helpers/progressionHelpers';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { lundiDe, libelleSemaine, premierMoisTrimestre, decaler, ancrageChangementVue } from '@/helpers/calendrierHelpers';
 import { estDossierDunCollegue } from '@/helpers/accesDossier';
 import { downloadICalendar } from '../helpers/icalHelpers';
 import { useToast } from './ui/Toast';
@@ -395,44 +396,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     };
 
     // --- NAVIGATION ---
-    /** Lundi de la semaine de `d` (un dimanche appartient à la semaine qui finit). */
-    const lundiDe = (d: Date): Date => {
-        const l = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        l.setDate(l.getDate() - ((l.getDay() + 6) % 7));
-        return l;
-    };
-
     /**
-     * Changement de vue. La navigation par mois cale la date sur le 1er : en
-     * passant ensuite en vue Semaine, on tombait sur la PREMIÈRE semaine du
-     * mois au lieu de la semaine en cours. Si la période affichée contient
-     * aujourd'hui, on s'y ancre.
+     * Changement de vue : voir `ancrageChangementVue` (semaine en cours si la
+     * période affichée la contient).
      */
     const changerVue = (vue: CalendarViewType) => {
+        setCurrentDate(prev => ancrageChangementVue(vue, calendarView, prev));
         setCalendarView(vue);
-        setCurrentDate(prev => {
-            const auj = new Date();
-            const memeMois = prev.getFullYear() === auj.getFullYear() && prev.getMonth() === auj.getMonth();
-            const memeTrimestre = prev.getFullYear() === auj.getFullYear()
-                && Math.floor(prev.getMonth() / 3) === Math.floor(auj.getMonth() / 3);
-            if (vue === 'week') return (calendarView === 'quarter' ? memeTrimestre : memeMois) ? auj : prev;
-            return prev;
-        });
     };
 
     const allerAujourdhui = () => setCurrentDate(new Date());
 
-    const handlePrev = () => {
-        if (calendarView === 'month') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-        else if (calendarView === 'week') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7));
-        else setCurrentDate(prev => new Date(prev.getFullYear(), Math.floor(prev.getMonth() / 3) * 3 - 3, 1));
-    };
-
-    const handleNext = () => {
-        if (calendarView === 'month') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-        else if (calendarView === 'week') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7));
-        else setCurrentDate(prev => new Date(prev.getFullYear(), Math.floor(prev.getMonth() / 3) * 3 + 3, 1));
-    };
+    const handlePrev = () => setCurrentDate(prev => decaler(calendarView, prev, -1));
+    const handleNext = () => setCurrentDate(prev => decaler(calendarView, prev, 1));
 
     const handleAddTenderClick = () => {
         const check = canCreateTender(userProfile, tenders);
@@ -584,12 +560,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         if (calendarView === 'month') {
             return `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
         } else if (calendarView === 'week') {
-            // La plage exacte : le seul nom du mois ne disait pas quelle
-            // semaine était affichée.
-            const debut = lundiDe(currentDate);
-            const fin = new Date(debut); fin.setDate(debut.getDate() + 6);
-            const jourMois = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-            return `${jourMois(debut)} – ${jourMois(fin)} ${fin.getFullYear()}`;
+            return libelleSemaine(currentDate);
         } else if (calendarView === 'quarter') {
             const qNum = Math.floor(currentDate.getMonth() / 3) + 1;
             return `Trimestre ${qNum} ${currentDate.getFullYear()}`;
@@ -764,7 +735,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         if (calendarView === 'quarter') {
             // Vrai trimestre civil : la vue affichait les trois mois À PARTIR
             // du mois courant (sept.–nov.) sous le libellé « Trimestre 3 ».
-            const debutTrimestre = Math.floor(currentDate.getMonth() / 3) * 3;
+            const debutTrimestre = premierMoisTrimestre(currentDate);
             const displayMonths = [0, 1, 2].map(offset => {
                 const date = new Date(currentDate.getFullYear(), debutTrimestre + offset, 1);
                 return { name: monthNames[date.getMonth()], monthIdx: date.getMonth(), year: date.getFullYear() };
