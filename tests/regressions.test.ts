@@ -505,3 +505,28 @@ test('suppression de compte : seul administrateur d’une équipe bloqué AVANT 
     // Simple membre.
     assert.equal(seulAdministrateurBloquant([{ id: 'moi', roles: membre }, { id: 'a', roles: admin }, { id: 'b', roles: membre }], 'moi'), false);
 });
+
+test('base : les policies héritées trop larges sont retirées', () => {
+    const sql = migrationsTriees.map(m => m.sql).join('\n');
+    assert.match(sql, /DROP POLICY IF EXISTS "Users can update own company" ON entreprises/);
+    assert.match(sql, /DROP POLICY IF EXISTS "Self delete utilisateur" ON utilisateurs/);
+});
+
+import { construireFiltreBoamp } from '../src/helpers/boampHelpers.ts';
+
+test('BOAMP : un guillemet dans les mots-clés ne casse plus la requête', () => {
+    const f = construireFiltreBoamp({ motsCles: ' "transport  scolaire" \\ lot ', aujourdhui: '2026-09-23' });
+    assert.equal(f, 'search("\\"transport scolaire\\" \\\\ lot") AND datelimitereponse >= "2026-09-23"');
+});
+
+test('BOAMP : critères assemblés, plancher de date toujours présent', () => {
+    const f = construireFiltreBoamp({
+        typeMarche: 'SERVICES', typeProcedure: 'Procédure adaptée', codeDepartement: '04',
+        dateLimiteMin: '2026-10-01', aujourdhui: '2026-09-23',
+    });
+    assert.equal(f, 'type_marche:"SERVICES" AND type_procedure:"Procédure adaptée" AND code_departement="04" AND datelimitereponse >= "2026-10-01"');
+    // Une date passée ne supprime pas le plancher.
+    assert.match(construireFiltreBoamp({ dateLimiteMin: '2026-01-01', aujourdhui: '2026-09-23' }), /datelimitereponse >= "2026-09-23"$/);
+    // Mots-clés vides : pas de clause search().
+    assert.ok(!construireFiltreBoamp({ motsCles: '   ', aujourdhui: '2026-09-23' }).includes('search('));
+});

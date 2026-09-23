@@ -1,0 +1,42 @@
+-- =============================================
+-- FILAO: Migration 115 — Retrait de policies héritées trop larges
+-- =============================================
+--
+-- Relevé des policies en place (pg_policies, 23/09/2026) : deux policies
+-- créées hors migrations, jamais retirées, annulaient des restrictions posées
+-- depuis. Les policies PERMISSIVES se cumulant (OU logique), la plus large
+-- l'emportait.
+--
+-- 1. entreprises / « Users can update own company »
+--    Tout MEMBRE pouvait modifier la fiche de son entreprise. La 089 a créé
+--    `entreprises_update_admin` pour réserver cette écriture aux
+--    administrateurs — sans effet tant que celle-ci subsistait. L'écran était
+--    déjà en lecture seule pour les membres : seule l'API restait ouverte.
+--
+-- 2. utilisateurs / « Self delete utilisateur »
+--    Chacun pouvait supprimer sa ligne de profil directement, en contournant
+--    `delete-account` : ni anonymisation des porteurs de dossiers, ni
+--    nettoyage des fichiers, ni clé de reprise d'entreprise. L'application ne
+--    s'en sert pas — la suppression passe par l'Edge Function, en clé de
+--    service.
+--
+-- NON TRAITÉ ICI (décision produit) : « Authenticated users can create
+-- company » laisse créer une entreprise avec n'importe quel SIRET. Le SIRET
+-- étant unique, quelqu'un peut inscrire celui d'une autre société avant elle ;
+-- la vraie société devrait alors demander à rejoindre… l'usurpateur. Une
+-- vérification de l'appartenance au SIRET (ou une procédure de contestation)
+-- relève du produit.
+
+DROP POLICY IF EXISTS "Users can update own company" ON entreprises;
+DROP POLICY IF EXISTS "Self delete utilisateur" ON utilisateurs;
+
+-- ---------------------------------------------------------------
+-- Contrôle après application
+-- ---------------------------------------------------------------
+--   select tablename, policyname, cmd from pg_policies
+--    where tablename in ('entreprises', 'utilisateurs') order by 1, 3;
+--   -- attendu :
+--   --   entreprises  : select_authentifie (SELECT), create company (INSERT),
+--   --                  entreprises_update_admin (UPDATE)
+--   --   utilisateurs : utilisateurs_select_lie (SELECT), update own profile
+--   --                  (UPDATE, encadrée par la 112), insert own profile (INSERT)

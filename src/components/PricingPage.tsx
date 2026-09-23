@@ -45,7 +45,16 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
             return;
         }
 
-        if (planId === currentPlan || planId === 'partenaire') return;
+        if (planId === currentPlan) return;
+        if (planId === 'partenaire') {
+            // Le clic ne faisait rien : revenir à l'offre gratuite, c'est
+            // résilier l'abonnement, ce qui se fait dans le portail Stripe.
+            setErrorMessage(
+                "Pour revenir à l'offre gratuite, résiliez votre abonnement depuis Paramètres › Facturation. "
+                + "Il reste actif jusqu'à la fin de la période déjà payée."
+            );
+            return;
+        }
 
         // Garde-fou en plus du bouton désactivé : l'état a pu changer entre le
         // rendu et le clic.

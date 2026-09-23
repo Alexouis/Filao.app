@@ -590,3 +590,42 @@ export const libelleLieuBoamp = (
     // 4. Code non reconnu : on l'affiche UNE fois, sans le dupliquer.
     return code;
 };
+
+// ---------------------------------------------------------------------------
+// Filtre de recherche (ODSQL, API Opendatasoft du BOAMP)
+// ---------------------------------------------------------------------------
+
+/** Littéral ODSQL entre guillemets : `\` et `"` échappés. */
+const litteral = (v: string): string => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+export interface CriteresRechercheBoamp {
+    typeMarche?: string;
+    typeProcedure?: string;
+    codeDepartement?: string;
+    motsCles?: string;
+    /** `yyyy-MM-dd` choisi par l'utilisateur ; jamais antérieur à `aujourdhui`. */
+    dateLimiteMin?: string;
+    /** `yyyy-MM-dd`, jour local. */
+    aujourdhui: string;
+}
+
+/**
+ * Clause `where` de la recherche.
+ *
+ * Les mots-clés étaient insérés tels quels dans `search("…")` : un guillemet
+ * saisi par l'utilisateur fermait la chaîne, la requête devenait invalide et
+ * l'API répondait 400 — « Erreur API : 400 », sans autre explication.
+ * Le plancher de date est toujours appliqué (un avis clos n'a rien à faire
+ * dans les résultats).
+ */
+export const construireFiltreBoamp = (c: CriteresRechercheBoamp): string => {
+    const parties: string[] = [];
+    if (c.typeMarche) parties.push(`type_marche:${litteral(c.typeMarche)}`);
+    if (c.typeProcedure) parties.push(`type_procedure:${litteral(c.typeProcedure)}`);
+    if (c.codeDepartement) parties.push(`code_departement=${litteral(c.codeDepartement)}`);
+    const mots = (c.motsCles ?? '').split(/\s+/).map(m => m.trim()).filter(Boolean);
+    if (mots.length > 0) parties.push(`search(${litteral(mots.join(' '))})`);
+    const plancher = c.dateLimiteMin && c.dateLimiteMin > c.aujourdhui ? c.dateLimiteMin : c.aujourdhui;
+    parties.push(`datelimitereponse >= ${litteral(plancher)}`);
+    return parties.join(' AND ');
+};

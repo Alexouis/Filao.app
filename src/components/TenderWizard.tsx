@@ -68,6 +68,7 @@ import {
     dedoublonnerAvis,
     libelleLieuBoamp,
     reparerEncodage,
+    construireFiltreBoamp,
 } from '../helpers/boampHelpers';
 import {
     coerceModePassation,
@@ -2841,6 +2842,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     };
 
     // --- LOGIC: SEARCH ---
+    const rechercheCourante = React.useRef(0);
     const handleSearch = async (loadMore = false) => {
         try {
             setSearchLoading(true);
@@ -2848,36 +2850,30 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // « charger plus »). Aucun terme de recherche n'est émis.
             if (!loadMore) track('recherche_boamp', {});
             const baseUrl = BOAMP_BaseUrl;
-            let whereParts = [];
-            if (searchMarketType) {
-                whereParts.push(`type_marche:"${searchMarketType}"`);
-            }
-            if (searchHandoverType) {
-                whereParts.push(`type_procedure:"${searchHandoverType}"`);
-            }
-            if (searchLocation) {
-                const code = Object.entries(DEPARTEMENTS_OBJ).find(([c, name]) => name === searchLocation)?.[0];
-                if (code) {
-                    whereParts.push(`code_departement="${code}"`);
-                }
-            }
-            if (searchKeywords) {
-                const keywords = searchKeywords.split(' ').filter(k => k.trim());
-                whereParts.push(`search("${keywords.join(' ')}")`);
-            }
-            // Plancher toujours appliqué. La version précédente le remplaçait
-            // par la date choisie par l'utilisateur : une date passée faisait
-            // donc disparaître toute borne, et la recherche remontait des avis
-            // clos depuis des mois.
-            const today = dateLocaleISO();
-            const plancher = searchDeadline && searchDeadline > today ? searchDeadline : today;
-            whereParts.push(`datelimitereponse >= "${plancher}"`);
+            const code = searchLocation
+                ? Object.entries(DEPARTEMENTS_OBJ).find(([, name]) => name === searchLocation)?.[0]
+                : undefined;
+            // Filtre construit par `construireFiltreBoamp` (testé) : littéraux
+            // échappés, plancher de date toujours appliqué.
+            const whereParam = '&where=' + encodeURIComponent(construireFiltreBoamp({
+                typeMarche: searchMarketType || undefined,
+                typeProcedure: searchHandoverType || undefined,
+                codeDepartement: code,
+                motsCles: searchKeywords,
+                dateLimiteMin: searchDeadline || undefined,
+                aujourdhui: dateLocaleISO(),
+            }));
 
-            const whereParam = whereParts.length > 0 ? '&where=' + encodeURIComponent(whereParts.join(' AND ')) : '';
+            // Numéro de requête : si l'utilisateur relance une recherche avant
+            // la réponse de la précédente, seule la plus récente doit
+            // s'afficher. Les réponses arrivaient parfois dans le désordre, et
+            // une recherche lente écrasait les résultats de la suivante.
+            const numero = ++rechercheCourante.current;
             const newOffset = loadMore ? searchOffset + 20 : 0;
             const url = `${baseUrl}?${whereParam}&limit=20&offset=${newOffset}`;
 
             const response = await fetch(url);
+            if (numero !== rechercheCourante.current) return;
 
             if (!response.ok) {
                 if (response.status === 429) {
@@ -2890,6 +2886,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             }
 
             const data = await response.json();
+            if (numero !== rechercheCourante.current) return;
 
             if (!data.results || data.results.length === 0) {
                 if (!loadMore) {

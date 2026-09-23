@@ -8,6 +8,7 @@ import { useHistoryStep } from '../helpers/useHistoryStep';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { supabase } from '../lib/supabaseClient';
 import { dateLocaleISO } from '../helpers/dateHelpers';
+import { useToast } from './ui/Toast';
 
 // Reference Colors & Constants from filao-wizard-workflow.jsx
 const T = "#0B8FAC", G = "#1D9E75", R = "#D85A30", P = "#534AB7";
@@ -121,6 +122,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
     onCancel,
     userProfile
 }) => {
+    const { showToast } = useToast();
     const [step, setStep] = useState(0);
     // Historique navigateur : « Précédent » recule d'une étape au lieu de sortir
     // du wizard. `reculer` délègue à history.back() ; l'avancée empile une entrée.
@@ -284,11 +286,16 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
                     ...prev,
                     dce_documents: [...(prev.dce_documents || []), newDoc]
                 }));
-            } catch (err) {
+            } catch (err: any) {
+                // Le fichier refusé disparaissait sans un mot : l'utilisateur
+                // croyait l'avoir joint.
                 console.error("Upload error:", err);
+                showToast(`« ${file.name} » n'a pas été ajouté : ${err?.message || 'dépôt refusé'}.`, 'error');
             }
         }
         setIsUploading(false);
+        // Permet de redéposer le même fichier après correction.
+        event.target.value = '';
     };
 
     const handleAdminDocUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
@@ -308,7 +315,6 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             // Le bucket `documents` passe en privé : on conserve le CHEMIN.
             // Une URL publique ne résoudrait plus rien, et une URL signée
             // expire au bout d'une heure — elle ne peut pas être persistée.
-            setDocUrls(prev => ({ ...prev, [field]: cheminDepose }));
 
             // Persistance dans documents_candidature (source unique). Upsert par
             // entreprise + catégorie : update si la ligne existe, insert sinon.
@@ -316,22 +322,29 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
             const existingId = docIds[field];
             const label = DOCUMENTS.find(d => d.field === field)?.label || categorie;
             if (existingId) {
-                await supabase.from('documents_candidature').update({
+                const { error: erreurMaj } = await supabase.from('documents_candidature').update({
                     url: cheminDepose, statut: 'valide', date_emission: today,
                     updated_at: new Date().toISOString(),
                 }).eq('id', existingId);
+                if (erreurMaj) throw erreurMaj;
             } else {
-                const { data: inserted } = await supabase.from('documents_candidature').insert({
+                const { data: inserted, error: erreurAjout } = await supabase.from('documents_candidature').insert({
                     entreprise_id: userProfile.entreprise_id,
                     uploaded_by: userProfile.id,
                     label, url: cheminDepose, statut: 'valide',
                     categorie, date_emission: today,
                 }).select('id').single();
+                if (erreurAjout) throw erreurAjout;
                 if (inserted?.id) setDocIds(prev => ({ ...prev, [field]: inserted.id }));
             }
+            // Affiché « déposé » seulement une fois enregistré : il l'était
+            // avant, même quand l'écriture en base échouait — et le document
+            // manquait ensuite au coffre-fort.
+            setDocUrls(prev => ({ ...prev, [field]: cheminDepose }));
 
-        } catch (err) {
+        } catch (err: any) {
             console.error('Upload error:', err);
+            showToast(err?.message || "Le document n'a pas pu être enregistré.", 'error');
         } finally {
             setUploadingField(null);
         }
