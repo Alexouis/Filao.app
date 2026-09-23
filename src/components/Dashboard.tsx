@@ -11,6 +11,7 @@ import {
 import { chargerForfaits, forfait, illimite } from '@/helpers/planLimits';
 import { canCreateTender } from '@/helpers/planHelpers';
 import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
+import { estDossierDunCollegue } from '@/helpers/accesDossier';
 import { progressionParDossier, Progression } from '@/helpers/progressionHelpers';
 import { GLASS_STYLE } from '../lib/styles';
 import { Plus, Clock, TrendingUp, TrendingDown, Minus, Lock, Briefcase, FileText, Rocket, Users } from 'lucide-react';
@@ -356,7 +357,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   // AO urgents (échéance < 7 j) — définition partagée avec Mes AO via isUrgent.
-  const urgentCount = tenders.filter(isUrgent).length;
+  // Le lien ouvre Mes AO, qui masque par défaut les dossiers des collègues :
+  // on les exclut aussi du compte, sinon il annonce un dossier introuvable.
+  const urgentCount = tenders.filter(t => isUrgent(t) && !estDossierDunCollegue(t, userProfile)).length;
 
   const getDaysRemaining = (dateString: string) => {
     if (!dateString) return 0;

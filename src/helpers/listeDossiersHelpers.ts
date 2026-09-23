@@ -76,6 +76,25 @@ export const correspondRole = (t: any, role: string | undefined, userId?: string
 };
 
 /**
+ * Le dossier fait-il partie du périmètre de la vue normale, tous filtres
+ * confondus ? Exclut les invitations en attente, les refus et — sauf bascule —
+ * les dossiers des collègues.
+ *
+ * Sert aussi aux COMPTEURS (Urgents, stats) : compter un dossier que la liste
+ * ne peut pas montrer affichait « Urgents (1) » sur une liste vide.
+ */
+export const dansPerimetreListe = (
+    t: any,
+    voirToutEntreprise: boolean | undefined,
+    profil?: ProfilListe | null,
+    estDossierDunCollegue?: (t: any) => boolean,
+): boolean => {
+    if (!voirToutEntreprise && estDossierDunCollegue?.(t)) return false;
+    const { refuse, enAttente } = situation(t, profil);
+    return !enAttente && !refuse;
+};
+
+/**
  * Un dossier est-il visible dans la liste ?
  *
  * Deux régimes s'opposent, et c'est le cœur de la règle :
@@ -97,21 +116,19 @@ export const dossierVisible = (
 
     if (!correspondRole(t, criteres.filterRole, profil?.id)) return false;
 
-    // Bascule « toute l'entreprise ». Par défaut on n'affiche que ses propres
-    // dossiers : une secrétaire qui suit dix chefs de projet noierait sinon
-    // les siens sous ceux des autres.
-    if (!criteres.voirToutEntreprise && estDossierDunCollegue?.(t)) return false;
-
-    const { refuse, enAttente } = situation(t, profil);
-
     if (criteres.showInvitationsOnly) {
+        // Bascule « toute l'entreprise ». Par défaut on n'affiche que ses
+        // propres dossiers : une secrétaire qui suit dix chefs de projet
+        // noierait sinon les siens sous ceux des autres.
+        if (!criteres.voirToutEntreprise && estDossierDunCollegue?.(t)) return false;
+        const { refuse, enAttente } = situation(t, profil);
         if (!enAttente && !refuse) return false;
         if (criteres.filterStatus === 'En attente' && !enAttente) return false;
         if (criteres.filterStatus === 'Refusé' && !refuse) return false;
         return true;
     }
 
-    if (enAttente || refuse) return false;
+    if (!dansPerimetreListe(t, criteres.voirToutEntreprise, profil, estDossierDunCollegue)) return false;
 
     // « Urgents » est transverse au statut : il répond à « qu'est-ce qui
     // presse ? », pas à « où en est ce dossier ? ».

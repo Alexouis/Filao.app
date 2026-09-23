@@ -47,7 +47,7 @@ import { canCreateTender } from '../src/helpers/planHelpers.ts';
 import { buildICalendar } from '../src/helpers/icalHelpers.ts';
 import {
   correspondRecherche, correspondCategorie, correspondRole,
-  dossierVisible, filtrerEtTrierDossiers,
+  dossierVisible, filtrerEtTrierDossiers, dansPerimetreListe,
 } from '../src/helpers/listeDossiersHelpers.ts';
 import {
   extractCpvCodes, cpvDivision, normaliserPoids, avisEncoreOuvert,
@@ -823,6 +823,22 @@ test('dossierVisible : les dossiers des collègues sont cachés par défaut', ()
   const estCollegue = () => true;
   assert.equal(dossierVisible(collegue, {}, moiListe, estCollegue), false);
   assert.equal(dossierVisible(collegue, { voirToutEntreprise: true }, moiListe, estCollegue), true);
+});
+
+test('dansPerimetreListe : un urgent compté est toujours affichable sous « Urgents »', () => {
+  // Régression : « Urgents (1) » sur liste vide, le dossier compté étant
+  // celui d'un collègue ou une invitation, que la liste masque.
+  const estCollegue = (t: any) => t.createur_id === 'u2';
+  const dossiers = [
+    ao({ id: 'mien', date_limite: isoDans(2) }),
+    ao({ id: 'collegue', createur_id: 'u2', date_limite: isoDans(2) }),
+    ao({ id: 'invite', date_limite: isoDans(2), groupements: [{ entreprise_id: 'e1', statut: 'invite' }] }),
+  ];
+  for (const voirTout of [false, true]) {
+    const comptes = dossiers.filter(t => dansPerimetreListe(t, voirTout, moiListe, estCollegue) && isUrgent(t as any)).length;
+    const affiches = filtrerEtTrierDossiers(dossiers as any, { filterStatus: 'Urgents', voirToutEntreprise: voirTout }, moiListe, estCollegue).length;
+    assert.equal(comptes, affiches);
+  }
 });
 
 test('filtrerEtTrierDossiers : tri par date, croissant et décroissant', () => {

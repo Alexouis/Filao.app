@@ -19,7 +19,7 @@ import {
 import { canCreateTender } from '@/helpers/planHelpers';
 import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
-import { filtrerEtTrierDossiers } from '@/helpers/listeDossiersHelpers';
+import { filtrerEtTrierDossiers, dansPerimetreListe } from '@/helpers/listeDossiersHelpers';
 import { BarreFiltresDossiers } from './BarreFiltresDossiers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -142,19 +142,27 @@ export const Tenders: React.FC<TendersProps> = ({
   const selectedTender = tenders.find(t => t.id === selectedTenderId);
 
   const stats = useMemo(() => {
-    const won = tenders.filter(t => t.statut === STATUSES.won).length;
-    const lost = tenders.filter(t => t.statut === STATUSES.lost).length;
+    // Mêmes dossiers que ceux que la liste peut afficher : sinon un compteur
+    // annonce un dossier (invitation, dossier d'un collègue) introuvable.
+    const perimetre = tenders.filter(t => dansPerimetreListe(
+      t, voirToutEntreprise,
+      { id: userId, email: userProfile?.email, entreprise_id: userProfile?.entreprise_id },
+      estDossierDunCollegue,
+    ));
+    const won = perimetre.filter(t => t.statut === STATUSES.won).length;
+    const lost = perimetre.filter(t => t.statut === STATUSES.lost).length;
     // « En cours » et « Déposés » sont deux états distincts : les afficher
     // séparément évite l'ambiguïté d'un compteur « En cours » qui incluait les
     // déposés (isActive regroupe les deux). getEffectiveStatus tranche le
     // statut réel (En cours vs Déposé).
-    const enCours = tenders.filter(t => getEffectiveStatus(t) === STATUSES.on).length;
-    const deposes = tenders.filter(t => getEffectiveStatus(t) === STATUSES.submitted).length;
-    const urgents = tenders.filter(isUrgent).length;
+    const enCours = perimetre.filter(t => getEffectiveStatus(t) === STATUSES.on).length;
+    const deposes = perimetre.filter(t => getEffectiveStatus(t) === STATUSES.submitted).length;
+    const urgents = perimetre.filter(isUrgent).length;
     const active = enCours + deposes; // conservé pour compat éventuelle
     const winRate = (won + lost) > 0 ? Math.round((won / (won + lost)) * 100) : 0;
     return { won, lost, active, enCours, deposes, urgents, winRate };
-  }, [tenders]);
+  }, [tenders, voirToutEntreprise, userId, userProfile?.email,
+      userProfile?.entreprise_id, estDossierDunCollegue]);
 
   // Nombre de filtres « avancés » actifs (ceux regroupés dans le popover
   // Filtres : Catégorie, Secteur, Rôle). Sert au badge du bouton.
