@@ -42,6 +42,7 @@ import { SaisieManuelleView } from '../src/components/SaisieManuelleView.tsx';
 import { ContextEditModal } from '../src/components/ContextEditModal.tsx';
 import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
 import { enregistrerTaxonomie, enregistrerCompetencesDossier } from '../src/helpers/taxonomieEntreprise.ts';
+import { ContestationEntreprise } from '../src/components/ContestationEntreprise.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -1434,6 +1435,27 @@ test('FondModale : un clic à l’intérieur de la modale n’atteint jamais le 
 // Fermeture propre
 // ---------------------------------------------------------------------------
 // POURQUOI CE BLOC EXISTE
+// ===========================================================================
+// Contestation d'inscription d'entreprise
+// ===========================================================================
+test('ContestationEntreprise : discrète par défaut, formulaire à la demande', () => {
+    cleanup();
+    render(React.createElement(ContestationEntreprise, { entreprise: { id: 'e1', nom: 'Axero' }, userId: 'u1' }));
+    assert.equal(screen.queryByText(/Envoyer la contestation/), null);
+    fireEvent.click(screen.getByText(/Contester l'inscription/));
+    assert.ok(screen.getByText(/Envoyer la contestation/));
+    assert.ok(screen.getByText(/Kbis de moins de 3 mois/));
+});
+
+test('ContestationEntreprise : motif trop court refusé avant tout envoi', () => {
+    cleanup();
+    render(React.createElement(ContestationEntreprise, { entreprise: { id: 'e1', nom: 'Axero' }, userId: 'u1' }));
+    fireEvent.click(screen.getByText(/Contester l'inscription/));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'court' } });
+    fireEvent.click(screen.getByText(/Envoyer la contestation/));
+    assert.ok(screen.getByText(/Expliquez en quelques phrases/));
+});
+
 // ===========================================================================
 // Enregistrement des compétences (client Supabase simulé)
 // ===========================================================================

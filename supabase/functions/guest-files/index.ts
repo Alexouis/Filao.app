@@ -99,9 +99,11 @@ const notifierPorteur = async (
       && n?.date && new Date(n.date).getTime() >= il_y_a_24h);
     if (doublon) return;
   }
-  const { error } = await admin.from("utilisateurs").update({
-    notifications: [{ id: crypto.randomUUID(), ...notification, date: new Date().toISOString(), read: false }, ...actuelles],
-  }).eq("id", userId);
+  // Ajout atomique (migration 116).
+  const { error } = await admin.rpc("ajouter_notification", {
+    p_utilisateur: userId,
+    p_notification: { id: crypto.randomUUID(), ...notification, date: new Date().toISOString(), read: false },
+  });
   if (error) console.error("guest-files (notification):", error);
 };
 

@@ -285,10 +285,11 @@ Deno.serve(async (req: Request) => {
           read: false,
         };
 
-        await adminClient
-          .from("utilisateurs")
-          .update({ notifications: [newNotification, ...currentNotifications] })
-          .eq("id", recipientId);
+        // Ajout atomique (migration 116).
+        await adminClient.rpc("ajouter_notification", {
+          p_utilisateur: recipientId,
+          p_notification: newNotification,
+        });
       }
     }
 

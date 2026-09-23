@@ -12,6 +12,7 @@ import { UserProfile, SKILLS, APP_CONFIG, FRENCH_REGIONS, getFormeJuridiqueLabel
 import { track } from '../helpers/analytics';
 import { enregistrerTaxonomie } from '../helpers/taxonomieEntreprise';
 import { useToast } from './ui/Toast';
+import { ContestationEntreprise } from './ContestationEntreprise';
 
 // Types for the new taxonomy
 interface RefDomain {
@@ -1007,6 +1008,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                             </button>
                         </>
                     )}
+
+                    {/* Recours si l'entreprise a été inscrite par un tiers
+                        (migration 117) : proposé dans tous les cas de figure
+                        — première visite, demande en attente ou refusée. */}
+                    <ContestationEntreprise entreprise={entrepriseExistante} userId={userProfile.id} />
                 </div>
             </div>
         );

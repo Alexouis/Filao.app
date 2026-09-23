@@ -57,6 +57,12 @@ const NOTIFICATION_TYPES: (NotifTypeDef & { categoriesExtra?: NotifCategorie[] }
   // Messagerie d'un dossier. Même famille de préférence que les commentaires :
   // pour l'utilisateur, « Messages » couvre les deux fils de discussion.
   { type: 'chat_message',              categorie: 'comments',    prefKey: 'messages_feed' },
+  // Vie de l'entreprise : décisions qui touchent le compte lui-même, toujours
+  // émises (migration 117 pour les contestations).
+  { type: 'demande_rattachement',      categorie: null,          prefKey: null },
+  { type: 'contestation_acceptee',     categorie: null,          prefKey: null },
+  { type: 'contestation_rejetee',      categorie: null,          prefKey: null },
+  { type: 'contestation_detachement',  categorie: null,          prefKey: null },
 ];
 
 /** Index type → définition, pour les recherches ponctuelles. */

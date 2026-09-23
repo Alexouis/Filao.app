@@ -530,3 +530,45 @@ test('BOAMP : critères assemblés, plancher de date toujours présent', () => {
     // Mots-clés vides : pas de clause search().
     assert.ok(!construireFiltreBoamp({ motsCles: '   ', aujourdhui: '2026-09-23' }).includes('search('));
 });
+
+test('garde-fou : les notifications ne se réécrivent plus en bloc', () => {
+    // Lire puis réécrire tout le tableau écrasait une notification arrivée
+    // entre-temps. Ajout : `ajouter_notification` ; lecture/suppression :
+    // `modifier_mes_notifications` (migration 116).
+    const serveur = dossiersFonctions
+        .map(n => `${FONCTIONS}/${n}/index.ts`)
+        .filter(f => /notifications:\s*\[/.test(sansCommentaires(lire(f))));
+    assert.deepEqual(serveur, [], 'ajout en tête : passer par ajouter_notification');
+    const client = fichiers('src', /\.tsx?$/)
+        .filter(f => /\.update\(\s*\{\s*notifications\s*:/.test(sansCommentaires(lire(f))));
+    assert.deepEqual(client, [], 'passer par modifier_mes_notifications');
+});
+
+// ---------------------------------------------------------------------------
+// Contestation d'inscription (117) et notifications atomiques (116)
+// ---------------------------------------------------------------------------
+import { erreurContestation } from '../supabase/functions/contester-entreprise/regles.ts';
+
+test('contestation : motif et justificatif exigés, justificatif déposé par l’appelant', () => {
+    const motif = 'Je suis la gérante, ce compte a été créé par un ancien prestataire.';
+    assert.equal(erreurContestation({ motif, justificatif: 'documents/u1/contestation-e1' }, 'u1'), null);
+    assert.match(String(erreurContestation({ motif: 'trop court', justificatif: 'documents/u1/k' }, 'u1')), /20 caractères/);
+    assert.match(String(erreurContestation({ motif }, 'u1')), /Kbis/);
+    // Le fichier d'un autre utilisateur ne peut pas servir de justificatif.
+    assert.match(String(erreurContestation({ motif, justificatif: 'documents/u2/kbis' }, 'u1')), /Kbis/);
+    assert.match(String(erreurContestation({ motif, justificatif: 'documents/u1/../u2/kbis' }, 'u1')), /Kbis/);
+});
+
+test('base : fonctions sensibles réservées au serveur', () => {
+    const sql = migrationsTriees.map(m => m.sql).join('\n');
+    for (const f of ['ajouter_notification(UUID, JSONB)', 'resoudre_contestation(UUID, BOOLEAN, TEXT, BOOLEAN)']) {
+        const echappe = f.replace(/[()]/g, '\\$&');
+        assert.match(sql, new RegExp(`REVOKE ALL ON FUNCTION ${echappe} FROM PUBLIC, anon, authenticated`), f);
+        assert.ok(!new RegExp(`GRANT EXECUTE ON FUNCTION ${echappe} TO[^;]*authenticated`).test(sql), `${f} ouverte aux clients`);
+    }
+});
+
+test('base : une seule contestation en cours par demandeur et par entreprise', () => {
+    const sql = migrationsTriees.map(m => m.sql).join('\n');
+    assert.match(sql, /UNIQUE INDEX[^;]*contestations_entreprise \(entreprise_id, demandeur_id\) WHERE statut = 'en_attente'/);
+});

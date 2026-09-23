@@ -240,23 +240,6 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
     }
   };
 
-  const saveNotifications = async (updatedNotifications: Notification[]) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase
-        .from('utilisateurs')
-        .update({ notifications: updatedNotifications })
-        .eq('id', user.id);
-
-      if (error) throw error;
-      setNotifications(updatedNotifications);
-    } catch (error) {
-      console.error('Error saving notifications:', error);
-    }
-  };
-
   const handleSelectAll = () => {
     const filtered = getFilteredNotifications();
     if (selectedNotifications.size === filtered.length) {
@@ -288,27 +271,38 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
     setSelectedNotifications(newSelected);
   };
 
+  /**
+   * Modification côté base, en une instruction (migration 116). La page
+   * réécrivait tout le tableau à partir de sa copie locale : une notification
+   * arrivée entre-temps était écrasée. L'état local est mis à jour tout de
+   * suite ; l'abonnement temps réel le réaligne ensuite sur la base.
+   */
+  const modifier = async (action: 'lire' | 'supprimer', ids: string[]) => {
+    const precedentes = notifications;
+    setNotifications(prev => action === 'lire'
+      ? prev.map(n => ids.includes(n.id) ? { ...n, read: true } : n)
+      : prev.filter(n => !ids.includes(n.id)));
+    const { error } = await supabase.rpc('modifier_mes_notifications', { p_action: action, p_ids: ids });
+    if (error) {
+      console.error('Notifications :', error);
+      setNotifications(precedentes);
+    }
+  };
+
   const handleMarkAsRead = async (id: string) => {
-    const updated = notifications.map(n =>
-      n.id === id ? { ...n, read: true } : n
-    );
-    await saveNotifications(updated);
+    await modifier('lire', [id]);
   };
 
   const handleMarkSelectedAsRead = async () => {
     setActionLoading(true);
-    const updated = notifications.map(n =>
-      selectedNotifications.has(n.id) ? { ...n, read: true } : n
-    );
-    await saveNotifications(updated);
+    await modifier('lire', [...selectedNotifications]);
     setSelectedNotifications(new Set());
     setActionLoading(false);
   };
 
   const handleDeleteNotification = async (id: string) => {
     setActionLoading(true);
-    const updated = notifications.filter(n => n.id !== id);
-    await saveNotifications(updated);
+    await modifier('supprimer', [id]);
     setSelectedNotifications(prev => {
       const newSet = new Set(prev);
       newSet.delete(id);
@@ -319,8 +313,7 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
 
   const handleDeleteSelected = async () => {
     setActionLoading(true);
-    const updated = notifications.filter(n => !selectedNotifications.has(n.id));
-    await saveNotifications(updated);
+    await modifier('supprimer', [...selectedNotifications]);
     setSelectedNotifications(new Set());
     setActionLoading(false);
   };

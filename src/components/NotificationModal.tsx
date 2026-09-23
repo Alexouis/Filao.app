@@ -70,24 +70,12 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   const handleNotificationClick = async (notification: Notification) => {
     if (!notification.read) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data } = await supabase
-          .from('utilisateurs')
-          .select('notifications')
-          .eq('id', user.id)
-          .single();
-
-        const allNotifications = data?.notifications || [];
-        const updated = allNotifications.map((n: Notification) =>
-          n.id === notification.id ? { ...n, read: true } : n
-        );
-
-        await supabase
-          .from('utilisateurs')
-          .update({ notifications: updated })
-          .eq('id', user.id);
+        // Une instruction côté base (migration 116) : relire puis réécrire
+        // tout le tableau écrasait une notification arrivée entre-temps.
+        const { error } = await supabase.rpc('modifier_mes_notifications', {
+          p_action: 'lire', p_ids: [notification.id],
+        });
+        if (error) throw error;
       } catch (error) {
         console.error('Error marking read:', error);
       }

@@ -116,12 +116,12 @@ Deno.serve(async (req: Request) => {
     for (const id of destinataires) {
       const { data: u } = await admin.from("utilisateurs").select("notifications").eq("id", id).maybeSingle();
       if (!u) continue;
-      const { error } = await admin.from("utilisateurs").update({
-        notifications: [
-          { id: crypto.randomUUID(), ...notification, date: new Date().toISOString(), read: false },
-          ...(u.notifications || []),
-        ],
-      }).eq("id", id);
+      // Ajout atomique (migration 116) : une réécriture du tableau écrasait
+      // une notification arrivée entre la lecture et l'écriture.
+      const { error } = await admin.rpc("ajouter_notification", {
+        p_utilisateur: id,
+        p_notification: { id: crypto.randomUUID(), ...notification, date: new Date().toISOString(), read: false },
+      });
       if (error) console.error("enregistrer-issue (notification):", id, error);
       else notifies++;
     }

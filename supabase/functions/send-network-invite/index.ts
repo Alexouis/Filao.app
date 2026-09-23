@@ -206,10 +206,11 @@ Deno.serve(async (req: Request) => {
         read: false,
       };
 
-      await adminClient
-        .from("utilisateurs")
-        .update({ notifications: [newNotification, ...currentNotifs] })
-        .eq("id", recipientUser.id);
+      // Ajout atomique (migration 116).
+      await adminClient.rpc("ajouter_notification", {
+        p_utilisateur: recipientUser.id,
+        p_notification: newNotification,
+      });
     }
 
     // Send email via Brevo (both for existing and non-existing users)

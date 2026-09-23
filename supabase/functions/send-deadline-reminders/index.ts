@@ -168,10 +168,11 @@ Deno.serve(async (req: Request) => {
           read: false,
         };
 
-        const { error: errMaj } = await admin
-          .from("utilisateurs")
-          .update({ notifications: [notif, ...existantes] })
-          .eq("id", uid);
+        // Ajout atomique (migration 116).
+        const { error: errMaj } = await admin.rpc("ajouter_notification", {
+          p_utilisateur: uid,
+          p_notification: notif,
+        });
 
         if (errMaj) {
           console.error("écriture notification échéance impossible", dossier.id, uid, errMaj);

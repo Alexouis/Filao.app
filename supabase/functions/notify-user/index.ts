@@ -264,10 +264,12 @@ Deno.serve(async (req: Request) => {
         read: false,
       };
 
-      const { error: updateError } = await adminClient
-        .from("utilisateurs")
-        .update({ notifications: [newNotification, ...currentNotifications] })
-        .eq("id", userId);
+      // Ajout atomique (migration 116) : réécrire le tableau lu plus haut
+      // écrasait une notification arrivée entre-temps.
+      const { error: updateError } = await adminClient.rpc("ajouter_notification", {
+        p_utilisateur: userId,
+        p_notification: newNotification,
+      });
 
       if (updateError) throw updateError;
     }
