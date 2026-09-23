@@ -317,16 +317,24 @@ Deno.serve(async (req: Request) => {
       throw inviteError;
     }
 
-    // ── Determine Invitation URL entry point ──
-    // If recipientId exists -> magic link (token)
-    // If guest -> manual login (no token)
-    // ── Determine Invitation URL ──
+    // ── Point d'entrée du lien ──
+    // Membre Filao → directement le wizard ; invité externe → portail
+    // `collaborator-access` (e-mail + code d'accès).
+    //
+    // Une ligne `utilisateurs` ne suffit pas à faire un membre : une
+    // inscription jamais confirmée, ou un compte supprimé de l'authentification
+    // dont le profil est resté, en laissent une. L'invité recevait alors le lien
+    // wizard, où il ne peut pas se connecter, au lieu du portail externe. On
+    // exige un compte d'authentification existant ET confirmé.
+    let compteUtilisable = false;
+    if (recipientId) {
+      const { data: compteAuth, error: errCompte } = await adminClient.auth.admin.getUserById(recipientId);
+      if (errCompte) console.warn("Compte d'authentification introuvable pour", recipientId, errCompte.message);
+      compteUtilisable = !!compteAuth?.user?.email_confirmed_at;
+    }
+
     const origin = req.headers.get("origin") || "https://filao.io";
-    
-    // REDIRECTION LOGIC:
-    // Filao members are sent directly to the app's Tender Wizard
-    // Guests are sent to the manual verification portal
-    const invitationUrl = recipientId
+    const invitationUrl = compteUtilisable
       ? `${origin}/?tab=wizard&id=${tenderId}`
       : `${origin}/collaborator-access?tenderId=${tenderId}`;
 
