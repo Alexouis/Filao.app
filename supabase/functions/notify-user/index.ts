@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { TITRES, regleDestinataire } from "./regles.ts";
 
 /**
  * notify-user — notifications DANS L'APPLICATION.
@@ -53,6 +54,37 @@ interface NotifyUserRequest {
   deleteFilter?: { type?: string; related_tender_id?: string };
 }
 
+const motifExact = (v: string) => String(v ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+/**
+ * L'utilisateur est-il lié au dossier ? Même règle que `app.est_convie`
+ * (migrations 092 et 094) : créateur, entreprise PARTENAIRE présente au
+ * groupement (hors refus), administrateur de l'entreprise porteuse, ou
+ * invitation nominative non révoquée. La ligne de l'entreprise porteuse ne
+ * rend pas « lié » : les collègues du porteur ne lisent pas le dossier.
+ */
+const estLieAuDossier = async (
+  admin: any, dossier: { id: string; createur_id: string | null; entreprise_id: string | null },
+  u: { id: string; entreprise_id: string | null; email: string | null },
+): Promise<boolean> => {
+  if (dossier.createur_id === u.id) return true;
+  if (u.entreprise_id && u.entreprise_id === dossier.entreprise_id) {
+    const { data: profil } = await admin.from("utilisateurs").select("roles(name)").eq("id", u.id).maybeSingle();
+    return (profil?.roles as { name?: string } | null)?.name === "admin";
+  }
+  if (u.entreprise_id) {
+    const { data } = await admin.from("groupements").select("statut")
+      .eq("projet_id", dossier.id).eq("entreprise_id", u.entreprise_id);
+    if ((data ?? []).some((g: { statut: string }) => g.statut !== "refuse")) return true;
+  }
+  if (u.email) {
+    const { data } = await admin.from("invitations").select("id")
+      .eq("tender_id", dossier.id).ilike("email", motifExact(u.email)).is("revoked_at", null).limit(1);
+    if ((data ?? []).length > 0) return true;
+  }
+  return false;
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -99,7 +131,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: userData, error: fetchError } = await adminClient
       .from("utilisateurs")
-      .select("notifications, notification_preferences")
+      .select("notifications, notification_preferences, entreprise_id, email")
       .eq("id", userId)
       .maybeSingle();
 
@@ -112,6 +144,62 @@ Deno.serve(async (req: Request) => {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── Autorisation ──
+    // Jusqu'ici, être connecté suffisait : n'importe quel compte pouvait écrire
+    // chez n'importe qui (titre, message et expéditeur au choix) ou effacer
+    // ses notifications.
+    const refus = (motif: string) => new Response(JSON.stringify({ error: motif }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+    // Suppression : uniquement ses propres notifications. (Les purges pour
+    // autrui passent par les fonctions serveur, avec la clé de service.)
+    if (action === "delete" && userId !== user.id) {
+      return refus("Vous ne pouvez supprimer que vos propres notifications.");
+    }
+
+    let expediteur: { nom: string; avatar: string } | null = null;
+    let titreDossier: string | undefined;
+
+    if (action !== "delete") {
+      const type = notification?.type ?? "";
+      if (!(type in TITRES)) return refus(`Type de notification non autorisé : « ${type} ».`);
+
+      const { data: appelant } = await adminClient.from("utilisateurs")
+        .select("id, prenom, nom, email, photo_url, entreprise_id").eq("id", user.id).maybeSingle();
+      if (!appelant) return refus("Profil introuvable.");
+      expediteur = {
+        nom: [appelant.prenom, appelant.nom].filter(Boolean).join(" ") || appelant.email || "Un utilisateur",
+        avatar: appelant.photo_url || "",
+      };
+      const cible = { id: userId, entreprise_id: userData.entreprise_id ?? null, email: userData.email ?? null };
+
+      if (regleDestinataire(type) === "reseau") {
+        const a = appelant.entreprise_id, b = cible.entreprise_id;
+        if (!a || !b) return refus("Aucune relation de réseau entre ces entreprises.");
+        const { data: lien } = await adminClient.from("reseau_entreprises").select("id")
+          .or(`and(entreprise_origine_id.eq.${a},entreprise_cible_id.eq.${b}),and(entreprise_origine_id.eq.${b},entreprise_cible_id.eq.${a})`)
+          .limit(1);
+        if (!lien?.length) return refus("Aucune relation de réseau entre ces entreprises.");
+      } else {
+        const idDossier = notification?.related_tender_id;
+        if (!idDossier) return refus("Dossier manquant.");
+        const { data: dossier } = await adminClient.from("reponses_ao")
+          .select("id, titre, createur_id, entreprise_id").eq("id", idDossier).maybeSingle();
+        if (!dossier) return refus("Dossier introuvable.");
+        titreDossier = dossier.titre;
+
+        if (regleDestinataire(type) === "porteur") {
+          // Réponse ou départ : l'appelant peut ne plus figurer au groupement
+          // (il vient de le quitter). Seul le destinataire est contraint.
+          if (dossier.createur_id !== userId) return refus("Destinataire non autorisé.");
+        } else {
+          if (!(await estLieAuDossier(adminClient, dossier, appelant))) return refus("Vous n'êtes pas lié à ce dossier.");
+          if (!(await estLieAuDossier(adminClient, dossier, cible))) return refus("Ce destinataire n'est pas lié au dossier.");
+        }
+      }
     }
 
     // ── Suppression ──
@@ -161,9 +249,17 @@ Deno.serve(async (req: Request) => {
 
     if (notifierDansApp) {
       const currentNotifications = userData.notifications || [];
+      // Titre, expéditeur et intitulé du dossier viennent du serveur ; seul le
+      // message (extrait, nom de pièce) vient du client, et il est borné.
       const newNotification = {
         id: crypto.randomUUID(),
-        ...notification,
+        type: notification.type,
+        titre: TITRES[notification.type],
+        message: String(notification.message ?? "").slice(0, 300),
+        sender_name: expediteur?.nom ?? "",
+        sender_avatar: expediteur?.avatar ?? "",
+        ...(notification.related_tender_id ? { related_tender_id: notification.related_tender_id } : {}),
+        ...(titreDossier !== undefined ? { related_tender_titre: titreDossier } : {}),
         date: new Date().toISOString(),
         read: false,
       };

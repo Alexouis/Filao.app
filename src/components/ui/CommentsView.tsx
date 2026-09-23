@@ -8,6 +8,7 @@ import {
 import { supabase } from '../../lib/supabaseClient';
 import { notifyCommentAdded } from '../../helpers/notificationHelpers';
 import { ConfirmDialog } from './ConfirmDialog';
+import { entreprisesPartenaires } from '../../helpers/messagerieHelpers';
 
 interface Comment {
   id: string;
@@ -94,11 +95,14 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       // pour les collègues et les cotraitants ACCEPTÉS (policy 075), mais pas
       // au-delà ; la vue couvre tous les cas sans dépendre de la policy de la
       // table, dont le périmètre est appelé à se resserrer.
-      const { data: grpData } = await supabase
-        .from('groupements')
-        .select('entreprise_id')
-        .eq('projet_id', tenderId)
-        .eq('statut', 'accepte');
+      const [{ data: grpBrut }, { data: dossierPorteur }] = await Promise.all([
+        supabase.from('groupements').select('entreprise_id').eq('projet_id', tenderId).eq('statut', 'accepte'),
+        supabase.from('reponses_ao').select('createur_id, entreprise_id').eq('id', tenderId).maybeSingle(),
+      ]);
+      // L'entreprise PORTEUSE est écartée : ses collègues ne lisent pas les
+      // échanges du dossier (migration 092), ils n'ont pas à en être
+      // notifiés. Le créateur, lui, est ajouté explicitement plus bas.
+      const partenaires = entreprisesPartenaires((grpBrut ?? []).map((g: any) => ({ ...g, statut: 'accepte' })), dossierPorteur?.entreprise_id);
 
       // 2. Fetch from invitations (pending or guests)
       const { data: invData } = await supabase
@@ -132,9 +136,7 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
       // 4. Combine all unique IDs
       // Les identifiants des membres passent par `utilisateurs_publics`, seul
       // canal de lecture des profils d'autrui (migration 070).
-      const entrepriseIds = Array.from(new Set(
-        (grpData || []).map((g: any) => g.entreprise_id).filter(Boolean)
-      ));
+      const entrepriseIds = partenaires;
       let grpUserIds: string[] = [];
       if (entrepriseIds.length > 0) {
         const { data: membres } = await supabase
@@ -143,7 +145,10 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
           .in('entreprise_id', entrepriseIds);
         grpUserIds = membres?.map((m: any) => m.id) || [];
       }
-      const allIds = Array.from(new Set([...grpUserIds, ...invUserIds]));
+      const allIds = Array.from(new Set([
+        ...grpUserIds, ...invUserIds,
+        ...(dossierPorteur?.createur_id ? [dossierPorteur.createur_id] : []),
+      ]));
 
       setTenderCollaborators(allIds.map(id => ({ id })));
     } catch (error) {

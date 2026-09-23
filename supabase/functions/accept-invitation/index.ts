@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { peutRepondre, invitationValide } from "./decision.ts";
 
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
@@ -89,24 +90,59 @@ Deno.serve(async (req: Request) => {
     const myCompanyId = userData.entreprise_id;
     const newStatut = accept ? "accepte" : "refuse";
 
-    // 1. Get invitation details first to ensure we have the role (especially for manual invites)
-    const { data: inviteData } = await adminClient
-      .from("invitations")
-      .select("role, status")
-      .eq("tender_id", tenderId)
-      .ilike("email", motifExact(userData.email))
-      .single();
+    // 1. Une invitation DOIT exister pour cet appelant.
+    //
+    // Sans ce contrôle, n'importe quel compte rattaché à une entreprise
+    // pouvait appeler cette fonction avec l'identifiant d'un dossier — présent
+    // dans les liens et les URL — et en devenir membre « accepte » : accès au
+    // contenu, aux pièces des partenaires, à la messagerie, et ajout
+    // automatique au réseau de toutes les entreprises du groupement.
+    //
+    // Deux formes d'invitation sont reconnues : la ligne de groupement de
+    // SON entreprise, et l'invitation nominative à SON adresse (non révoquée,
+    // non expirée). Seule une invitation en attente peut recevoir une réponse ;
+    // redire la même réponse est accepté (idempotence).
+    const { data: dossier } = await adminClient
+      .from("reponses_ao").select("id, entreprise_id").eq("id", tenderId).maybeSingle();
+    if (!dossier) {
+      return new Response(JSON.stringify({ error: "Dossier introuvable." }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    // 2. Upsert groupements row (use role from invite if groupement doesn't exist yet)
+    const { data: groupementExistant } = await adminClient
+      .from("groupements").select("statut, role_groupement")
+      .eq("projet_id", tenderId).eq("entreprise_id", myCompanyId).maybeSingle();
+
+    const { data: invitations } = await adminClient
+      .from("invitations").select("role, status, created_by, revoked_at, expires_at")
+      .eq("tender_id", tenderId)
+      .ilike("email", motifExact(userData.email));
+    const inviteData: any = invitationValide(invitations ?? []);
+
+    if (!peutRepondre({
+      accept: !!accept,
+      entrepriseDossier: dossier.entreprise_id ?? null,
+      monEntreprise: myCompanyId,
+      groupement: groupementExistant ?? null,
+      invitations: invitations ?? [],
+    })) {
+      return new Response(JSON.stringify({ error: "Aucune invitation en attente pour ce dossier." }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 2. Ligne de groupement. Le rôle existant est conservé : l'écraser par
+    //    « Co-traitant » par défaut défaisait un rôle déjà attribué.
     const { error: grpErr } = await adminClient
       .from("groupements")
       .upsert({
         projet_id: tenderId,
         entreprise_id: myCompanyId,
-        role_groupement: inviteData?.role || 'Co-traitant',
+        role_groupement: groupementExistant?.role_groupement || inviteData?.role || 'Co-traitant',
         statut: newStatut,
         date_reponse: new Date().toISOString(),
-        invite_par: (inviteData as any)?.created_by || null,
+        invite_par: inviteData?.created_by || null,
       }, { onConflict: 'projet_id, entreprise_id' });
 
     if (grpErr) {
@@ -128,7 +164,8 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .update(updatePayload)
       .eq("tender_id", tenderId)
-      .ilike("email", motifExact(userData.email));
+      .ilike("email", motifExact(userData.email))
+      .is("revoked_at", null);
 
     // 5. AUTO-ADD TO NETWORK on acceptance
     if (accept) {

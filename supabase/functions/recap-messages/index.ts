@@ -94,7 +94,7 @@ Deno.serve(async (req: Request) => {
     const idsDossiers = [...new Set(messages.map(m => m.tender_id))];
     const { data: dossiers } = await admin
       .from("reponses_ao")
-      .select("id, titre, createur_id")
+      .select("id, titre, createur_id, entreprise_id")
       .in("id", idsDossiers);
     const parDossier = new Map((dossiers ?? []).map(d => [d.id, d]));
 
@@ -125,8 +125,11 @@ Deno.serve(async (req: Request) => {
       const dossier = parDossier.get(tenderId);
       const ids = new Set<string>();
       if (dossier?.createur_id) ids.add(dossier.createur_id);
+      // L'entreprise PORTEUSE est écartée : sa ligne de groupement ne vaut que
+      // pour le créateur (migration 092). Ses collègues recevaient sinon, par
+      // e-mail, le contenu de messages qu'ils n'ont pas le droit de lire.
       const entreprisesDuDossier = (groupements ?? [])
-        .filter(g => g.projet_id === tenderId)
+        .filter(g => g.projet_id === tenderId && g.entreprise_id !== dossier?.entreprise_id)
         .map(g => g.entreprise_id);
       tousComptes
         .filter(u => entreprisesDuDossier.includes(u.entreprise_id))

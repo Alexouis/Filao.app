@@ -21,7 +21,7 @@ import {
 import {
     competencesDerivees, correspondCriteres, optionsFiltre, type CriteresReseau,
 } from '../src/helpers/reseauFiltresHelpers.ts';
-import { dossiersDeMessagerie, totalNonLus } from '../src/helpers/messagerieHelpers.ts';
+import { dossiersDeMessagerie, totalNonLus, entreprisesPartenaires } from '../src/helpers/messagerieHelpers.ts';
 import { dateLocaleISO } from '../src/helpers/dateHelpers.ts';
 import { messageErreurFonction } from '../src/helpers/erreurFonction.ts';
 import { SEUILS, ecartJours, libelles, dejaEmis } from '../supabase/functions/send-deadline-reminders/rappelsEcheance.ts';
@@ -145,6 +145,17 @@ test('messagerie : seuls mes dossiers et ceux où MON entreprise a accepté', ()
     ];
     assert.deepEqual(dossiersDeMessagerie(dossiers, 'u1', 'e1'), ['mien', 'accepte']);
     assert.deepEqual(dossiersDeMessagerie(dossiers, 'u1', null), ['mien']);
+});
+
+test('messagerie : les collègues du porteur ne sont pas des destinataires', () => {
+    const groupements = [
+        { entreprise_id: 'porteur', statut: 'accepte' },
+        { entreprise_id: 'p1', statut: 'accepte' },
+        { entreprise_id: 'p1', statut: 'accepte' },
+        { entreprise_id: 'p2', statut: 'invite' },
+        { entreprise_id: null, statut: 'accepte' },
+    ];
+    assert.deepEqual(entreprisesPartenaires(groupements, 'porteur'), ['p1']);
 });
 
 test('messagerie : total des non-lus dérivé, jamais négatif', () => {
@@ -379,4 +390,49 @@ test('garde-fou : numéros de migration uniques', () => {
         .map(n => n.match(/^(\d+[a-z]?)_/)?.[1]);
     const doublons = numeros.filter((n, i) => n && numeros.indexOf(n) !== i);
     assert.deepEqual(doublons, [], 'deux migrations portent le même numéro : ordre d’application ambigu');
+});
+
+// ---------------------------------------------------------------------------
+// Sécurité des Edge Functions appelables par n'importe quel compte
+// ---------------------------------------------------------------------------
+import { peutRepondre } from '../supabase/functions/accept-invitation/decision.ts';
+import { regleDestinataire, TITRES } from '../supabase/functions/notify-user/regles.ts';
+
+test('accept-invitation : sans invitation, impossible de rejoindre un dossier', () => {
+    // Faille corrigée : n'importe quel compte devenait membre « accepte »
+    // de n'importe quel dossier dont il connaissait l'identifiant.
+    const base = { accept: true, entrepriseDossier: 'porteur', monEntreprise: 'moi', maintenant: Date.parse('2026-09-23T12:00:00Z') };
+    assert.equal(peutRepondre({ ...base, groupement: null, invitations: [] }), false);
+    assert.equal(peutRepondre({ ...base, groupement: { statut: 'refuse' }, invitations: [] }), false);
+});
+
+test('accept-invitation : invitations reconnues, révoquées ou expirées refusées', () => {
+    const base = { accept: true, entrepriseDossier: 'porteur', monEntreprise: 'moi', maintenant: Date.parse('2026-09-23T12:00:00Z') };
+    assert.ok(peutRepondre({ ...base, groupement: { statut: 'invite' }, invitations: [] }));
+    assert.ok(peutRepondre({ ...base, groupement: null, invitations: [{ status: 'pending' }] }));
+    assert.ok(peutRepondre({ ...base, groupement: { statut: 'accepte' }, invitations: [] }), 'idempotence');
+    assert.equal(peutRepondre({ ...base, groupement: null, invitations: [{ status: 'pending', revoked_at: '2026-09-01' }] }), false);
+    assert.equal(peutRepondre({ ...base, groupement: null, invitations: [{ status: 'pending', expires_at: '2026-09-01T00:00:00Z' }] }), false);
+    // Refuser une invitation déjà acceptée n'est pas une « réponse » : c'est un départ.
+    assert.equal(peutRepondre({ ...base, accept: false, groupement: { statut: 'accepte' }, invitations: [] }), false);
+    // Le porteur ne répond pas à une invitation sur son propre dossier.
+    assert.equal(peutRepondre({ ...base, monEntreprise: 'porteur', groupement: { statut: 'invite' }, invitations: [] }), false);
+});
+
+test('notify-user : types et relations exigées', () => {
+    assert.equal(regleDestinataire('tender_won'), null, 'les résultats sont émis par le serveur');
+    assert.equal(regleDestinataire('inventé'), null);
+    assert.equal(regleDestinataire('network_invite_accepted'), 'reseau');
+    assert.equal(regleDestinataire('collaboration_left'), 'porteur');
+    assert.equal(regleDestinataire('chat_message'), 'dossier');
+});
+
+test('notify-user : tout type envoyé par le front est accepté par le serveur', () => {
+    // Sans ce croisement, durcir la liste côté serveur casserait en silence
+    // une notification du front (refus 403 journalisé, rien d'affiché).
+    const src = lire('src/helpers/notificationHelpers.ts');
+    const envoyes = [...src.matchAll(/type:\s*'([a-z_]+)'/g)].map(m => m[1]);
+    assert.ok(envoyes.length > 5);
+    const refuses = envoyes.filter(t => !(t in TITRES));
+    assert.deepEqual(refuses, []);
 });

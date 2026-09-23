@@ -7,6 +7,7 @@ import { MessageItem } from './MessageItem';
 import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import { GLASS_TILE_STYLE } from '../../lib/styles';
+import { entreprisesPartenaires } from '../../helpers/messagerieHelpers';
 
 interface ChatWindowProps {
     tenderId: string;
@@ -103,14 +104,20 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         try {
             const { data, error } = await supabase
                 .from('reponses_ao')
-                .select('createur_id, groupements (entreprise_id, statut)')
+                .select('createur_id, entreprise_id, groupements (entreprise_id, statut)')
                 .eq('id', tenderId)
                 .single();
 
             if (error) throw error;
 
             const estCreateur = data?.createur_id === user.id;
-            const groupements = (data?.groupements as any[]) ?? [];
+            // La ligne de l'entreprise PORTEUSE ne vaut que pour le créateur
+            // (migration 092) : elle est écartée ici comme dans `est_membre`.
+            // Sans cela, un collègue du porteur voyait la barre d'écriture —
+            // son message était ensuite rejeté par la base — et recevait
+            // l'extrait de chaque message sans avoir le droit de lire le fil.
+            const groupements = ((data?.groupements as any[]) ?? [])
+                .filter(g => g.entreprise_id && g.entreprise_id !== data?.entreprise_id);
             const estMembre = groupements.some(
                 g => g.statut === 'accepte' && g.entreprise_id === userProfile?.entreprise_id
             ) ?? false;
@@ -119,9 +126,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             // Destinataires des notifications : le créateur, plus les comptes
             // des entreprises acceptées. On passe par `utilisateurs_publics`,
             // la vue prévue pour lire le profil d'autrui (migration 070).
-            const entreprises = groupements
-                .filter(g => g.statut === 'accepte' && g.entreprise_id)
-                .map(g => g.entreprise_id);
+            const entreprises = entreprisesPartenaires(groupements, data?.entreprise_id);
 
             const ids = new Set<string>();
             if (data?.createur_id) ids.add(data.createur_id);

@@ -20,3 +20,17 @@ export const dossiersDeMessagerie = (
 /** Total des non-lus : dérivé, jamais tenu à jour à part. */
 export const totalNonLus = (compteurs: Record<string, number>): number =>
     Object.values(compteurs).reduce((somme, n) => somme + (n > 0 ? n : 0), 0);
+
+/**
+ * Entreprises PARTENAIRES d'un dossier : groupements acceptés, hors
+ * l'entreprise porteuse. Sa ligne de groupement ne vaut que pour le créateur
+ * (migration 092) ; la compter faisait notifier — voire recevoir par e-mail
+ * le contenu des échanges — tous les collègues du porteur.
+ */
+export const entreprisesPartenaires = (
+    groupements: Array<{ entreprise_id?: string | null; statut?: string | null }>,
+    entrepriseDossier?: string | null,
+): string[] =>
+    [...new Set(groupements
+        .filter(g => g.statut === 'accepte' && g.entreprise_id && g.entreprise_id !== entrepriseDossier)
+        .map(g => g.entreprise_id as string))];
