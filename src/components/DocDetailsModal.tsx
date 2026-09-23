@@ -42,7 +42,8 @@ export interface DocDetailsModalProps {
     onFermer: () => void;
     onRelancer: (member: UIGroupementMember) => void;
     onTelechargerTout: (member: UIGroupementMember) => void;
-    onTelechargerPiece: (chemin: string, nomPropose: string) => void;
+    /** Clé `type-collabId`, libellé de la pièce, chemin de repli. */
+    onTelechargerPiece: (fileKey: string, libelle: string, cheminRepli?: string) => void;
     onDeposer: (e: React.ChangeEvent<HTMLInputElement>, docType: string, member: UIGroupementMember) => void;
 }
 
@@ -164,7 +165,7 @@ const DocDetailsModalBase: React.FC<DocDetailsModalProps> = ({
                                                     <div className="flex items-center gap-2">
                                                         {fileObj && member.email && (
                                                             <button
-                                                                onClick={() => onTelechargerPiece(`${member.email?.toLowerCase().trim()}/${fileObj.name}`, `${doc.label}.${fileObj.name.split('.').pop()}`)}
+                                                                onClick={() => onTelechargerPiece(fileKey, doc.label, `${member.email?.toLowerCase().trim()}/${fileObj.name}`)}
                                                                 className="p-1.5 text-[#00A3E0] hover:bg-[#00A3E0] hover:text-white rounded-lg transition-all shadow-sm bg-white border border-[#00A3E0]/10"
                                                                 title="Voir/Télécharger"
                                                             >

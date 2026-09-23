@@ -38,7 +38,8 @@ export interface MemberDetailModalProps {
     /** Fichiers déposés, indexés `type-collabId`. */
     uploadedFiles: Record<string, any>;
     onFermer: () => void;
-    onTelechargerPiece: (chemin: string, nomPropose: string) => void;
+    /** Clé `type-collabId`, libellé de la pièce, chemin de repli. */
+    onTelechargerPiece: (fileKey: string, libelle: string, cheminRepli?: string) => void;
     onTelechargerTout: (member: UIGroupementMember) => void;
     onDeposer: (e: React.ChangeEvent<HTMLInputElement>, docType: string, member: UIGroupementMember) => void;
     onChoisirDepuisEntreprise: (docType: string) => void;
@@ -107,7 +108,7 @@ const MemberDetailModalBase: React.FC<MemberDetailModalProps> = ({
                     <div className="flex items-center gap-2">
                         {fileObj && member.email && peutConsulter && (
                             <button
-                                onClick={() => onTelechargerPiece(`${member.email?.toLowerCase().trim()}/${fileObj.name}`, `${docDef.label}.${fileObj.name.split('.').pop()}`)}
+                                onClick={() => onTelechargerPiece(fileKey, docDef.label, `${member.email?.toLowerCase().trim()}/${fileObj.name}`)}
                                 title="Consulter la pièce"
                                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-[#00A3E0] hover:text-white transition-all shadow-sm"
                             >

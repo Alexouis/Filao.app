@@ -223,15 +223,50 @@ Deno.serve(async (req: Request) => {
       ? `${origin}/?tab=wizard&id=${tenderId}`
       : `${origin}/collaborator-access?tenderId=${tenderId}`;
 
+    const sujet = estJalon
+      ? `Jalon dans 2 jours : ${milestoneLabel} — "${tenderTitle}"`
+      : `Rappel : Documents manquants pour le projet "${tenderTitle}"`;
+    const destinataireNormalise = email.toLowerCase().trim();
+    const typeEmail = estJalon ? "rappel_jalon" : "relance_documents";
+
+    /** Journal best-effort : un échec d'écriture ne doit rien bloquer. */
+    const journaliser = async (ligne: Record<string, unknown>) => {
+      const { error: errJournal } = await adminClient.from("emails_envoyes").insert({
+        type_email: typeEmail,
+        destinataire: destinataireNormalise,
+        destinataire_id: recipient?.id ?? null,
+        objet: sujet,
+        objet_id: tenderId,
+        ...ligne,
+      });
+      if (errJournal) console.error("Journalisation de la relance échouée:", errJournal);
+    };
+
+    // 5bis. Adresse en rejet définitif (hard bounce, plainte, désinscription).
+    // Brevo accepte l'appel mais ne délivre pas : l'envoi « réussissait » sans
+    // que rien n'arrive. On le dit explicitement à l'appelant.
+    const { data: bloque } = await adminClient
+      .from("emails_bloques").select("motif").eq("destinataire", destinataireNormalise).maybeSingle();
+    if (bloque) {
+      await journaliser({ statut: "erreur", erreur: `destinataire bloqué (${bloque.motif})` });
+      return new Response(JSON.stringify({
+        error: `E-mail non envoyé : l'adresse ${destinataireNormalise} est bloquée (${bloque.motif}). La notification in-app a bien été émise.`,
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // 6. Send Email via Brevo
     const brevoApiKey = Deno.env.get("BREVO_API_KEY");
+    let messageId: string | null = null;
     if (brevoApiKey) {
       const emailPayload = {
         sender: EXPEDITEUR,
-        to: [{ email: email.toLowerCase().trim() }],
-        subject: estJalon
-          ? `Jalon dans 2 jours : ${milestoneLabel} — "${tenderTitle}"`
-          : `Rappel : Documents manquants pour le projet "${tenderTitle}"`,
+        to: [{ email: destinataireNormalise }],
+        subject: sujet,
+        // Version texte : un e-mail HTML seul est pénalisé par les filtres
+        // anti-spam (Outlook/Hotmail en particulier).
+        textContent: estJalon
+          ? `Bonjour,\n\nL'échéance « ${milestoneLabel} » arrive dans 2 jours (${dateJalon}) sur l'appel d'offres "${tenderTitle}".\n\nVoir le rétroplanning : ${appUrl}\n\nEmail : ${destinataireNormalise}\nCode d'accès : ${accessCode}\n\n— Filao.io`
+          : `Bonjour,\n\n${senderName} vous informe que des documents sont encore manquants pour l'appel d'offres "${tenderTitle}".\n\nAccéder au dossier : ${appUrl}\n\nEmail : ${destinataireNormalise}\nCode d'accès : ${accessCode}\n\n— Filao.io`,
         htmlContent: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
             <h2 style="color: #1B5D7A; font-size: 20px;">${estJalon ? "Rappel d'échéance" : "Rappel : Coordination Documentaire"}</h2>
@@ -258,7 +293,7 @@ Deno.serve(async (req: Request) => {
               <p style="margin: 5px 0 0 0; font-size: 13px;">Code d'accès : <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #1B5D7A; letter-spacing: 1px;">${accessCode}</span></p>
             </div>
             
-            <p style="font-size: 12px; color: #777; margin-top: 40px; text-align: center; border-top: 1px solid #eee; pt-20">
+            <p style="font-size: 12px; color: #777; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 20px;">
               Ceci est un message automatique de coordination via <strong>Filao.io</strong>
             </p>
           </div>
@@ -278,6 +313,7 @@ Deno.serve(async (req: Request) => {
       if (!emailRes.ok) {
         const errorText = await emailRes.text();
         console.error("Brevo Error:", errorText);
+        await journaliser({ statut: "erreur", erreur: `Brevo ${emailRes.status}: ${errorText.slice(0, 300)}` });
         // Le message générique d'origine obligeait à ouvrir les logs de la
         // fonction pour connaître la cause. L'appelant est soit l'application
         // authentifiée, soit le planificateur de rappels : remonter le détail
@@ -292,6 +328,7 @@ Deno.serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      messageId = (await emailRes.json().catch(() => ({})))?.messageId ?? null;
     } else {
       // Sans clé API, la fonction renvoyait `success: true` alors qu'aucun
       // e-mail ne partait — un envoi manquant devenait indétectable.
@@ -306,23 +343,12 @@ Deno.serve(async (req: Request) => {
 
     // 7. Journaliser l'envoi.
     // Sans cette trace, la date du dernier rappel n'existait que dans l'état
-    // React de l'onglet : elle disparaissait au rechargement, et l'interface ne
-    // pouvait ni l'afficher ni faire tenir l'anti-spam au-delà de la session.
-    // Best-effort : un échec de journalisation ne doit pas faire échouer un
-    // e-mail déjà parti.
-    try {
-      await adminClient.from("emails_envoyes").insert({
-        type_email: "relance_documents",
-        destinataire: email.trim().toLowerCase(),
-        destinataire_id: recipient?.id ?? null,
-        objet: `Rappel : documents manquants — ${tenderTitle}`,
-        objet_id: tenderId,
-      });
-    } catch (journalErr) {
-      console.error("Journalisation de la relance échouée:", journalErr);
-    }
+    // React de l'onglet. Le messageId Brevo permet au webhook de rattacher
+    // les événements (livré, rejeté, spam…) à CETTE ligne : sans lui, un
+    // « je n'ai rien reçu » était impossible à trancher.
+    await journaliser({ statut: "envoye", identifiant_prestataire: messageId });
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ success: true, messageId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

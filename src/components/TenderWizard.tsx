@@ -477,6 +477,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .select('destinataire, horodatage')
                 .eq('objet_id', tenderId)
                 .eq('type_email', 'relance_documents')
+                // Un échec journalisé n'est pas un rappel envoyé : il ne doit
+                // pas verrouiller le bouton.
+                .neq('statut', 'erreur')
                 .order('horodatage', { ascending: false });
 
             if (annule || !data) return;
@@ -895,11 +898,34 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
     const globalPercent = totalExpectedDocs > 0 ? Math.round((totalReceivedDocs / totalExpectedDocs) * 100) : 0;
 
     // --- HELPERS: FILE OPERATIONS ---
-    const handleDownloadFile = async (path: string, fileName: string) => {
+    /**
+     * Téléchargement d'une pièce unique.
+     *
+     * Les pièces sont stockées sous un nom SANS extension
+     * (« ACTE_ENGAGEMENT-<uuid> ») : l'ancien calcul `nom.split('.').pop()`
+     * renvoyait donc le nom entier, collé derrière le libellé en guise
+     * d'extension — d'où un fichier de type « ACTE_ENGAGEMENT-… » illisible.
+     * On déduit désormais l'extension du contenu, comme l'export ZIP.
+     *
+     * Le chemin relevé au listage prime sur celui reconstruit depuis l'e-mail,
+     * faux dès qu'un tiers a déposé la pièce à la place du membre.
+     */
+    const handleDownloadFile = async (fileKey: string, libelle: string, cheminRepli?: string) => {
+        const path = uploadedFilePaths[fileKey] ?? cheminRepli;
+        if (!path) {
+            showToast('Pièce introuvable.', 'error');
+            return;
+        }
         try {
             const { data, error } = await supabase.storage.from('documents').download(path);
             if (error) throw error;
-            saveAs(data, fileName);
+            const debut = new Uint8Array(await data.slice(0, OCTETS_A_LIRE).arrayBuffer());
+            const ext = EXTENSIONS_PAR_TYPE[detecterType(debut)]
+                ?? EXTENSIONS_PAR_MIME[uploadedFiles[fileKey]?.type]
+                ?? EXTENSIONS_PAR_MIME[data.type]
+                ?? '';
+            const base = nettoyerTexteLibre(libelle, 60).replace(/[\\/:*?"<>|]/g, '-') || 'piece';
+            saveAs(data, `${base}${ext ? '.' + ext : ''}`);
         } catch (error) {
             console.error('Error downloading file:', error);
             showToast('Erreur lors du téléchargement', 'error');
@@ -1023,11 +1049,28 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
             });
 
-            if (error) throw error;
-            
+            if (error) {
+                // Le motif réel (Brevo, adresse bloquée…) est dans le corps de
+                // la réponse : `error.message` ne dit que « non-2xx ».
+                let motif = error.message;
+                try {
+                    const corps = await (error as any)?.context?.clone?.().json();
+                    if (corps?.error) motif = corps.error;
+                } catch { /* corps illisible */ }
+                throw new Error(motif);
+            }
+
             showToast(`Relance envoyée à ${member.name || member.email}`, 'success');
         } catch (error: any) {
             console.error('Error sending reminder:', error);
+            // Rien n'est parti : on lève le verrou, sinon le bouton affichait
+            // « RAPPEL DÉJÀ ENVOYÉ » pendant une heure après un échec.
+            setResentInvitations(prev => {
+                const suivant = { ...prev };
+                if (lastSent) suivant[normalizedEmail] = lastSent;
+                else delete suivant[normalizedEmail];
+                return suivant;
+            });
             showToast(error.message || 'Erreur lors de l\'envoi de la relance', 'error');
         } finally {
             setLoading(false);
