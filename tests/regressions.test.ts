@@ -605,3 +605,60 @@ test('avis de sécurité : types appelés par le front tous connus du serveur', 
     assert.ok(appels.size >= 3);
     assert.deepEqual([...appels].filter(t => !(t in AVIS)), []);
 });
+
+// ---------------------------------------------------------------------------
+// Badge « SIRET vérifié » posé par le serveur (119)
+// ---------------------------------------------------------------------------
+import { ficheOfficielle, siretFormatValide, CHAMPS_OFFICIELS } from '../supabase/functions/verifier-siret/ficheOfficielle.ts';
+import { ficheDepuisSirene } from '../src/helpers/inseeLabels.ts';
+import { siretValide } from '../src/helpers/validationHelpers.ts';
+
+const reponseRegistre = {
+    nom_complet: 'AXERO', nature_juridique: '5710', activite_principale: '62.01Z', date_creation: '2019-03-01',
+    tranche_effectif_salarie: '03', categorie_entreprise: 'PME',
+    siege: { siret: '12345678900017', numero_voie: '12', type_voie: 'RUE', libelle_voie: 'DES LILAS', libelle_commune: 'DIGNE-LES-BAINS', code_postal: '04000' },
+    matching_etablissements: [
+        { siret: '12345678900025', adresse: '3 AV DU PORT 13002 MARSEILLE', libelle_commune: 'MARSEILLE', code_postal: '13002' },
+    ],
+    complements: { est_entrepreneur_individuel: false },
+    dirigeants: [{ nom: 'MARTIN', prenoms: 'Claire' }],
+};
+
+test('SIRET vérifié : serveur et front lisent le registre à l’identique', () => {
+    for (const siret of ['12345678900017', '12345678900025']) {
+        const serveur = ficheOfficielle(reponseRegistre, siret)!;
+        const front = ficheDepuisSirene(reponseRegistre, siret) as any;
+        for (const k of CHAMPS_OFFICIELS.filter(c => c !== 'siret')) {
+            assert.equal((serveur as any)[k], front[k], `${siret} : ${k}`);
+        }
+    }
+    // Entrepreneur individuel : état civil repris des deux côtés.
+    const ei = { ...reponseRegistre, complements: { est_entrepreneur_individuel: true } };
+    assert.equal(ficheOfficielle(ei, '12345678900017')?.prenom, ficheDepuisSirene(ei, '12345678900017').prenom);
+});
+
+test('SIRET vérifié : un SIRET absent de la réponse n’est pas vérifié', () => {
+    // Le front retombe sur le siège ; pour le badge, pas de correspondance approximative.
+    assert.equal(ficheOfficielle(reponseRegistre, '99999999999999'), null);
+    assert.equal(ficheOfficielle(null, '12345678900017'), null);
+});
+
+test('SIRET vérifié : contrôle de format identique au front', () => {
+    for (const s of ['73282932000074', '35600000000048', '12345678900017', '1234', 'abcdefghijklmn', '']) {
+        assert.equal(siretFormatValide(s), siretValide(s), s);
+    }
+});
+
+test('garde-fou : le navigateur n’écrit plus le badge SIRET', () => {
+    const fautifs = fichiers('src', /\.tsx?$/)
+        .filter(f => !f.endsWith('types.ts'))
+        .filter(f => /siret_verified\s*:/.test(sansCommentaires(lire(f))));
+    assert.deepEqual(fautifs, [], 'seule l’Edge Function verifier-siret pose le badge');
+});
+
+test('base : le badge retombe si un champ officiel change, et ne se pose pas depuis le client', () => {
+    const corps = derniereDefinition('proteger_entreprise');
+    assert.match(corps, /'siret_verified', FALSE/);
+    assert.match(corps, /v_officiels/);
+    assert.match(corps, /AND NOT v_modifie/);
+});

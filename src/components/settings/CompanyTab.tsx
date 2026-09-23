@@ -20,6 +20,7 @@ import {
 } from '../../helpers/inseeLabels';
 import { dateLocaleISO } from '../../helpers/dateHelpers';
 import { enregistrerTaxonomie } from '../../helpers/taxonomieEntreprise';
+import { verifierSiret } from '../../helpers/verificationSiret';
 
 interface CompanyTabProps {
     userProfile: UserProfile | null;
@@ -731,7 +732,8 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 nom_famille: vide(formData.nom_famille),
                 effectif: formData.effectif || 1,
                 site_web: vide(formData.site_web),
-                siret_verified: isVerified,
+                // `siret_verified` n'est plus envoyé : seul le serveur le pose
+                // (`verifier-siret`, plus bas).
             };
 
             if (entId) {
@@ -764,6 +766,18 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     tags: selectedExpertiseTags,
                     zones: selectedGeoZones,
                 });
+            }
+
+            // Badge « SIRET vérifié » : demandé au serveur, qui interroge le
+            // registre et réécrit les champs officiels. Une fiche préremplie
+            // depuis le registre dans le navigateur ne suffit plus.
+            if (entId && isVerified) {
+                const verif = await verifierSiret(entId);
+                setIsVerified(verif.verifie);
+                setFieldsLocked(verif.verifie);
+                if (!verif.verifie) {
+                    setError(`Fiche enregistrée, mais le SIRET n'a pas pu être vérifié : ${verif.motif ?? 'réessayez plus tard.'}`);
+                }
             }
 
             setSaveSuccess(true);

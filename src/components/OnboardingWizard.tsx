@@ -13,6 +13,7 @@ import { track } from '../helpers/analytics';
 import { enregistrerTaxonomie } from '../helpers/taxonomieEntreprise';
 import { useToast } from './ui/Toast';
 import { ContestationEntreprise } from './ContestationEntreprise';
+import { verifierSiret } from '../helpers/verificationSiret';
 
 // Types for the new taxonomy
 interface RefDomain {
@@ -558,7 +559,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                 code_naf: vide(companyData.code_naf),
                 nom: isStandard ? companyData.nom : `${companyData.prenom} ${companyData.nom_famille}`,
                 effectif: companyData.effectif ? parseInt(companyData.effectif, 10) : 1,
-                siret_verified: isVerified,
+                // `siret_verified` : posé par le serveur uniquement (voir plus bas).
             };
 
             let currentEntId = entrepriseId;
@@ -694,6 +695,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ userProfile,
                     poste: userData.poste || null,
                 }).eq('id', userProfile.id);
                 if (erreurRattachement) throw erreurRattachement;
+
+                // Badge « SIRET vérifié », demandé au serveur une fois l'entreprise
+                // rattachée. Best-effort : une vérification impossible (registre
+                // injoignable) ne bloque pas l'inscription.
+                if (isVerified) {
+                    const verif = await verifierSiret(currentEntId);
+                    setIsVerified(verif.verifie);
+                }
             }
 
             // Sans identifiant d'entreprise, l'étape 2 n'aurait rien à quoi
