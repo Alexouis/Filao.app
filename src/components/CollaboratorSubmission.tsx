@@ -14,7 +14,6 @@ import {
 import { supabase } from '../lib/supabaseClient';
 import { forfait } from '../helpers/planLimits';
 import { APP_CONFIG, REQUIRED_DOCS_BY_ROLE, SECTORS_LABELS, MARKET_TYPES_LABELS, Tender, HANDOVER_TYPES_LABELS, PlanType, PLANS_CONFIG, PLANS_TYPES } from '../config';
-import { notifyCollaborationAccepted, notifyCollaborationRejected, notifyDocumentAdded } from '../helpers/notificationHelpers';
 import { capitalizeFirstLetter } from '../helpers/textHelpers'
 import { LimitReachedModal } from './LimitReachedModal';
 
@@ -47,6 +46,13 @@ export const CollaboratorSubmission: React.FC = () => {
    const [owner, setOwner] = useState<any>(null); // Store Creator Profile
    const [tenderFiles, setTenderFiles] = useState<any[]>([]);
    const [uploadingFile, setUploadingFile] = useState<string | null>(null);
+   // Emplacement survolé pendant un glisser-déposer. Déclaré ICI, avec les
+   // autres hooks : placé après les `return` anticipés (formulaire de
+   // vérification, chargement), il faisait passer React de N à N+1 hooks au
+   // moment où l'écran basculait sur l'espace de travail — plantage
+   // « Rendered more hooks than during the previous render » juste après la
+   // saisie du code.
+   const [dragCible, setDragCible] = useState<string | null>(null);
 
    // --- AUTO-LOGIN WITH TOKEN ---
    React.useEffect(() => {
@@ -174,6 +180,10 @@ export const CollaboratorSubmission: React.FC = () => {
          const row = rows?.[0];
          if (inviteError || !row) throw new Error("Identifiants incorrects ou accès révoqué.");
 
+         // Même contrôle qu'en mode jeton : sans lui, une invitation expirée
+         // ouvrait l'espace, puis chaque action échouait sans explication.
+         if (row.expires_at && new Date(row.expires_at) < new Date()) throw new Error("Invitation expirée. Demandez au porteur du dossier de vous réinviter.");
+
          const { invite, tender: tenderData } = mapInvitationRow(row);
          if (!tenderData.id) throw new Error("Appel d'offres introuvable.");
          setGuestAuth({ mode: 'code', email: emailInput, code: codeInput });
@@ -253,53 +263,35 @@ export const CollaboratorSubmission: React.FC = () => {
       setLoading(true);
 
       try {
-         // 1. Call the edge function for unified acceptance
-         // This handles invitations and groupements tables
-         const { data: { session } } = await supabase.auth.getSession();
-         
-         const payload = {
-            tenderId: tender.id,
-            accept: newStatus === 'approved'
-         };
+         // Toujours le parcours invité, identifié par son secret. L'ancien code
+         // basculait sur `accept-invitation` dès qu'une session existait dans
+         // le navigateur : un porteur qui testait le lien depuis son propre
+         // navigateur (ou un partenaire connecté à un autre compte) répondait
+         // alors SOUS SON IDENTITÉ, et l'invitation restait en attente.
+         const nouveauStatut = newStatus === 'approved' ? 'accepted' : 'refused';
 
-         // If user is logged in, we can use the edge function directly
-         if (session) {
-            const { error: edgeError } = await supabase.functions.invoke('accept-invitation', {
-               body: payload
-            });
-            if (edgeError) throw edgeError;
-         } else {
-            // Guest Flow: Update invitations table directly if allowed (or we'd need a guest-authorized edge function)
-            // For now, let's update invitations table. 
-            // Note: RLS must allow this (policy usually allows update if token matches)
-            
-            let answer = {};
-            if(newStatus === 'approved'){
-               answer["status"] = 'accepted';
-               answer["accepted_at"] = new Date().toISOString();
-            } else {
-               answer["status"] = 'refused';
-               answer["refused_at"] = new Date().toISOString();
-            }
-            const nouveauStatut = newStatus === 'approved' ? 'accepted' : 'refused';
+         const { data: ok, error: inviteError } = guestAuth?.mode === 'token'
+            ? await supabase.rpc('respond_to_invitation', {
+                 p_token: guestAuth.token, p_status: nouveauStatut })
+            : await supabase.rpc('respond_to_invitation_by_code', {
+                 p_tender_id: tenderIdParam ?? tender?.id,
+                 p_email: guestAuth?.mode === 'code' ? guestAuth.email : myCollabData.email,
+                 p_code: guestAuth?.mode === 'code' ? guestAuth.code : '',
+                 p_status: nouveauStatut });
 
-            const { data: ok, error: inviteError } = guestAuth?.mode === 'token'
-               ? await supabase.rpc('respond_to_invitation', {
-                    p_token: guestAuth.token, p_status: nouveauStatut })
-               : await supabase.rpc('respond_to_invitation_by_code', {
-                    p_tender_id: tenderIdParam ?? tender?.id,
-                    p_email: guestAuth?.mode === 'code' ? guestAuth.email : myCollabData.email,
-                    p_code: guestAuth?.mode === 'code' ? guestAuth.code : '',
-                    p_status: nouveauStatut });
-
-            if (inviteError) throw inviteError;
-            if (!ok) {
-               // La fonction refuse si l'invitation n'est plus `pending` ou a
-               // expiré ; l'UPDATE direct l'acceptait silencieusement.
-               showToast("Cette invitation a déjà reçu une réponse ou a expiré.", 'warning');
-               return;
-            }
+         if (inviteError) throw inviteError;
+         if (!ok) {
+            // La fonction refuse si l'invitation n'est plus `pending`, a été
+            // révoquée ou a expiré.
+            showToast("Cette invitation a déjà reçu une réponse ou a expiré.", 'warning');
+            return;
          }
+
+         // Le porteur est prévenu côté serveur : `addNotification` exige une
+         // session, qu'un invité n'a pas. Best-effort.
+         supabase.functions.invoke('guest-files', {
+            body: { action: 'notifier', evenement: 'reponse', ...identifiantsInvite() },
+         }).catch((e) => console.error('guest-files (notifier reponse):', e));
 
          // 2. Update Local State
          setMyCollabData({ ...myCollabData, status: newStatus });
@@ -358,23 +350,17 @@ export const CollaboratorSubmission: React.FC = () => {
 
       try {
          // --- 1. DETERMINE PATH & CHECK EXISTING FILE ---
-         const userIdentifier = myCollabData.email;
          // Filename format: TYPE-COLLABID-TENDERID
          // This matches the parsing logic in TenderWizard.tsx
          const fileName = nomPieceCollaborateur({ docType, collabId: myCollabData.id, tenderId: tender.id });
-         const folderPath = userIdentifier;
 
-         // Check if a file with this name already exists to calculate the Delta
-         let oldFileSize = 0;
-         const { data: existingFiles } = await supabase.storage
-            .from('documents')
-            .list(folderPath, { search: fileName });
-
-         // Exact match check
-         const existingFile = existingFiles?.find(f => f.name === fileName);
-         if (existingFile) {
-            oldFileSize = existingFile.metadata?.size || 0;
-         }
+         // Taille de la version précédente, pour ne compter que la différence.
+         // Lue dans la liste déjà chargée par `guest-files` : `storage.list()`
+         // renvoie toujours vide à un invité anonyme (bucket privé), si bien que
+         // chaque remplacement était compté comme un fichier NOUVEAU — stockage
+         // et compteur de pièces gonflaient à chaque envoi.
+         const existingFile = tenderFiles.find(f => f.name === fileName);
+         const oldFileSize = existingFile?.metadata?.size || 0;
 
          // Calculate the difference (Positive = using more space, Negative = freeing space)
          const delta = newFileSize - oldFileSize;
@@ -450,32 +436,13 @@ export const CollaboratorSubmission: React.FC = () => {
          // --- 6. REFRESH UI & NOTIFY ---
          await fetchTenderFiles();
 
-         await notifyDocumentAdded(
-            [tender.createur_id],
-            myCollabData.name || myCollabData.email,
-            "",
-            tender.id,
-            tender.titre,
-            docType
-         );
-
-         // Trace le dépôt pour le récapitulatif quotidien 18h (un email groupé
-         // au lieu d'un par pièce) et le journal côté fiche partenaire.
-         // Best-effort : un échec de tracking ne doit pas bloquer le dépôt.
-         try {
-            await supabase.from('depots_pieces').insert({
-               tender_id: tender.id,
-               destinataire_id: tender.createur_id,
-               // auteur_id laissé null : l'auteur est souvent un invité sans
-               // compte (myCollabData.id est un id d'invitation, pas d'utilisateur).
-               // Son identité est portée par auteur_libelle.
-               auteur_libelle: myCollabData.name || myCollabData.email,
-               type_piece: docType,
-               nom_piece: fileName,
-            });
-         } catch (e) {
-            console.error('Suivi dépôt (depots_pieces) échoué:', e);
-         }
+         // Notification au porteur et trace pour le récapitulatif de 18 h,
+         // faites côté serveur : `addNotification` et l'insertion dans
+         // `depots_pieces` exigent une session, qu'un invité n'a pas — les
+         // deux échouaient en silence. Best-effort : le dépôt a réussi.
+         supabase.functions.invoke('guest-files', {
+            body: { action: 'notifier', evenement: 'depot', fichier: fileName, ...identifiantsInvite() },
+         }).catch((e) => console.error('guest-files (notifier depot):', e));
 
          // Analytics : pièce déposée par un partenaire (ce composant est l'espace
          // cotraitant/invité). Aucun nom de fichier ni identité émis.
@@ -588,7 +555,6 @@ export const CollaboratorSubmission: React.FC = () => {
     * `dragCible` retient l'emplacement survolé pour ne mettre en évidence que
     * celui-là : un état booléen global allumerait toute la grille.
     */
-   const [dragCible, setDragCible] = useState<string | null>(null);
 
    const surDepotGlisse = (e: React.DragEvent, docType: string) => {
       e.preventDefault();

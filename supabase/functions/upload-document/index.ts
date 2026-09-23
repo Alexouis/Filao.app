@@ -135,8 +135,13 @@ Deno.serve(async (req: Request) => {
     // --- 1. Identité ---------------------------------------------------
     let identite: Identite | null = null;
 
+    // Un secret d'invité, s'il est présenté, prime sur la session : depuis le
+    // portail invité, un navigateur déjà connecté à un autre compte Filao
+    // envoyait son JWT, et le dépôt partait sous cette identité — refusé
+    // (« Destination non autorisée ») ou, pire, rangé chez la mauvaise personne.
+    const secretInvite = Boolean(jeton || codeAcces);
     const enTete = req.headers.get("Authorization") ?? "";
-    if (enTete.startsWith("Bearer ")) {
+    if (!secretInvite && enTete.startsWith("Bearer ")) {
       const { data } = await admin.auth.getUser(enTete.slice(7));
       if (data?.user?.email) {
         const { data: profil } = await admin
@@ -158,19 +163,32 @@ Deno.serve(async (req: Request) => {
       // vérifiait que l'existence d'une invitation portant l'e-mail du dossier
       // visé, sans jamais confronter cela à l'appelant.
       // Résolution par empreinte : la base ne stocke plus le jeton en clair.
-      let invitation: { email?: string } | null = null;
+      // Mode code : comparaison EXACTE faite ici. `.ilike()` traitait l'e-mail
+      // et le code saisis comme des motifs : « % » / « % » désignait n'importe
+      // quelle invitation du dossier et permettait d'écraser les pièces d'un
+      // autre partenaire. Révocation et expiration sont vérifiées dans les deux
+      // modes (le résolveur par jeton les filtre déjà).
+      let invitation: { email?: string; status?: string } | null = null;
 
       if (jeton) {
         const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: jeton });
         invitation = data?.[0] ?? null;
-      } else {
+      } else if (/^[0-9a-f-]{36}$/i.test(tenderId) && codeAcces.trim().length >= 6) {
         const { data } = await admin.from("invitations")
-          .select("email, tender_id")
-          .eq("tender_id", tenderId)
-          .ilike("email", emailInvite.trim())
-          .ilike("access_code", codeAcces.trim())
-          .limit(1).maybeSingle();
-        invitation = data;
+          .select("email, status, access_code, revoked_at, expires_at")
+          .eq("tender_id", tenderId);
+        invitation = (data ?? []).find((i: any) =>
+          String(i.email ?? "").toLowerCase() === emailInvite.trim().toLowerCase()
+          && String(i.access_code ?? "").toUpperCase() === codeAcces.trim().toUpperCase()
+          && !i.revoked_at
+          && (!i.expires_at || new Date(i.expires_at).getTime() > Date.now())
+        ) ?? null;
+      }
+      // Seul un invité ayant ACCEPTÉ dépose. L'écran grisait déjà les
+      // emplacements avant acceptation, mais rien ne l'imposait côté serveur,
+      // et un partenaire ayant refusé pouvait continuer à déposer.
+      if (invitation?.email && invitation.status !== "accepted") {
+        return json({ error: "Acceptez l'invitation avant de déposer des pièces." }, 403);
       }
       if (invitation?.email) {
         identite = { email: String(invitation.email).toLowerCase(), userId: null, entrepriseId: null, invite: true };

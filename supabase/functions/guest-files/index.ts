@@ -38,6 +38,71 @@ const json = (corps: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+/**
+ * Invitation correspondant au secret présenté, ou null.
+ *
+ * Mode code : comparaison EXACTE (insensible à la casse) faite ici. L'ancienne
+ * version passait l'e-mail et le code saisis à `.ilike()`, qui les traite
+ * comme des MOTIFS : « % » et « % » désignaient n'importe quelle invitation
+ * du dossier, et donnaient accès aux pièces d'un autre partenaire à partir du
+ * seul identifiant du dossier, présent dans le lien de l'e-mail.
+ * Une invitation révoquée ou expirée n'ouvre plus rien, comme en mode jeton.
+ */
+const resoudreInvitation = async (
+  admin: any,
+  { token, tenderId, email, accessCode }: { token?: string; tenderId?: string; email?: string; accessCode?: string },
+): Promise<{ email: string; tender_id: string; status: string } | null> => {
+  if (token) {
+    const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: token });
+    const ligne = data?.[0];
+    return ligne?.email ? { email: String(ligne.email), tender_id: String(ligne.tender_id), status: String(ligne.status) } : null;
+  }
+
+  const code = String(accessCode ?? "").trim().toUpperCase();
+  const adresse = String(email ?? "").trim().toLowerCase();
+  if (!tenderId || !/^[0-9a-f-]{36}$/i.test(String(tenderId)) || code.length < 6 || !adresse) return null;
+
+  const { data } = await admin.from("invitations")
+    .select("email, tender_id, status, access_code, revoked_at, expires_at")
+    .eq("tender_id", tenderId);
+  const ligne = (data ?? []).find((i: any) =>
+    String(i.email ?? "").toLowerCase() === adresse
+    && String(i.access_code ?? "").toUpperCase() === code
+    && !i.revoked_at
+    && (!i.expires_at || new Date(i.expires_at).getTime() > Date.now())
+  );
+  return ligne ? { email: String(ligne.email), tender_id: String(ligne.tender_id), status: String(ligne.status) } : null;
+};
+
+/**
+ * Ajoute une notification in-app au porteur, en respectant ses préférences
+ * (même règle que `notify-user`). `dedup` évite de réécrire la même
+ * notification dans les 24 h.
+ */
+const notifierPorteur = async (
+  admin: any, userId: string, notification: Record<string, unknown>,
+  prefKey: string | null, dedup = false,
+) => {
+  const { data: u } = await admin.from("utilisateurs")
+    .select("notifications, notification_preferences").eq("id", userId).maybeSingle();
+  if (!u) return;
+  if (prefKey && u.notification_preferences?.[prefKey]?.app === false) return;
+  const actuelles: any[] = u.notifications || [];
+  if (dedup) {
+    const il_y_a_24h = Date.now() - 24 * 60 * 60 * 1000;
+    const doublon = actuelles.some((n) =>
+      n?.type === notification.type
+      && n?.related_tender_id === notification.related_tender_id
+      && n?.sender_name === notification.sender_name
+      && n?.date && new Date(n.date).getTime() >= il_y_a_24h);
+    if (doublon) return;
+  }
+  const { error } = await admin.from("utilisateurs").update({
+    notifications: [{ id: crypto.randomUUID(), ...notification, date: new Date().toISOString(), read: false }, ...actuelles],
+  }).eq("id", userId);
+  if (error) console.error("guest-files (notification):", error);
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Méthode non autorisée" }, 405);
@@ -48,7 +113,7 @@ Deno.serve(async (req: Request) => {
     if (!serviceKey || !urlProjet) return json({ error: "Configuration incomplète" }, 500);
 
     const admin = createClient(urlProjet, serviceKey);
-    const { action, token, tenderId, email, accessCode, fichier } = await req.json();
+    const { action, token, tenderId, email, accessCode, fichier, evenement } = await req.json();
 
     // Limitation de débit avant toute lecture : un jeton connu ne doit pas
     // permettre d'énumérer le contenu d'un dossier à volonté.
@@ -61,26 +126,12 @@ Deno.serve(async (req: Request) => {
     // Le jeton n'est plus comparable en clair : la base n'en garde que
     // l'empreinte. La résolution passe par une fonction dédiée plutôt que de
     // reproduire le hachage ici — un algorithme dupliqué finit par diverger.
-    let invitation: { email?: string; tender_id?: string } | null = null;
+    const invitation = await resoudreInvitation(admin, { token, tenderId, email, accessCode });
+    if (!invitation) return json({ error: "Accès refusé." }, 401);
 
-    if (token) {
-      const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: token });
-      invitation = data?.[0] ?? null;
-    } else {
-      const { data } = await admin.from("invitations")
-        .select("email, tender_id")
-        .eq("tender_id", tenderId)
-        .ilike("email", String(email ?? "").trim())
-        .ilike("access_code", String(accessCode ?? "").trim())
-        .limit(1).maybeSingle();
-      invitation = data;
-    }
-    if (!invitation?.email) return json({ error: "Accès refusé." }, 401);
+    const dossier = invitation.email.toLowerCase();
+    const idAo = invitation.tender_id;
 
-    const dossier = String(invitation.email).toLowerCase();
-    const idAo = String(invitation.tender_id);
-
-    // --- Actions --------------------------------------------------------
     if (action === "list") {
       const { data, error } = await admin.storage.from("documents").list(dossier);
       if (error) return json({ error: "Lecture impossible", detail: error.message }, 500);
@@ -125,6 +176,77 @@ Deno.serve(async (req: Request) => {
         return json({ error: "Lien indisponible", detail: error?.message }, 500);
       }
       return json({ ok: true, url: data.signedUrl });
+    }
+
+    // Notifications au porteur pour les actions d'un invité.
+    //
+    // `addNotification` et l'insertion dans `depots_pieces` exigent une session
+    // (notify-user, policy `authenticated`) : pour un invité sans compte, ils
+    // échouaient en silence. Le porteur n'était prévenu ni de l'acceptation,
+    // ni des dépôts, et le récapitulatif de 18 h ne les voyait pas. On les fait
+    // ici, après vérification du secret, avec la clé de service.
+    if (action === "notifier") {
+      const { data: ao } = await admin.from("reponses_ao")
+        .select("createur_id, titre").eq("id", idAo).maybeSingle();
+      if (!ao?.createur_id) return json({ error: "Dossier introuvable." }, 404);
+
+      if (evenement === "depot") {
+        const nom = String(fichier ?? "");
+        const piece = nom && !nom.includes("/") ? lirePieceCollaborateur(nom, idAo) : null;
+        if (!piece?.docType) return json({ error: "Fichier non autorisé." }, 403);
+        // Le fichier doit réellement exister : sans quoi n'importe quel
+        // détenteur du secret pourrait fabriquer des notifications.
+        const { data: trouves } = await admin.storage.from("documents").list(dossier, { search: nom });
+        if (!trouves?.some((o) => o.name === nom)) return json({ error: "Fichier introuvable." }, 404);
+
+        const { error: errDepot } = await admin.from("depots_pieces").insert({
+          tender_id: idAo,
+          destinataire_id: ao.createur_id,
+          auteur_libelle: dossier,
+          type_piece: piece.docType,
+          nom_piece: nom,
+        });
+        if (errDepot) console.error("guest-files (depots_pieces):", errDepot);
+
+        await notifierPorteur(admin, ao.createur_id, {
+          type: "document_added",
+          titre: "Document ajouté",
+          message: `a ajouté le document "${piece.docType}" à`,
+          sender_name: dossier,
+          sender_avatar: "",
+          related_tender_id: idAo,
+          related_tender_titre: ao.titre,
+        }, "nouveau_document");
+        return json({ ok: true });
+      }
+
+      if (evenement === "reponse") {
+        // On ne notifie qu'une réponse effectivement enregistrée, et récente :
+        // le client ne peut pas annoncer une acceptation qui n'a pas eu lieu.
+        const { data: inv } = await admin.from("invitations")
+          .select("status, accepted_at, refused_at")
+          .eq("tender_id", idAo).ilike("email", dossier).maybeSingle();
+        const acceptee = inv?.status === "accepted";
+        const quand = acceptee ? inv?.accepted_at : inv?.refused_at;
+        const recente = quand && Date.now() - new Date(quand).getTime() < 10 * 60 * 1000;
+        if (!inv || !["accepted", "refused"].includes(inv.status) || !recente) {
+          return json({ error: "Aucune réponse récente à notifier." }, 409);
+        }
+        await notifierPorteur(admin, ao.createur_id, {
+          type: acceptee ? "collaboration_accepted" : "collaboration_rejected",
+          titre: acceptee ? "Collaboration acceptée" : "Collaboration refusée",
+          message: acceptee
+            ? "a accepté votre demande de collaboration sur"
+            : "a refusé votre invitation à collaborer sur",
+          sender_name: dossier,
+          sender_avatar: "",
+          related_tender_id: idAo,
+          related_tender_titre: ao.titre,
+        }, null, true);
+        return json({ ok: true });
+      }
+
+      return json({ error: `Événement inconnu : « ${evenement} »` }, 400);
     }
 
     return json({ error: `Action inconnue : « ${action} »` }, 400);
