@@ -18,6 +18,7 @@ import {
     dateLisible, formeJuridiqueLisible, secteurLisible,
     ficheDepuisSirene,
 } from '../../helpers/inseeLabels';
+import { dateLocaleISO } from '../../helpers/dateHelpers';
 
 interface CompanyTabProps {
     userProfile: UserProfile | null;
@@ -837,7 +838,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             // signée expire au bout d'une heure et ne peut pas être persistée.
             oublierUrl(chemin);
 
-            const today = new Date().toISOString().slice(0, 10); // date_emission (DATE)
+            const today = dateLocaleISO(); // date_emission (DATE)
             const existingId = standardDocIds[dbField];
             // La date d'expiration n'est pertinente que pour les documents qui
             // en portent une (assurance) ; sinon NULL, l'échéance étant dérivée
@@ -967,7 +968,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
         if (!error) {
             setDocStatuses(prev => ({
                 ...prev,
-                [field]: { status: 'valide', uploaded_at: prev[field]?.uploaded_at || new Date().toISOString().slice(0, 10) },
+                [field]: { status: 'valide', uploaded_at: prev[field]?.uploaded_at || dateLocaleISO() },
             }));
         }
     };

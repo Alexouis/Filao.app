@@ -145,7 +145,7 @@ const OnboardingCompanyStepBase: React.FC<OnboardingCompanyStepProps> = ({
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Ville</div>
                                                                     <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600/60">Forme juridique</div>
                                                                     <div className="text-xs font-semibold text-emerald-900">{companyData.ville} ({companyData.code_postal})</div>
-                                                                    <div className="text-xs font-semibold text-emerald-900">{getFormeJuridiqueLabel(companyData.forme_juridique) || 'N/A'}</div>
+                                                                    <div className="text-xs font-semibold text-emerald-900">{getFormeJuridiqueLabel(companyData.forme_juridique) || 'Non renseignée'}</div>
                                                                 </div>
                                                             </div>
                                                         </div>

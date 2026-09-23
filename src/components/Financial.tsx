@@ -45,13 +45,17 @@ export const Financial: React.FC<FinancialProps> = ({
 
   useEffect(() => {
     fetchUserGoals();
-    if (cachedTenders && cachedTenders.length > 0) {
-      setTenders(cachedTenders);
+    if (cachedTenders && cachedTenders.length > 0 && userProfile?.id) {
+      // Même périmètre que le chargement direct ci-dessous (`createur_id`) :
+      // le cache est partagé et brut — invitations, dossiers de partenaires
+      // et de collègues — et les chiffres variaient selon l'écran d'où l'on
+      // arrivait.
+      setTenders(cachedTenders.filter(t => t.createur_id === userProfile.id));
       setLoading(false);
     } else {
       fetchTenders();
     }
-  }, [cachedTenders]);
+  }, [cachedTenders, userProfile?.id]);
 
   useEffect(() => {
     // Set initial month and year to current

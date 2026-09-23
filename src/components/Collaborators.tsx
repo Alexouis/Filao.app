@@ -235,14 +235,23 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             // 3. Fetch FILAO NETWORK (All visible companies minus me minus active network)
             const myNetworkIds = new Set(myActiveNetwork.map(c => c.id));
             
-            const { data: filaoEnts, error: filaoError } = await supabase
-                .from('entreprises')
-                .select('*')
-                .eq('visible_reseau', true)
-                .neq('id', myCompanyId)
-                .limit(100);
-
-            if (filaoError) throw filaoError;
+            // Toutes les entreprises visibles, par pages. Le `.limit(100)`
+            // d'origine, sans tri, chargeait 100 entreprises au hasard : la
+            // recherche et les filtres ne portaient que sur elles, et une
+            // entreprise au-delà restait introuvable même par son nom exact.
+            const filaoEnts: any[] = [];
+            for (let debut = 0; ; debut += 1000) {
+                const { data: page, error: filaoError } = await supabase
+                    .from('entreprises')
+                    .select('*')
+                    .eq('visible_reseau', true)
+                    .neq('id', myCompanyId)
+                    .order('nom')
+                    .range(debut, debut + 999);
+                if (filaoError) throw filaoError;
+                filaoEnts.push(...(page ?? []));
+                if (!page || page.length < 1000) break;
+            }
 
             // Filter out companies already in my network
             const filteredFilaoEnts = (filaoEnts || []).filter(c => !myNetworkIds.has(c.id));
@@ -251,10 +260,16 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             const allIds = [...myNetworkIds, ...(filteredFilaoEnts.map(c => c.id))];
             
             if (allIds.length > 0) {
-                const { data: ratingsData } = await supabase
-                    .from('avis_partenaires')
-                    .select('evalue_id, note')
-                    .in('evalue_id', allIds);
+                // Par lots, comme les compétences : la liste part dans l'URL.
+                const ratingsData: any[] = [];
+                for (let i = 0; i < allIds.length; i += 100) {
+                    const { data, error } = await supabase
+                        .from('avis_partenaires')
+                        .select('evalue_id, note')
+                        .in('evalue_id', allIds.slice(i, i + 100));
+                    if (error) console.error('Lecture des avis :', error);
+                    ratingsData.push(...(data ?? []));
+                }
 
                 const ratingsMap = new Map<string, { total: number, count: number }>();
 

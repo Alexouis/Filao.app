@@ -87,6 +87,7 @@ import { UIGroupementMember, TenderFormData, Groupement, StatutGroupement } from
 import { GLASS_MODAL_STYLE } from '../lib/styles';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import { dateLocaleISO } from '../helpers/dateHelpers';
 
 // --- STYLES ---
 
@@ -998,7 +999,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const zipContent = await zip.generateAsync({ type: 'blob' });
             const zipName = targetMember
                 ? `Docs_${targetMember.name || targetMember.email}_${formData.titre.substring(0, 15)}.zip`
-                : `Dossier_Complet_${formData.titre.substring(0, 15)}_${new Date().toISOString().split('T')[0]}.zip`;
+                : `Dossier_Complet_${formData.titre.substring(0, 15)}_${dateLocaleISO()}.zip`;
 
             const nbFichiers = Object.keys(zip.files).filter(n => !zip.files[n].dir).length;
             if (nbFichiers === 0) {
@@ -1272,7 +1273,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             }
 
             const contenu = await zip.generateAsync({ type: 'blob' });
-            const nomArchive = `DCE_${(formData.titre || 'marche').slice(0, 40)}_${new Date().toISOString().split('T')[0]}.zip`;
+            const nomArchive = `DCE_${(formData.titre || 'marche').slice(0, 40)}_${dateLocaleISO()}.zip`;
             saveAs(contenu, nomArchive.replace(/\s+/g, '_'));
 
             showToast(
@@ -2876,7 +2877,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // par la date choisie par l'utilisateur : une date passée faisait
             // donc disparaître toute borne, et la recherche remontait des avis
             // clos depuis des mois.
-            const today = new Date().toISOString().split('T')[0];
+            const today = dateLocaleISO();
             const plancher = searchDeadline && searchDeadline > today ? searchDeadline : today;
             whereParts.push(`datelimitereponse >= "${plancher}"`);
 

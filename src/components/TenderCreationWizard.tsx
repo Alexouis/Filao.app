@@ -7,6 +7,7 @@ import { track } from '../helpers/analytics';
 import { useHistoryStep } from '../helpers/useHistoryStep';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { supabase } from '../lib/supabaseClient';
+import { dateLocaleISO } from '../helpers/dateHelpers';
 
 // Reference Colors & Constants from filao-wizard-workflow.jsx
 const T = "#0B8FAC", G = "#1D9E75", R = "#D85A30", P = "#534AB7";
@@ -311,7 +312,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
             // Persistance dans documents_candidature (source unique). Upsert par
             // entreprise + catégorie : update si la ligne existe, insert sinon.
-            const today = new Date().toISOString().slice(0, 10);
+            const today = dateLocaleISO();
             const existingId = docIds[field];
             const label = DOCUMENTS.find(d => d.field === field)?.label || categorie;
             if (existingId) {
@@ -340,7 +341,7 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         const newJalon = {
             id: Math.random().toString(36).substr(2, 9),
             label: "Nouveau jalon",
-            date: new Date().toISOString().split('T')[0],
+            date: dateLocaleISO(),
             color: P,
             source: "Manuel",
             editable: true

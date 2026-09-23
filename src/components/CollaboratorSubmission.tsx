@@ -640,7 +640,7 @@ export const CollaboratorSubmission: React.FC = () => {
                         tender.statut === 'Perdu' ? 'bg-gray-100 text-gray-700' :
                         'bg-gray-100 text-gray-600'
                      }`}>
-                        {tender.statut || 'N/A'}
+                        {tender.statut || 'Non renseigné'}
                      </span>
                   </div>
                </div>

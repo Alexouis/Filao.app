@@ -12,6 +12,7 @@ import { ErrorState } from './ui/StateViews';
 import { PLANS_CONFIG, PLANS_TYPES, PlanType, UserProfile } from '../config';
 import { progressionParDossier, Progression } from '../helpers/progressionHelpers';
 import { canCreateTender } from '@/helpers/planHelpers';
+import { estDossierDunCollegue } from '@/helpers/accesDossier';
 import { downloadICalendar } from '../helpers/icalHelpers';
 import { useToast } from './ui/Toast';
 import { GLASS_STYLE } from '../lib/styles';
@@ -301,25 +302,25 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     };
 
     // --- DATA FETCHING ---
+    /**
+     * Dossiers affichés dans « Mon calendrier » : ni invitation refusée ou en
+     * attente, ni dossier d'un collègue (même règle que le tableau de bord et
+     * Mes AO par défaut). Une seule règle pour le cache et le chargement.
+     */
+    const visibleDansCalendrier = (t: any): boolean => {
+        if (estDossierDunCollegue(t, userProfile)) return false;
+        const myGroupement = t.groupements?.find((g: any) =>
+            (userProfile?.entreprise_id && g.entreprise_id === userProfile.entreprise_id)
+        );
+        const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
+        if (myGroupement?.statut === 'refuse' || myInvitation?.status === 'refused') return false;
+        if (myGroupement?.statut === 'invite' || myInvitation?.status === 'pending') return false;
+        return true;
+    };
+
     useEffect(() => {
         if (cachedTenders) {
-            // Filter out Refused Tenders from cache
-            const visible = cachedTenders.filter(t => {
-                const myGroupement = t.groupements?.find((g: any) => 
-                    (userProfile?.entreprise_id && g.entreprise_id === userProfile.entreprise_id)
-                );
-                if (myGroupement?.statut === 'refuse') return false;
-
-                const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
-                if (myInvitation?.status === 'refused') return false;
-
-                // NEW: Hide pending invitations from Calendar
-                const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
-                if (isPending) return false;
-
-                return true;
-            });
-            setTenders(visible);
+            setTenders(cachedTenders.filter(visibleDansCalendrier));
 
             setLoading(false);
         } else {
@@ -359,25 +360,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             const validTenders = (data as unknown as Tender[]) || [];
 
             // Filter out Refused Tenders (both in groupements and invitations)
-            const visibleTenders = validTenders.filter(t => {
-                const myGroupement = t.groupements?.find((g: any) => 
-                    (userProfile?.entreprise_id && g.entreprise_id === userProfile.entreprise_id)
-                );
-                if (myGroupement?.statut === 'refuse') return false;
-
-                const myInvitation = t.invitations?.find((i: any) => i.email === userProfile?.email);
-                if (myInvitation?.status === 'refused') return false;
-
-                // NEW: Hide pending invitations from Calendar
-                const isPending = myGroupement?.statut === 'invite' || myInvitation?.status === 'pending';
-                if (isPending) return false;
-
-                return true;
-            });
+            const visibleTenders = validTenders.filter(visibleDansCalendrier);
 
             setTenders(visibleTenders);
+            // Cache partagé : la liste BRUTE, chaque écran filtrant la sienne.
             if (onTendersLoad) {
-                onTendersLoad(visibleTenders);
+                onTendersLoad(validTenders);
             }
         } catch (error) {
             console.error('Error fetching tenders:', error);

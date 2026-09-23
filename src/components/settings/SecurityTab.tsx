@@ -4,6 +4,7 @@ import { Shield, Lock, AlertTriangle, Loader2, Check, X, Download } from 'lucide
 import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
+import { dateLocaleISO } from '../../helpers/dateHelpers';
 
 interface SecurityTabProps {
     userProfile: UserProfile | null;
@@ -244,7 +245,7 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `filao-mes-donnees-${new Date().toISOString().split('T')[0]}.json`;
+            link.download = `filao-mes-donnees-${dateLocaleISO()}.json`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
