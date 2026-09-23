@@ -2,7 +2,14 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * Rappel « date limite proche » à J-7.
+ * Rappels « date limite proche » à J-7, J-3, J-1 et le jour même.
+ *
+ * Seule source des rappels d'échéance. Une fonction SQL non versionnée,
+ * `send_deadline_reminders()` (tâche `filao-deadline-reminders`, 8 h), faisait
+ * le même travail en parallèle : doublon à J-7, préférence « Rappels »
+ * ignorée, et notification de TOUS les comptes des entreprises du groupement
+ * — collègues du porteur compris, contre le cloisonnement de la 092. Ses
+ * seuils multiples sont repris ici ; elle est supprimée par la migration 110.
  *
  * Fonction **planifiée** (pg_cron), sur le modèle de `send-milestone-reminders` :
  * chaque jour, elle balaie les dossiers dont la `date_limite` tombe dans 7 jours
@@ -33,7 +40,31 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SEUIL_JOURS = 7;
+/** Jours restants avant l'échéance déclenchant un rappel. */
+const SEUILS = [7, 3, 1, 0] as const;
+
+/** Écart en jours entre deux dates `yyyy-MM-dd`. */
+const ecartJours = (de: string, a: string): number =>
+  Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / 86_400_000);
+
+const libelles = (j: number) =>
+  j === 0 ? { titre: "Échéance aujourd'hui", message: "La date limite de réponse est aujourd'hui pour" }
+  : j === 1 ? { titre: "Échéance demain", message: "La date limite de réponse est demain pour" }
+  : { titre: `Échéance dans ${j} jours`, message: `La date limite de réponse est dans ${j} jours pour` };
+
+/**
+ * Ce rappel (dossier, seuil) a-t-il déjà été émis ?
+ * Reconnaît aussi les rappels des versions précédentes : ceux de la fonction
+ * SQL (`deadline_{dossier}_{j}d`) et ceux de l'ancienne version de celle-ci,
+ * sans seuil, qui ne partaient qu'à J-7.
+ */
+const dejaEmis = (existantes: any[], dossierId: string, seuil: number): boolean =>
+  existantes.some((n) =>
+    n?.type === "deadline_reminder" && n?.related_tender_id === dossierId && (
+      n?.seuil_jours === seuil
+      || n?.id === `deadline_${dossierId}_${seuil}d`
+      || (n?.seuil_jours === undefined && !String(n?.id ?? "").startsWith("deadline_") && seuil === 7)
+    ));
 
 /** `yyyy-MM-dd` en heure de Paris — le serveur tourne en UTC. */
 const jourParis = (decalageJours = 0): string => {
@@ -86,13 +117,13 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
 
-    const cible = jourParis(SEUIL_JOURS); // échéance à J+7
+    const aujourdhui = jourParis(0);
 
     // Seuls les dossiers encore actifs ont une échéance qui compte. Un dossier
     // déposé n'a plus d'action liée à la date limite, un clôturé non plus.
     const { data: dossiers, error: errDossiers } = await admin
       .from("reponses_ao")
-      .select("id, titre, date_limite, createur_id, statut, groupements(entreprise_id, statut)")
+      .select("id, titre, date_limite, createur_id, entreprise_id, statut, groupements(entreprise_id, statut)")
       .eq("statut", "En cours")
       .not("date_limite", "is", null);
 
@@ -103,13 +134,25 @@ Deno.serve(async (req: Request) => {
 
     for (const dossier of dossiers ?? []) {
       // La date_limite peut être un timestamp : on compare la partie date.
-      if (String(dossier.date_limite).split("T")[0] !== cible) continue;
+      const restant = ecartJours(aujourdhui, String(dossier.date_limite).split("T")[0]);
+      if (!(SEUILS as readonly number[]).includes(restant)) continue;
 
-      // Destinataires : le créateur. (Les partenaires reçoivent déjà les
-      // rappels de jalons/documents ; on garde le rappel d'échéance ciblé sur
-      // le porteur pour éviter le sur-envoi. Extensible si besoin.)
+      // Destinataires : le créateur, et les comptes des entreprises
+      // PARTENAIRES ayant accepté — ce sont elles qui doivent déposer leurs
+      // pièces avant l'échéance. Pas les collègues du porteur, qui ne voient
+      // pas le contenu du dossier (092).
       const destinataireIds = new Set<string>();
       if (dossier.createur_id) destinataireIds.add(dossier.createur_id);
+
+      const partenaires = ((dossier as any).groupements ?? [])
+        .filter((g: any) => g?.statut === "accepte" && g?.entreprise_id && g.entreprise_id !== dossier.entreprise_id)
+        .map((g: any) => g.entreprise_id as string);
+      if (partenaires.length > 0) {
+        const { data: comptes } = await admin.from("utilisateurs").select("id").in("entreprise_id", partenaires);
+        (comptes ?? []).forEach((c: { id: string }) => destinataireIds.add(c.id));
+      }
+
+      const { titre, message } = libelles(restant);
 
       for (const uid of destinataireIds) {
         const { data: utilisateur } = await admin
@@ -119,18 +162,10 @@ Deno.serve(async (req: Request) => {
           .maybeSingle();
         if (!utilisateur) continue;
 
-        // Respecte la préférence « Rappels » de l'utilisateur.
-        //
-        // On lisait auparavant `notifications_on`, qui n'est PAS une
-        // préférence : l'application la met à `false` toute seule quand le
-        // NAVIGATEUR refuse les notifications système (voir AuthContext).
-        // Refuser la fenêtre surgissante de Chrome coupait donc aussi les
-        // rappels d'échéance en base — deux choses sans rapport. À l'inverse,
-        // décocher « Rappels » dans les paramètres ne les arrêtait pas.
-        //
-        // La source de vérité est `notification_preferences`, la même que
-        // consulte `notify-user` pour les notifications de l'application.
-        // Préférence absente = activée, comme partout ailleurs.
+        // Respecte la préférence « Rappels » (`notification_preferences`, la
+        // même que consulte `notify-user`). Absente = activée. On ne lit pas
+        // `notifications_on`, que l'application met à `false` quand le
+        // NAVIGATEUR refuse les notifications système — sans rapport.
         const prefs = utilisateur.notification_preferences as any;
         if (prefs?.rappels?.app === false) {
           motifs.push({ dossier: dossier.id, uid, motif: "rappels désactivés dans les préférences" });
@@ -139,22 +174,21 @@ Deno.serve(async (req: Request) => {
 
         const existantes: any[] = Array.isArray(utilisateur.notifications) ? utilisateur.notifications : [];
 
-        // Idempotence : une seule notification d'échéance par dossier.
-        const dejaNotifie = existantes.some(
-          (n) => n?.type === "deadline_reminder" && n?.related_tender_id === dossier.id
-        );
-        if (dejaNotifie) {
-          motifs.push({ dossier: dossier.id, uid, motif: "déjà notifié" });
+        // Idempotence par (dossier, seuil) : un rappel à J-3 n'empêche plus
+        // celui de J-1, et un cron rejoué ne double rien.
+        if (dejaEmis(existantes, dossier.id, restant)) {
+          motifs.push({ dossier: dossier.id, uid, motif: `déjà notifié (J-${restant})` });
           continue;
         }
 
         const notif = {
           id: crypto.randomUUID(),
           type: "deadline_reminder",
-          titre: "Date limite proche",
-          message: "La date limite approche (dans 7 jours) pour l'appel d'offres",
+          seuil_jours: restant,
+          titre,
+          message,
           related_tender_id: dossier.id,
-          related_tender_titre: `${dossier.titre} (${new Date(dossier.date_limite).toLocaleDateString("fr-FR")})`,
+          related_tender_titre: `${dossier.titre} (${new Date(dossier.date_limite).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })})`,
           date: new Date().toISOString(),
           read: false,
         };
@@ -174,7 +208,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, cible, notifies, motifs }),
+      JSON.stringify({ ok: true, aujourdhui, notifies, motifs }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
