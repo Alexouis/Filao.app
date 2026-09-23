@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { seulAdministrateurBloquant } from "./regles.ts";
 
 /**
  * delete-account Edge Function
@@ -136,6 +137,27 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // 2 bis. Seul administrateur d'une équipe ?
+    //
+    // Le garde-fou de la base (080/087) refuse alors l'anonymisation, à
+    // l'étape 5 — APRÈS la suppression des fichiers de l'étape 3. La demande
+    // échouait donc en ayant déjà effacé les pièces déposées. On vérifie avant
+    // toute suppression. (Un seul autre membre serait promu automatiquement :
+    // le blocage ne vaut qu'à partir de deux.)
+    if (entrepriseId) {
+      const { data: membres } = await adminClient
+        .from('utilisateurs')
+        .select('id, roles(name)')
+        .eq('entreprise_id', entrepriseId)
+        .is('compte_supprime_le', null);
+      if (seulAdministrateurBloquant((membres ?? []) as any, userId)) {
+        return reponse({
+          success: false,
+          error: "Vous êtes le seul administrateur de votre entreprise. Nommez un autre administrateur (Mon entreprise › Équipe) avant de supprimer votre compte.",
+        });
+      }
+    }
+
     // 3. Fichiers personnels.
     //
     //    À purger AVANT l'anonymisation : le préfixe `{email}/` est construit à
@@ -257,6 +279,11 @@ Deno.serve(async (req: Request) => {
 
         if (anonymiseError) {
           console.error('Error anonymizing profile:', anonymiseError);
+          // Refus du garde-fou d'administrateur (080/087) : le dire, avec la
+          // marche à suivre, plutôt qu'une erreur technique sans issue.
+          if (/administrateur/i.test(anonymiseError.message ?? '')) {
+            return reponse({ success: false, error: "Vous êtes le seul administrateur de votre entreprise. Nommez un autre administrateur (Mon entreprise › Équipe) avant de supprimer votre compte." });
+          }
           return reponse({ success: false, error: "Erreur lors de l'anonymisation du profil" });
         }
       } else {
@@ -268,6 +295,9 @@ Deno.serve(async (req: Request) => {
 
         if (deleteProfileError) {
           console.error('Error deleting profile:', deleteProfileError);
+          if (/administrateur/i.test(deleteProfileError.message ?? '')) {
+            return reponse({ success: false, error: "Vous êtes le seul administrateur de votre entreprise. Nommez un autre administrateur (Mon entreprise › Équipe) avant de supprimer votre compte." });
+          }
           return reponse({ success: false, error: 'Erreur lors de la suppression du profil' });
         }
       }

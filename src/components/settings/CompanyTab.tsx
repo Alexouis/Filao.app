@@ -173,6 +173,36 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
     const [membres, setMembres] = useState<any[]>([]);
     const [nomRoleAdmin, setNomRoleAdmin] = useState<string | null>(null);
 
+    const [roleEnCours, setRoleEnCours] = useState<string | null>(null);
+    const [versionMembres, setVersionMembres] = useState(0);
+
+    /** Nomme ou retire un administrateur (RPC `changer_role_membre`, 114). */
+    const changerRole = async (membreId: string, admin: boolean) => {
+        setRoleEnCours(membreId);
+        setError(null);
+        try {
+            const { data, error: erreurRole } = await supabase.rpc('changer_role_membre', { p_membre: membreId, p_admin: admin });
+            if (erreurRole) {
+                // Message de la base : « Designez un autre administrateur… »
+                // quand on retire le rôle au dernier administrateur.
+                throw new Error(/administrateur/i.test(erreurRole.message)
+                    ? "Nommez d'abord un autre administrateur : l'entreprise doit en garder au moins un."
+                    : erreurRole.message);
+            }
+            if (data !== 'ok') throw new Error("Action réservée aux administrateurs de l'entreprise.");
+            if (membreId === userProfile?.id && !admin) {
+                // Plus administrateur : la fiche passe en lecture seule.
+                window.location.reload();
+                return;
+            }
+            setVersionMembres(v => v + 1);
+        } catch (err: any) {
+            setError(err?.message || 'Changement de rôle impossible.');
+        } finally {
+            setRoleEnCours(null);
+        }
+    };
+
     useEffect(() => {
         const entId = userProfile?.entreprise_id;
         if (!entId) { setMembres([]); return; }
@@ -196,7 +226,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             setMembres(gens || []);
         })();
         return () => { annule = true; };
-    }, [userProfile?.entreprise_id]);
+    }, [userProfile?.entreprise_id, versionMembres]);
 
     // Document categories config
     type DocCategorie = 'presentation' | 'moyens_humains' | 'moyens_techniques' | 'references' | 'autres';
@@ -1334,6 +1364,22 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full shrink-0 ${estAdminMembre ? 'bg-[#E8F4FD] text-[#0078B8]' : 'bg-gray-100 text-gray-500'}`}>
                                         {estAdminMembre ? 'Administrateur' : 'Membre'}
                                     </span>
+                                    {/* Nommer / retirer un administrateur. Sans ce bouton, le
+                                        seul administrateur d'une équipe ne pouvait ni partir
+                                        ni supprimer son compte (« désignez un autre
+                                        administrateur », mais aucun moyen de le faire). */}
+                                    {estAdmin && (
+                                        <button
+                                            type="button"
+                                            disabled={roleEnCours === m.id}
+                                            onClick={() => changerRole(m.id, !estAdminMembre)}
+                                            className="text-[11px] font-medium text-[#00A3E0] hover:underline shrink-0 disabled:opacity-50"
+                                        >
+                                            {estAdminMembre
+                                                ? (m.id === userProfile.id ? 'Quitter le rôle' : "Retirer l'administration")
+                                                : 'Nommer administrateur'}
+                                        </button>
+                                    )}
                                 </div>
                             );
                         })}

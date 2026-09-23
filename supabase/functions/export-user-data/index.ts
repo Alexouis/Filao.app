@@ -1,6 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/** Motif ILIKE exact : `_` et `%` sont des jokers. */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
 /**
  * export-user-data Edge Function
  *
@@ -86,6 +90,7 @@ Deno.serve(async (req: Request) => {
       avisDonnes,
       reseau,
       integrations,
+      messages,
     ] = await Promise.all([
       entrepriseId
         ? safe(admin.from("entreprises").select("*").eq("id", entrepriseId).maybeSingle())
@@ -94,7 +99,11 @@ Deno.serve(async (req: Request) => {
       entrepriseId
         ? safe(admin.from("groupements").select("*").eq("entreprise_id", entrepriseId))
         : Promise.resolve([]),
-      safe(admin.from("invitations").select("*").eq("email", profil?.email ?? "")),
+      // Casse ignorée : les profils gardent l'adresse telle que saisie
+      // (« Alexandre_Louis@… »), les invitations l'enregistrent en minuscules.
+      profil?.email
+        ? safe(admin.from("invitations").select("*").ilike("email", motifExact(profil.email)))
+        : Promise.resolve([]),
       entrepriseId
         ? safe(admin.from("documents_candidature").select("id, categorie, created_at, entreprise_id").eq("entreprise_id", entrepriseId))
         : Promise.resolve([]),
@@ -104,10 +113,15 @@ Deno.serve(async (req: Request) => {
         ? safe(admin.from("avis_partenaires").select("*").eq("evaluateur_id", entrepriseId))
         : Promise.resolve([]),
       entrepriseId
-        ? safe(admin.from("reseau_entreprises").select("*").eq("entreprise_id", entrepriseId))
+        // La table n'a pas de colonne `entreprise_id` : la requête échouait,
+        // l'erreur était avalée, et le réseau manquait toujours à l'export.
+        ? safe(admin.from("reseau_entreprises").select("*")
+            .or(`entreprise_origine_id.eq.${entrepriseId},entreprise_cible_id.eq.${entrepriseId}`))
         : Promise.resolve([]),
       // Intégrations : on expose l'existence et le fournisseur, jamais les jetons.
       safe(admin.from("user_integrations").select("provider, created_at, expires_at").eq("user_id", uid)),
+      // Messages rédigés : données personnelles au même titre que les commentaires.
+      safe(admin.from("chat_messages").select("*").eq("sender_id", uid)),
     ]);
 
     const exportData = {
@@ -128,6 +142,7 @@ Deno.serve(async (req: Request) => {
       avis_donnes: avisDonnes,
       reseau,
       integrations,
+      messages,
     };
 
     return json({ success: true, export: exportData });

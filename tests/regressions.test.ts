@@ -436,3 +436,72 @@ test('notify-user : tout type envoyé par le front est accepté par le serveur',
     const refuses = envoyes.filter(t => !(t in TITRES));
     assert.deepEqual(refuses, []);
 });
+
+// ---------------------------------------------------------------------------
+// Protections côté base : la DERNIÈRE définition doit les conserver
+// ---------------------------------------------------------------------------
+const migrationsTriees = readdirSync(join(racine, 'supabase/migrations'))
+    .filter(n => n.endsWith('.sql')).sort()
+    .map(n => ({ nom: n, sql: lire(`supabase/migrations/${n}`) }));
+
+/** Corps de la dernière définition d'une fonction SQL, toutes migrations confondues. */
+const derniereDefinition = (fonction: string): string => {
+    let corps = '';
+    for (const { sql } of migrationsTriees) {
+        const re = new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+(public\\.|app\\.)?${fonction}\\s*\\(([\\s\\S]*?)\\$\\$([\\s\\S]*?)\\$\\$`, 'gi');
+        for (const m of sql.matchAll(re)) corps = m[4];
+    }
+    return corps;
+};
+
+test('base : un client ne change ni son rôle, ni son entreprise, ni son e-mail directement', () => {
+    const corps = derniereDefinition('proteger_profil');
+    assert.ok(corps, 'app.proteger_profil introuvable');
+    assert.match(corps, /current_user\s*<>\s*'authenticated'/);
+    assert.match(corps, /NEW\.role_id IS DISTINCT FROM OLD\.role_id/);
+    assert.match(corps, /entreprise_creee_par_moi/);
+    assert.match(corps, /email_authentifie/);
+    const trigger = migrationsTriees.map(m => m.sql).join('\n');
+    assert.match(trigger, /CREATE TRIGGER trg_0_proteger_profil[\s\S]*?ON utilisateurs/);
+});
+
+test('base : le forfait et la facturation ne s’écrivent pas depuis l’application', () => {
+    const corps = derniereDefinition('proteger_entreprise');
+    for (const col of ['plan', 'stripe_customer_id', 'stripe_subscription_id', 'subscription_status']) {
+        assert.ok(corps.includes(`'${col}'`), `colonne ${col} non protégée`);
+    }
+    assert.match(migrationsTriees.map(m => m.sql).join('\n'), /CREATE TRIGGER trg_0_proteger_entreprise[\s\S]*?ON entreprises/);
+});
+
+test('base : une invitation réseau ne relie que l’entreprise de l’appelant', () => {
+    const corps = derniereDefinition('consommer_invitation_reseau');
+    assert.match(corps, /entreprise_id\s*=\s*p_entreprise/);
+    assert.match(corps, /created_by\s*=\s*auth\.uid\(\)/);
+});
+
+test('base : répondre par code exige une invitation non révoquée', () => {
+    assert.match(derniereDefinition('respond_to_invitation_by_code'), /revoked_at IS NULL/);
+    assert.match(derniereDefinition('get_invitation_by_code'), /revoked_at IS NULL/);
+});
+
+test('base : un mandat transmis ne retire pas l’accès du nouveau mandataire', () => {
+    // Migration 105 : le filet « Mandataire » n'est gardé que pour les
+    // dossiers sans entreprise porteuse figée.
+    for (const f of ['est_membre', 'est_convie']) {
+        assert.match(derniereDefinition(f), /r\.entreprise_id IS NOT NULL\s*OR/, f);
+    }
+});
+
+import { seulAdministrateurBloquant } from '../supabase/functions/delete-account/regles.ts';
+
+test('suppression de compte : seul administrateur d’une équipe bloqué AVANT toute suppression', () => {
+    const admin = { name: 'admin' }, membre = { name: 'user' };
+    // Seul admin, deux autres membres : la base refuserait → on bloque en amont.
+    assert.ok(seulAdministrateurBloquant([{ id: 'moi', roles: admin }, { id: 'a', roles: membre }, { id: 'b', roles: membre }], 'moi'));
+    // Un seul autre membre : promu automatiquement, pas de blocage.
+    assert.equal(seulAdministrateurBloquant([{ id: 'moi', roles: admin }, { id: 'a', roles: membre }], 'moi'), false);
+    // Un autre administrateur existe.
+    assert.equal(seulAdministrateurBloquant([{ id: 'moi', roles: admin }, { id: 'a', roles: admin }, { id: 'b', roles: membre }], 'moi'), false);
+    // Simple membre.
+    assert.equal(seulAdministrateurBloquant([{ id: 'moi', roles: membre }, { id: 'a', roles: admin }, { id: 'b', roles: membre }], 'moi'), false);
+});
