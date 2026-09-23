@@ -1,5 +1,5 @@
 import React from 'react';
-import { Crown } from 'lucide-react';
+import { Crown, Info } from 'lucide-react';
 import type { UIGroupementMember } from '../types';
 import { useModale } from '../helpers/useModale';
 import { FondModale } from './ui/FondModale';
@@ -36,6 +36,24 @@ export interface MandatairePromotionModalProps {
     onPromouvoir: (roleSortant: 'Co-traitant' | 'Sous-traitant') => void;
     onAnnuler: () => void;
 }
+
+/**
+ * Mandataire ≠ gestionnaire du dossier.
+ *
+ * Le mandat est un rôle JURIDIQUE : l'entreprise qui représente le groupement
+ * auprès de l'acheteur. La gestion dans Filao (équipe, invitations, relances,
+ * export) reste au créateur, à qui le dossier est décompté (`manage-team`
+ * n'accepte que lui). Sans cette précision, le porteur pouvait croire qu'en
+ * transmettant le mandat il transmettait aussi la main sur le dossier.
+ */
+const NoteGestion: React.FC = () => (
+    <div className="flex gap-3 items-start text-left bg-[#00A3E0]/5 border border-[#00A3E0]/15 rounded-2xl px-4 py-3 mt-6">
+        <Info size={16} className="text-[#00A3E0] shrink-0 mt-0.5" aria-hidden="true" />
+        <p className="text-xs text-[#0B1F38]/60 leading-relaxed">
+            Le Mandataire représente le groupement auprès de l'acheteur. <strong className="text-[#0B1F38]/80">Vous restez gestionnaire du dossier</strong> dans Filao : équipe, invitations, relances et export des pièces.
+        </p>
+    </div>
+);
 
 /** Nom d'affichage : l'e-mail sert de repli tant que l'invité n'a pas de compte. */
 const nomAffiche = (m: UIGroupementMember | null | undefined): string =>
@@ -90,6 +108,8 @@ export const MandatairePromotionModal: React.FC<MandatairePromotionModalProps> =
                         <div className="text-[10px] text-[#0B1F38]/40 uppercase mt-1">Exécution technique</div>
                     </button>
                 </div>
+
+                <NoteGestion />
 
                 <button
                     onClick={onAnnuler}
@@ -175,6 +195,8 @@ export const MandataireSuccessionModal: React.FC<MandataireSuccessionModalProps>
                         ))}
                     </div>
                 )}
+
+                {successeurs.length > 0 && <NoteGestion />}
 
                 <div className="mt-8 flex gap-3">
                     <button
