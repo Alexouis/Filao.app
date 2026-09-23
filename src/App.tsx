@@ -109,6 +109,10 @@ const AppContent = () => {
       if (tab !== 'settings') {
         p.delete('section');
       }
+      // Idem pour la fiche entreprise ouverte depuis Collaborateurs : restée
+      // dans l'URL, elle se rouvrait d'elle-même au retour sur la page. Un
+      // clic dans la navigation mène toujours à l'écran d'accueil de l'onglet.
+      p.delete('company');
       return p;
     });
   };

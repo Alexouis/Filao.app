@@ -95,7 +95,21 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
 
     // --- GOOGLE CALENDAR LOGIC ---
     useEffect(() => {
+        // Les refus de Google ou de Supabase reviennent dans l'URL de retour
+        // (`error_description`), pas en réponse à l'appel : sans cette
+        // lecture, un échec de rattachement passait inaperçu.
+        const params = new URLSearchParams(window.location.search + window.location.hash.replace(/^#/, '&'));
+        const refus = params.get('error_description');
+        if (refus) {
+            showToast(/already linked/i.test(refus)
+                ? "Ce compte Google est déjà rattaché à un autre compte Filao."
+                : `Connexion à Google Agenda refusée : ${refus.replace(/\+/g, ' ')}`, 'error');
+            const propre = new URL(window.location.href);
+            ['error', 'error_code', 'error_description'].forEach(k => propre.searchParams.delete(k));
+            window.history.replaceState(null, '', propre.pathname + propre.search);
+        }
         checkGoogleIntegration();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const checkGoogleIntegration = async () => {
@@ -234,7 +248,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                     label: e.summary,
                     statut: 'google',
                     progress: 100,
-                    time: e.start?.dateTime ? new Date(e.start.dateTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'All Day',
+                    time: e.start?.dateTime ? new Date(e.start.dateTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Toute la journée',
                     dateStr: e.start?.dateTime ? e.start.dateTime.split('T')[0] : e.start?.date
                 }));
                 setGoogleEvents(formattedEvents);
@@ -245,22 +259,43 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     };
 
     const handleConnectGoogle = async () => {
+        setIsConnectingGoogle(true);
+        const options = {
+            // Retour sur l'agenda. L'URL doit figurer dans les « Redirect
+            // URLs » de Supabase Auth, sinon Supabase renvoie vers le Site URL
+            // (c'est ce qui ramenait sur filao-app.fr depuis localhost).
+            redirectTo: window.location.href,
+            queryParams: { access_type: 'offline', prompt: 'consent' },
+            scopes: 'https://www.googleapis.com/auth/calendar',
+        };
         try {
-            setIsConnectingGoogle(true);
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    redirectTo: window.location.href, // Return right back to calendar
-                    queryParams: {
-                      access_type: 'offline',
-                      prompt: 'consent'
-                    },
-                    scopes: 'https://www.googleapis.com/auth/calendar'
-                }
-            });
-            if (error) throw error;
+            // RATTACHER Google au compte en cours, et non s'y connecter.
+            // `signInWithOAuth` ouvrait une session avec le compte Google
+            // choisi : si son adresse différait de l'adresse Filao (Gmail
+            // personnel pour un compte pro), l'utilisateur se retrouvait sur
+            // un NOUVEAU compte Filao vide, agenda rattaché à ce compte-là.
+            const { error } = await supabase.auth.linkIdentity({ provider: 'google', options });
+            if (!error) return; // redirection vers Google en cours
+
+            const motif = error.message || '';
+            if (/already.*linked.*another|identity_already_exists/i.test(motif) && !/this user/i.test(motif)) {
+                showToast("Ce compte Google est déjà rattaché à un autre compte Filao.", 'error');
+            } else if (/already/i.test(motif)) {
+                // Déjà rattaché à CE compte : une connexion OAuth retombe sur
+                // le même utilisateur et renouvelle les jetons d'agenda.
+                const { error: erreurOAuth } = await supabase.auth.signInWithOAuth({ provider: 'google', options });
+                if (!erreurOAuth) return;
+                throw erreurOAuth;
+            } else if (/manual linking/i.test(motif)) {
+                console.error('linkIdentity :', motif);
+                showToast("La connexion d'agendas n'est pas activée sur ce serveur (liaison manuelle d'identités).", 'error');
+            } else {
+                throw error;
+            }
+            setIsConnectingGoogle(false);
         } catch (err) {
             console.error('Error connecting Google:', err);
+            showToast("La connexion à Google Agenda a échoué.", 'error');
             setIsConnectingGoogle(false);
         }
     };
@@ -372,16 +407,43 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
     };
 
     // --- NAVIGATION ---
+    /** Lundi de la semaine de `d` (un dimanche appartient à la semaine qui finit). */
+    const lundiDe = (d: Date): Date => {
+        const l = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        l.setDate(l.getDate() - ((l.getDay() + 6) % 7));
+        return l;
+    };
+
+    /**
+     * Changement de vue. La navigation par mois cale la date sur le 1er : en
+     * passant ensuite en vue Semaine, on tombait sur la PREMIÈRE semaine du
+     * mois au lieu de la semaine en cours. Si la période affichée contient
+     * aujourd'hui, on s'y ancre.
+     */
+    const changerVue = (vue: CalendarViewType) => {
+        setCalendarView(vue);
+        setCurrentDate(prev => {
+            const auj = new Date();
+            const memeMois = prev.getFullYear() === auj.getFullYear() && prev.getMonth() === auj.getMonth();
+            const memeTrimestre = prev.getFullYear() === auj.getFullYear()
+                && Math.floor(prev.getMonth() / 3) === Math.floor(auj.getMonth() / 3);
+            if (vue === 'week') return (calendarView === 'quarter' ? memeTrimestre : memeMois) ? auj : prev;
+            return prev;
+        });
+    };
+
+    const allerAujourdhui = () => setCurrentDate(new Date());
+
     const handlePrev = () => {
         if (calendarView === 'month') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
         else if (calendarView === 'week') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 7));
-        else setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 3, 1));
+        else setCurrentDate(prev => new Date(prev.getFullYear(), Math.floor(prev.getMonth() / 3) * 3 - 3, 1));
     };
 
     const handleNext = () => {
         if (calendarView === 'month') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
         else if (calendarView === 'week') setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 7));
-        else setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 3, 1));
+        else setCurrentDate(prev => new Date(prev.getFullYear(), Math.floor(prev.getMonth() / 3) * 3 + 3, 1));
     };
 
     const handleAddTenderClick = () => {
@@ -534,7 +596,12 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         if (calendarView === 'month') {
             return `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
         } else if (calendarView === 'week') {
-            return `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+            // La plage exacte : le seul nom du mois ne disait pas quelle
+            // semaine était affichée.
+            const debut = lundiDe(currentDate);
+            const fin = new Date(debut); fin.setDate(debut.getDate() + 6);
+            const jourMois = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+            return `${jourMois(debut)} – ${jourMois(fin)} ${fin.getFullYear()}`;
         } else if (calendarView === 'quarter') {
             const qNum = Math.floor(currentDate.getMonth() / 3) + 1;
             return `Trimestre ${qNum} ${currentDate.getFullYear()}`;
@@ -565,6 +632,13 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         }
         return days;
     }, [currentDate]);
+
+    /** Bordure d'une carte d'événement selon son type — commune aux trois vues. */
+    const classeBordure = (evt: any): string =>
+        evt.type === 'google_event' ? 'border-[#00A3E0]/40'
+            : evt.enRetard ? 'border-red-400'
+                : evt.type === 'jalon' ? 'border-[#0B8FAC]/40'
+                    : 'border-[#FF8D6D]/30';
 
     // --- SUB-COMPONENTS ---
     const CalendarGrid = () => {
@@ -639,9 +713,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         }
 
         if (calendarView === 'week') {
-            const curr = new Date(currentDate);
-            const first = curr.getDate() - curr.getDay() + 1;
-            const weekStart = new Date(curr.setDate(first));
+            const weekStart = lundiDe(currentDate);
 
             const days = Array.from({ length: 7 }, (_, i) => {
                 const d = new Date(weekStart);
@@ -667,16 +739,17 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                     {dayEvents.map((evt, idx) => (
                                         <div
                                             key={idx}
-                                            onClick={(e) => handleEventClick(e, evt.tenderId || evt.id, evt.statut)}
-                                            className="p-3 rounded-lg bg-white border border-[#FF8D6D]/30 shadow-sm flex flex-col gap-1 hover:scale-[1.02] transition-transform cursor-pointer"
+                                            onClick={(e) => evt.type !== 'google_event' && handleEventClick(e, evt.tenderId || evt.id, evt.statut)}
+                                            title={evt.label}
+                                            className={`p-3 rounded-lg bg-white border ${classeBordure(evt)} shadow-sm flex flex-col gap-1 transition-transform ${evt.type !== 'google_event' ? 'hover:scale-[1.02] cursor-pointer' : ''}`}
                                         >
                                             <div className="flex justify-between items-start">
-                                                <span className="font-bold text-[#0B1F38] text-sm truncate leading-tight">{evt.label}</span>
-                                                {evt.type !== 'jalon' && <span className="font-bold text-[#0B1F38] text-xs shrink-0">{evt.progress === null ? '—' : `${evt.progress}%`}</span>}
+                                                <span className={`font-bold text-sm truncate leading-tight ${evt.type === 'google_event' ? 'text-[#00A3E0]' : 'text-[#0B1F38]'}`}>{evt.label}</span>
+                                                {evt.type === 'tender_deadline' && <span className="font-bold text-[#0B1F38] text-xs shrink-0">{evt.progress === null ? '—' : `${evt.progress}%`}</span>}
                                             </div>
                                             {/* Un jalon n'a pas d'avancement chiffré : la barre
                                                 afficherait une progression inventée. */}
-                                            {evt.type !== 'jalon' && (
+                                            {evt.type === 'tender_deadline' && (
                                                 <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
                                                     <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress ?? 0}%` }}></div>
                                                 </div>
@@ -701,45 +774,61 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         }
 
         if (calendarView === 'quarter') {
-            const viewMonth = currentDate.getMonth();
+            // Vrai trimestre civil : la vue affichait les trois mois À PARTIR
+            // du mois courant (sept.–nov.) sous le libellé « Trimestre 3 ».
+            const debutTrimestre = Math.floor(currentDate.getMonth() / 3) * 3;
             const displayMonths = [0, 1, 2].map(offset => {
-                const date = new Date(currentDate.getFullYear(), viewMonth + offset, 1);
+                const date = new Date(currentDate.getFullYear(), debutTrimestre + offset, 1);
                 return { name: monthNames[date.getMonth()], monthIdx: date.getMonth(), year: date.getFullYear() };
             });
 
             return (
                 <div className="grid grid-cols-3 gap-6 h-full">
                     {displayMonths.map((m, i) => {
-                        const monthEvents = tenders.filter(t => {
-                            const d = new Date(t.date_limite);
-                            return d.getMonth() === m.monthIdx && d.getFullYear() === m.year;
-                        });
+                        // Mêmes événements que les vues Mois et Semaine — dates
+                        // limites, jalons et agenda externe. La vue ne lisait
+                        // que les dates limites : les jalons y disparaissaient.
+                        const joursDuMois = new Date(m.year, m.monthIdx + 1, 0).getDate();
+                        const monthEvents = Array.from({ length: joursDuMois }, (_, k) => k + 1)
+                            .flatMap(jour => getEventsForDay(jour, m.monthIdx, m.year)
+                                .map((evt: any) => ({ ...evt, jour })));
 
                         return (
-                            <div key={i} className="bg-white/30 border border-white/40 rounded-3xl p-6 flex flex-col h-full hover:bg-white/40 transition-colors">
-                                <h3 className="text-xl font-bold text-[#0B1F38] mb-4 flex items-center gap-2">
+                            <div key={i} className="bg-white/30 border border-white/40 rounded-3xl p-6 flex flex-col h-full min-h-0 hover:bg-white/40 transition-colors">
+                                <h3 className="text-xl font-bold text-[#0B1F38] mb-4 flex items-center gap-2 capitalize">
                                     <CalendarIcon size={20} className="text-[#00A3E0]" /> {m.name}
+                                    <span className="ml-auto text-xs font-bold text-[#0B1F38]/40">{monthEvents.length || ''}</span>
                                 </h3>
-                                <div className="flex-1 overflow-y-auto custom-scrollbar-dark space-y-3">
-                                    {monthEvents.length > 0 ? monthEvents.map((t, idx) => {
-                                        const progress = getProgress(t);
-                                        return (
-                                            <div 
-                                                key={idx} 
-                                                onClick={(e) => handleEventClick(e, t.id, t.statut)}
-                                                className="p-3 rounded-xl bg-white border border-[#FF8D6D]/30 shadow-sm flex flex-col gap-1 hover:scale-[1.02] transition-transform cursor-pointer"
-                                            >
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-xs font-bold text-[#0B1F38]/50">Le {new Date(t.date_limite).getDate()}</span>
-                                                    <span className="font-bold text-[#0B1F38] text-xs">{progress}%</span>
-                                                </div>
-                                                <div className="font-bold text-[#0B1F38] text-sm truncate">{t.titre}</div>
-                                                <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
-                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${progress}%` }}></div>
-                                                </div>
+                                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar-dark space-y-3">
+                                    {monthEvents.length > 0 ? monthEvents.map((evt: any, idx: number) => (
+                                        <div
+                                            key={idx}
+                                            onClick={(e) => evt.type !== 'google_event' && handleEventClick(e, evt.tenderId || evt.id, evt.statut)}
+                                            title={evt.label}
+                                            className={`p-3 rounded-xl bg-white border ${classeBordure(evt)} shadow-sm flex flex-col gap-1 transition-transform ${evt.type !== 'google_event' ? 'hover:scale-[1.02] cursor-pointer' : ''}`}
+                                        >
+                                            <div className="flex justify-between items-center gap-2">
+                                                <span className="text-xs font-bold text-[#0B1F38]/50 shrink-0">
+                                                    Le {evt.jour}{evt.type === 'jalon' ? ' · Jalon' : evt.type === 'google_event' ? ' · Agenda' : ''}
+                                                </span>
+                                                {evt.type === 'tender_deadline' && (
+                                                    <span className="font-bold text-[#0B1F38] text-xs">{evt.progress === null ? '—' : `${evt.progress}%`}</span>
+                                                )}
+                                                {evt.type === 'jalon' && evt.enRetard && (
+                                                    <span className="text-[10px] font-bold text-red-500">En retard</span>
+                                                )}
                                             </div>
-                                        )
-                                    }) : <div className="text-center text-[#0B1F38]/30 italic text-sm py-10">Aucun événement</div>}
+                                            <div className={`font-bold text-sm truncate ${evt.type === 'google_event' ? 'text-[#00A3E0]' : 'text-[#0B1F38]'}`}>{evt.label}</div>
+                                            {evt.type === 'jalon' && (
+                                                <div className="text-[10px] text-[#0B1F38]/60 truncate">{evt.tenderTitle}</div>
+                                            )}
+                                            {evt.type === 'tender_deadline' && (
+                                                <div className="w-full h-1 bg-[#0B1F38]/10 rounded-full mt-1 overflow-hidden">
+                                                    <div className="h-full bg-[#FF8D6D] rounded-full" style={{ width: `${evt.progress ?? 0}%` }}></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )) : <div className="text-center text-[#0B1F38]/30 italic text-sm py-10">Aucun événement</div>}
                                 </div>
                             </div>
                         )
@@ -792,12 +881,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                             </button>
                         </div>
 
+                        <button
+                            onClick={allerAujourdhui}
+                            className="px-3 py-2 text-sm font-bold rounded-xl bg-white/40 border border-white/50 shadow-sm text-[#0B1F38]/70 hover:text-[#00A3E0] hover:bg-white/60 transition-colors shrink-0"
+                        >
+                            Aujourd'hui
+                        </button>
+
                         {/* View Switcher */}
                         <div className="flex bg-white/40 border border-white/50 rounded-xl p-1 shadow-sm shrink-0">
                             {['quarter', 'month', 'week'].map((view) => (
                                 <button
                                     key={view}
-                                    onClick={() => setCalendarView(view as CalendarViewType)}
+                                    onClick={() => changerVue(view as CalendarViewType)}
                                     className={`px-3 py-2 text-sm font-bold rounded-lg transition-all ${calendarView === view
                                         ? 'bg-white text-[#00A3E0] shadow-sm'
                                         : 'text-[#0B1F38]/60 hover:text-[#0B1F38]'

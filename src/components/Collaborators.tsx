@@ -71,6 +71,36 @@ const DOCUMENT_TYPES = [
 import { GLASS_STYLE } from '../lib/styles';
 
 
+/**
+ * Liste de choix d'un filtre, avec le nombre d'entreprises par option.
+ * Masquée quand l'onglet n'offre aucune valeur : un filtre vide n'est qu'un
+ * bruit de plus dans la barre.
+ */
+const FiltreSelect: React.FC<{
+    libelle: string;
+    valeur: string;
+    tous: string;
+    options: { id: string; label: string; n: number }[];
+    onChange: (v: string) => void;
+}> = ({ libelle, valeur, tous, options, onChange }) => {
+    if (options.length === 0 && !valeur) return null;
+    return (
+        <div>
+            <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">{libelle}</label>
+            <select
+                value={valeur}
+                onChange={(e) => onChange(e.target.value)}
+                className={`w-full bg-white border rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] ${valeur ? 'border-[#00A3E0]' : 'border-gray-200'}`}
+            >
+                <option value="">{tous}</option>
+                {options.map(o => (
+                    <option key={o.id} value={o.id}>{o.label} ({o.n})</option>
+                ))}
+            </select>
+        </div>
+    );
+};
+
 const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const { showToast } = useToast();
     // --- STATE: DATA ---
@@ -106,11 +136,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [filterRegion, setFilterRegion] = useState('');
     const [filterSpecialty, setFilterSpecialty] = useState('');
     const [filterExpertiseTag, setFilterExpertiseTag] = useState('');
-    const [filterForme, setFilterForme] = useState('');
-    const [filterRating, setFilterRating] = useState<'' | '4' | '3' | '2' | '1'>('');
     
     // Taxonomy Filters
-    const [filterNature, setFilterNature] = useState('');
     const [filterDomain, setFilterDomain] = useState('');
     const [refDomains, setRefDomains] = useState<any[]>([]);
     const [refSpecialties, setRefSpecialties] = useState<any[]>([]);
@@ -141,7 +168,10 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             setLoadingRef(true);
             const [doms, specs, gz, tags] = await Promise.all([
                 supabase.from('ref_domains').select('*').order('label'),
-                supabase.from('ref_specialties').select('*').not('label', 'ilike', 'Autre%').order('label'),
+                // Toutes les spécialités, « Autre… » comprises : elles servent
+                // à rattacher une entreprise à son domaine. Elles sont seulement
+                // écartées des listes de choix.
+                supabase.from('ref_specialties').select('*').order('label'),
                 supabase.from('ref_geo_zones').select('*').order('label'),
                 supabase.from('ref_expertise_tags').select('*').order('label')
             ]);
@@ -272,12 +302,26 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const fetchCompaniesSpecialties = async (companyIds: string[]) => {
         if (!companyIds.length) return;
         try {
+            // Par lots : la liste d'identifiants part dans l'URL, et celle du
+            // réseau Filao entier la faisait dépasser la longueur admise. La
+            // requête échouait, l'erreur n'était pas lue, et TOUS les filtres
+            // de compétences renvoyaient zéro résultat.
+            const lire = async (table: string, colonnes: string) => {
+                const lignes: any[] = [];
+                for (let i = 0; i < companyIds.length; i += 100) {
+                    const { data, error } = await supabase.from(table).select(colonnes)
+                        .in('entreprise_id', companyIds.slice(i, i + 100));
+                    if (error) console.error(`Lecture ${table} :`, error);
+                    lignes.push(...(data ?? []));
+                }
+                return { data: lignes };
+            };
             const [nats, doms, specs, zones, tags] = await Promise.all([
-                supabase.from('company_natures').select('entreprise_id, nature').in('entreprise_id', companyIds),
-                supabase.from('company_domains').select('entreprise_id, domain_id').in('entreprise_id', companyIds),
-                supabase.from('company_specialties').select('entreprise_id, specialty_id').in('entreprise_id', companyIds),
-                supabase.from('company_geo_zones').select('entreprise_id, geo_zone_id').in('entreprise_id', companyIds),
-                supabase.from('company_expertise_tags').select('entreprise_id, tag_id').in('entreprise_id', companyIds)
+                lire('company_natures', 'entreprise_id, nature'),
+                lire('company_domains', 'entreprise_id, domain_id'),
+                lire('company_specialties', 'entreprise_id, specialty_id'),
+                lire('company_geo_zones', 'entreprise_id, geo_zone_id'),
+                lire('company_expertise_tags', 'entreprise_id, tag_id'),
             ]);
 
             const map: Record<string, { natures: string[], domains: string[], specialties: string[], geo_zones: string[], expertise_tags: string[] }> = {};
@@ -542,62 +586,106 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     };
 
     // --- FILTERS ---
-    const displayedCompanies = useMemo(() => {
-        const source = activeTab === 'network' ? myNetwork : filaoNetwork;
-        return source.filter(c => {
-            const matchesSearch = c.nom.toLowerCase().includes(searchQuery.toLowerCase());
-            
-            // Taxonomic matching
-            const cTax = companiesSpecialties[c.id];
-            
-            // Region matching: check company ville OR geo_zones labels
-            const matchesRegion = filterRegion === '' || 
-                (c.ville && c.ville.toLowerCase().includes(filterRegion.toLowerCase())) || 
-                (cTax && cTax.geo_zones.some(gzid => refGeoZones.find(z => z.id === gzid)?.label.toLowerCase().includes(filterRegion.toLowerCase())));
-            
-            const matchesForme = filterForme === '' || c.forme_juridique === filterForme;
-            const matchesRating = filterRating === '' || (c.average_rating !== undefined && c.average_rating >= Number(filterRating));
-            
-            const matchesNature = filterNature === '' || (cTax && cTax.natures.includes(filterNature));
-            const matchesDomain = filterDomain === '' || (cTax && cTax.domains.includes(filterDomain));
-            const matchesSpecialty = filterSpecialty === '' || (cTax && cTax.specialties.includes(filterSpecialty));
-            const matchesExpertiseTag = filterExpertiseTag === '' || (cTax && cTax.expertise_tags.includes(filterExpertiseTag));
-
-            return matchesSearch && matchesRegion && matchesSpecialty && matchesForme && matchesRating && matchesNature && matchesDomain && matchesExpertiseTag;
+    /**
+     * Compétences de chaque entreprise, complétées par la hiérarchie du
+     * référentiel : une spécialité implique son domaine. Beaucoup
+     * d'entreprises renseignent leurs spécialités sans cocher le domaine
+     * correspondant ; filtrer sur la seule table `company_domains` les
+     * rendait invisibles.
+     */
+    const competences = useMemo(() => {
+        const domaineDeSpecialite = new Map<string, string>(refSpecialties.map((sp: any) => [sp.id, sp.domain_id]));
+        const res: Record<string, { domaines: Set<string>; specialites: Set<string>; tags: Set<string>; zones: string[] }> = {};
+        Object.entries(companiesSpecialties as Record<string, any>).forEach(([id, t]) => {
+            const domaines = new Set<string>(t.domains);
+            t.specialties.forEach((sid: string) => {
+                const d = domaineDeSpecialite.get(sid);
+                if (d) domaines.add(d);
+            });
+            res[id] = {
+                domaines,
+                specialites: new Set<string>(t.specialties),
+                tags: new Set<string>(t.expertise_tags),
+                zones: t.geo_zones.map((zid: string) => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean),
+            };
         });
-    }, [activeTab, myNetwork, filaoNetwork, searchQuery, filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain, companiesSpecialties, refGeoZones]);
+        return res;
+    }, [companiesSpecialties, refSpecialties, refGeoZones]);
 
-    const uniqueRegions = useMemo(() => {
-        const allVilles = [...new Set([...myNetwork, ...filaoNetwork].map(c => c.ville).filter(Boolean))];
-        const allZones = [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.geo_zones).map(zid => refGeoZones.find(z => z.id === zid)?.label).filter(Boolean))];
-        return [...new Set([...allVilles, ...allZones])].sort();
-    }, [myNetwork, filaoNetwork, companiesSpecialties, refGeoZones]);
+    /** Entreprises de l'onglet actif : les filtres s'y adaptent. */
+    const source = activeTab === 'network' ? myNetwork : filaoNetwork;
 
-    const uniqueSpecialties = useMemo(() => {
-        return [...new Set(Object.values(companiesSpecialties as Record<string, any>).flatMap(t => t.specialties).map(sid => refSpecialties.find(s => s.id === sid)?.label).filter(Boolean))].sort();
-    }, [companiesSpecialties, refSpecialties]);
+    type Criteres = { domaine: string; specialite: string; tag: string; zone: string };
 
-    const uniqueFormes = useMemo(() => [...new Set([...myNetwork, ...filaoNetwork].map(c => c.forme_juridique).filter(Boolean))].sort(), [myNetwork, filaoNetwork]);
+    const correspond = useCallback((c: NetworkCompany, crit: Criteres) => {
+        const comp = competences[c.id];
+        if (crit.domaine && !comp?.domaines.has(crit.domaine)) return false;
+        if (crit.specialite && !comp?.specialites.has(crit.specialite)) return false;
+        if (crit.tag && !comp?.tags.has(crit.tag)) return false;
+        if (crit.zone) {
+            const z = crit.zone.toLowerCase();
+            const dansVille = !!c.ville && c.ville.toLowerCase() === z;
+            const dansZone = !!comp?.zones.some(l => l.toLowerCase() === z);
+            if (!dansVille && !dansZone) return false;
+        }
+        return true;
+    }, [competences]);
 
-    const activeFilterCount = useMemo(() => {
-        let count = 0;
-        if (filterRegion) count++;
-        if (filterSpecialty) count++;
-        if (filterExpertiseTag) count++;
-        if (filterForme) count++;
-        if (filterRating) count++;
-        if (filterNature) count++;
-        if (filterDomain) count++;
-        return count;
-    }, [filterRegion, filterSpecialty, filterExpertiseTag, filterForme, filterRating, filterNature, filterDomain]);
+    const criteres: Criteres = { domaine: filterDomain, specialite: filterSpecialty, tag: filterExpertiseTag, zone: filterRegion };
+
+    const displayedCompanies = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        return source.filter(c => (!q || c.nom.toLowerCase().includes(q)) && correspond(c, criteres));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [source, searchQuery, correspond, filterDomain, filterSpecialty, filterExpertiseTag, filterRegion]);
+
+    /**
+     * Options d'un filtre : seulement les valeurs présentes dans l'onglet
+     * actif, avec le nombre d'entreprises qu'elles donneraient compte tenu des
+     * AUTRES filtres. Plus de choix menant à une liste vide sans le savoir.
+     * La valeur sélectionnée reste proposée, même à zéro (changement d'onglet).
+     */
+    const optionsDe = (
+        cle: keyof Criteres,
+        valeursDe: (c: NetworkCompany) => string[],
+        libelleDe: (id: string) => string | undefined,
+        selection: string,
+    ) => {
+        const compte = new Map<string, number>();
+        const autres = { ...criteres, [cle]: '' };
+        source.forEach(c => {
+            if (!correspond(c, autres)) return;
+            new Set(valeursDe(c)).forEach(v => compte.set(v, (compte.get(v) ?? 0) + 1));
+        });
+        if (selection && !compte.has(selection)) compte.set(selection, 0);
+        return [...compte]
+            .map(([id, n]) => ({ id, n, label: libelleDe(id) ?? '' }))
+            .filter(o => o.label && (o.id === selection || !/^autre/i.test(o.label)))
+            .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+    };
+
+    const optionsDomaines = optionsDe('domaine',
+        c => [...(competences[c.id]?.domaines ?? [])],
+        id => refDomains.find((d: any) => d.id === id)?.label, filterDomain);
+
+    const optionsSpecialites = optionsDe('specialite',
+        c => [...(competences[c.id]?.specialites ?? [])],
+        id => refSpecialties.find((sp: any) => sp.id === id)?.label, filterSpecialty);
+
+    const optionsTags = optionsDe('tag',
+        c => [...(competences[c.id]?.tags ?? [])],
+        id => refExpertiseTags.find((t: any) => t.id === id)?.label, filterExpertiseTag);
+
+    const optionsZones = optionsDe('zone',
+        c => [...(c.ville ? [c.ville] : []), ...(competences[c.id]?.zones ?? [])],
+        id => id, filterRegion);
+
+    const activeFilterCount = [filterDomain, filterSpecialty, filterExpertiseTag, filterRegion].filter(Boolean).length;
 
     const clearAllFilters = () => {
         setFilterRegion('');
         setFilterSpecialty('');
         setFilterExpertiseTag('');
-        setFilterForme('');
-        setFilterRating('');
-        setFilterNature('');
         setFilterDomain('');
     };
 
@@ -880,84 +968,55 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                         )}
                                     </div>
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Nature</label>
-                                        <select value={filterNature} onChange={(e) => { setFilterNature(e.target.value); setFilterDomain(''); }} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0] capitalize">
-                                            <option value="">Toutes</option>
-                                            <option value="travaux">Travaux</option>
-                                            <option value="services">Services</option>
-                                            <option value="fournitures">Fournitures</option>
-                                        </select>
-                                    </div>
+                                    <p className="text-[11px] text-[#0B1F38]/50 leading-snug -mt-2">
+                                        {activeTab === 'network'
+                                            ? 'Parmi vos partenaires.'
+                                            : "Parmi les entreprises Filao hors de votre réseau."}
+                                    </p>
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Domaine</label>
-                                        <select value={filterDomain} onChange={(e) => setFilterDomain(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]" disabled={!filterNature}>
-                                            <option value="">Tous les domaines</option>
-                                            {refDomains.filter(d => !filterNature || d.natures.includes(filterNature)).map(d => (
-                                                <option key={d.id} value={d.id}>{d.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                    <FiltreSelect
+                                        libelle="Domaine"
+                                        valeur={filterDomain}
+                                        tous="Tous les domaines"
+                                        options={optionsDomaines}
+                                        onChange={(v) => {
+                                            setFilterDomain(v);
+                                            // Une spécialité hors du nouveau domaine n'aurait plus de sens.
+                                            if (v && filterSpecialty && refSpecialties.find((sp: any) => sp.id === filterSpecialty)?.domain_id !== v) setFilterSpecialty('');
+                                        }}
+                                    />
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Spécialité</label>
-                                        <select value={filterSpecialty} onChange={(e) => setFilterSpecialty(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]" disabled={!filterDomain}>
-                                            <option value="">Toutes les spécialités</option>
-                                            {/* List specialties corresponding to selected domain, or all unique from data if no domain selected */}
-                                            {filterDomain ? (
-                                                refSpecialties.filter(s => s.domain_id === filterDomain).map(s => (
-                                                    <option key={s.id} value={s.id}>{s.label}</option>
-                                                ))
-                                            ) : (
-                                                uniqueSpecialties.map(c => <option key={c} value={c}>{c}</option>)
-                                            )}
-                                        </select>
-                                    </div>
+                                    <FiltreSelect
+                                        libelle="Spécialité"
+                                        valeur={filterSpecialty}
+                                        tous="Toutes les spécialités"
+                                        options={filterDomain
+                                            ? optionsSpecialites.filter(o => o.id === filterSpecialty || refSpecialties.find((sp: any) => sp.id === o.id)?.domain_id === filterDomain)
+                                            : optionsSpecialites}
+                                        onChange={setFilterSpecialty}
+                                    />
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Expertise / Qualification</label>
-                                        <select value={filterExpertiseTag} onChange={(e) => setFilterExpertiseTag(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
-                                            <option value="">Toutes les expertises</option>
-                                            {refExpertiseTags.map(t => (
-                                                <option key={t.id} value={t.id}>{t.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                    <FiltreSelect
+                                        libelle="Qualification / certification"
+                                        valeur={filterExpertiseTag}
+                                        tous="Toutes"
+                                        options={optionsTags}
+                                        onChange={setFilterExpertiseTag}
+                                    />
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Forme juridique</label>
-                                        <select value={filterForme} onChange={(e) => setFilterForme(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
-                                            <option value="">Toutes</option>
-                                            {uniqueFormes.map(f => <option key={f} value={f}>{f}</option>)}
-                                        </select>
-                                    </div>
+                                    <FiltreSelect
+                                        libelle="Zone géographique"
+                                        valeur={filterRegion}
+                                        tous="Toutes les zones"
+                                        options={optionsZones}
+                                        onChange={setFilterRegion}
+                                    />
 
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Avis minimum</label>
-                                        <div className="flex flex-col gap-1">
-                                            {(['', '4', '3', '2', '1'] as const).map(val => (
-                                                <button key={val} onClick={() => setFilterRating(val)} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all ${filterRating === val ? 'bg-[#00A3E0]/10 text-[#00A3E0] font-bold' : 'text-[#0B1F38]/60 hover:bg-gray-50'}`}>
-                                                    {val === '' ? (
-                                                        <span>Tous</span>
-                                                    ) : (
-                                                        <>
-                                                            {Array.from({ length: Number(val) }).map((_, i) => <Star key={i} size={10} className="text-yellow-400 fill-yellow-400" />)}
-                                                            <span className="ml-0.5">{val}+ étoiles</span>
-                                                        </>
-                                                    )}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[11px] font-bold text-[#0B1F38]/50 mb-1.5 block">Ville / Région</label>
-                                        <select value={filterRegion} onChange={(e) => setFilterRegion(e.target.value)} className="w-full bg-white border border-gray-200 rounded-lg py-2 px-2.5 text-xs text-[#0B1F38] focus:outline-none focus:ring-2 focus:ring-[#00A3E0]">
-                                            <option value="">Toutes</option>
-                                            {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
-                                        </select>
-                                    </div>
+                                    {activeFilterCount > 0 && (
+                                        <p className="text-[11px] text-[#0B1F38]/50">
+                                            {displayedCompanies.length} entreprise{displayedCompanies.length > 1 ? 's' : ''} sur {source.length}
+                                        </p>
+                                    )}
                                 </aside>
 
                                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
