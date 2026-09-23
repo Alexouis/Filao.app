@@ -211,41 +211,6 @@ export const notifyCollaborationLeft = async (
 };
 
 /**
- * Notify when a tender is won
- */
-export const notifyTenderWon = async (
-  userId: string,
-  tenderId: string,
-  tenderTitle: string,
-  amount: number
-) => {
-  return addNotification(userId, {
-    type: 'tender_won',
-    titre: 'Appel d\'offres remporté !',
-    message: `Félicitations ! Vous avez remporté l'appel d'offres`,
-    related_tender_id: tenderId,
-    related_tender_titre: `${tenderTitle} (${amount}€)`
-  });
-};
-
-/**
- * Notify when a tender is lost
- */
-export const notifyTenderLost = async (
-  userId: string,
-  tenderId: string,
-  tenderTitle: string
-) => {
-  return addNotification(userId, {
-    type: 'tender_lost',
-    titre: 'Appel d\'offres non remporté',
-    message: `Malheureusement, l'appel d'offres n'a pas été remporté :`,
-    related_tender_id: tenderId,
-    related_tender_titre: tenderTitle
-  });
-};
-
-/**
  * Notify when invited as collaborator
  */
 export const notifyCollaboratorInvited = async (

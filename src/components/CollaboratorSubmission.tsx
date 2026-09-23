@@ -125,11 +125,11 @@ export const CollaboratorSubmission: React.FC = () => {
 
          if (ownerErr) {
             console.error("get_tender_owner_info:", ownerErr);
-            setOwner({ id: tenderData.createur_id, plan: 'partenaire', storage_used: 0 });
+            setOwner({ id: tenderData.createur_id, plan: 'partenaire' });
          } else if (ownerResults && ownerResults.length > 0) {
             setOwner(ownerResults[0]);
          } else {
-            setOwner({ id: tenderData.createur_id, plan: 'partenaire', storage_used: 0 });
+            setOwner({ id: tenderData.createur_id, plan: 'partenaire' });
          }
          
          setTender(tenderData);
@@ -195,7 +195,7 @@ export const CollaboratorSubmission: React.FC = () => {
          if (ownerErr) {
             console.error("RPC Error:", ownerErr);
             // Optionally set fallback plan if RPC fails
-            setOwner({ id: tenderData.createur_id, plan: 'partenaire', storage_used: 0 });
+            setOwner({ id: tenderData.createur_id, plan: 'partenaire' });
          } else if (ownerResults && ownerResults.length > 0) {
             setOwner(ownerResults[0]);
          }
@@ -343,7 +343,6 @@ export const CollaboratorSubmission: React.FC = () => {
        }
 
        const file = event.target.files[0];
-       const newFileSize = file.size;
 
        setUploadingFile(docType);
 
@@ -353,16 +352,11 @@ export const CollaboratorSubmission: React.FC = () => {
          // This matches the parsing logic in TenderWizard.tsx
          const fileName = nomPieceCollaborateur({ docType, collabId: myCollabData.id, tenderId: tender.id });
 
-         // Taille de la version précédente, pour ne compter que la différence.
-         // Lue dans la liste déjà chargée par `guest-files` : `storage.list()`
-         // renvoie toujours vide à un invité anonyme (bucket privé), si bien que
-         // chaque remplacement était compté comme un fichier NOUVEAU — stockage
-         // et compteur de pièces gonflaient à chaque envoi.
-         const existingFile = tenderFiles.find(f => f.name === fileName);
-         const oldFileSize = existingFile?.metadata?.size || 0;
-
-         // Calculate the difference (Positive = using more space, Negative = freeing space)
-         const delta = newFileSize - oldFileSize;
+         // Remplacement ou premier dépôt ? Lu dans la liste déjà chargée par
+         // `guest-files` : `storage.list()` renvoie toujours vide à un invité
+         // anonyme (bucket privé), et chaque remplacement était compté comme
+         // une pièce nouvelle.
+         const estNouvelle = !tenderFiles.some(f => f.name === fileName);
 
          // --- 2. QUOTA ---
          // Contrôlé côté serveur (`upload-document`) sur le stockage réel de
@@ -400,26 +394,9 @@ export const CollaboratorSubmission: React.FC = () => {
          }
          if (erreur) throw new Error(erreur);
 
-         // --- 4. INCREMENT CREATOR'S DB COUNTER (Storage) ---
-         // We charge the usage to the Creator (owner.id)
-         if (delta !== 0) {
-            const { error: rpcError } = await supabase.rpc('increment_storage_usage', {
-               user_id: owner.id,
-               bytes_added: delta // Use Delta!
-            });
-
-            if (rpcError) console.error("Error updating storage counter:", rpcError);
-
-            // Update local state optimistically so UI reflects usage immediately
-            setOwner((prev: any) => ({
-               ...prev,
-               storage_used: (prev?.storage_used || 0) + delta
-            }));
-         }
-
          // --- 5. UPDATE TENDER FILE COUNT (Progress) ---
-         // Only increment if this is a NEW file (oldFileSize was 0)
-         if (oldFileSize === 0) {
+         // Premier dépôt de cette pièce : signal « nouvelle pièce » pour l'écran du porteur.
+         if (estNouvelle) {
             const { error: countError } = await supabase.rpc('update_tender_file_count', {
                tender_id: tender.id,
                increment_by: 1
@@ -854,7 +831,16 @@ export const CollaboratorSubmission: React.FC = () => {
                   Créez un compte gratuitement pour centraliser tous vos appels d'offres, gérer votre profil et gagner du temps sur vos prochaines collaborations.
                </p>
                <button
-                  onClick={() => navigate('/register')}
+                  onClick={() => {
+                     // Après l'inscription, `App` rouvre ce dossier et attribue
+                     // le compte à l'invitation (source d'acquisition). C'était
+                     // le rôle de l'ancienne page `/invitation`, retirée.
+                     try {
+                        sessionStorage.setItem('invitationTenderId', tender.id);
+                        if (guestAuth?.mode === 'token') sessionStorage.setItem('invitationToken', guestAuth.token);
+                     } catch { /* stockage indisponible : inscription quand même */ }
+                     navigate('/register');
+                  }}
                   className="bg-white text-[#1B5D7A] px-10 py-4 rounded-2xl font-bold hover:bg-gray-100 transition-all shadow-lg hover:shadow-xl relative z-10 transform hover:-translate-y-1"
                >
                   Créer mon compte Filao

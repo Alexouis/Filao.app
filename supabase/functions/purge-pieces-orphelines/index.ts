@@ -2,6 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * purge-pieces-orphelines — retire les pièces de dossier devenues inaccessibles.
  *
  * LE PROBLÈME
@@ -150,7 +159,7 @@ Deno.serve(async (req: Request) => {
             .from("invitations")
             .select("id", { count: "exact", head: true })
             .eq("tender_id", lu.tenderId)
-            .ilike("email", u.email)
+            .ilike("email", motifExact(u.email))
             .is("revoked_at", null);
 
           orphelin = (liensGroupement ?? 0) === 0 && (liensInvitation ?? 0) === 0;

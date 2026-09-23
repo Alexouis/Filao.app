@@ -37,7 +37,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   userProfile,
   onEditDraft
 }) => {
-  const [tenders, setTenders] = useState<Tender[]>(cachedTenders || []);
+  // Pas d'initialisation depuis le cache : il est brut (voir `onTendersLoad`),
+  // l'effet ci-dessous le filtre dès que le profil est connu.
+  const [tenders, setTenders] = useState<Tender[]>([]);
   const [activeTendersCount, setActiveTendersCount] = useState(0);
   const [loading, setLoading] = useState(!cachedTenders);
   // Échec du chargement : évite un tableau de bord vide trompeur.
@@ -170,6 +172,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (cachedTenders) {
       // Filter out refused tenders even from cache
       const visible = cachedTenders.filter(t => {
+        // Dossiers des collègues : masqués et hors statistiques, comme dans
+        // « Mes appels d'offres » (où une bascule permet de les afficher).
+        if (estDossierDunCollegue(t, userProfile)) return false;
         // La clause `entreprise.membres` a été retirée : elle ne détectait que
         // les membres que la policy `utilisateurs` (075) laisse voir, et
         // doublonnait la comparaison d'entreprise, seule condition fiable.
@@ -243,6 +248,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       // 2. Client-side filter to hide tenders where user has 'refuse' status
       const visibleTenders = (data as unknown as Tender[] || []).filter(t => {
+        // Dossiers des collègues : masqués et hors statistiques (cf. plus haut).
+        if (estDossierDunCollegue(t, userProfile)) return false;
         // Check groupements
         // Voir la note plus haut : `entreprise.membres` est vide depuis la 070.
         const myGroupement = t.groupements?.find((g: any) =>
@@ -276,8 +283,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       // lors d'un remplacement — et affichait 100 % pour un dossier à 21 %.
       // Un seul appel pour toute la liste.
 
+      // Le cache est PARTAGÉ avec Mes AO, le calendrier et les finances : il
+      // reçoit la liste brute, chaque écran appliquant ses propres règles.
+      // Y déposer la liste filtrée d'ici privait Mes AO des invitations en
+      // attente (et des dossiers des collègues) tant que le cache vivait.
       if (onTendersLoad) {
-        onTendersLoad(visibleTenders);
+        onTendersLoad((data as unknown as Tender[]) || []);
       }
 
     } catch (error) {
@@ -357,9 +368,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   // AO urgents (échéance < 7 j) — définition partagée avec Mes AO via isUrgent.
-  // Le lien ouvre Mes AO, qui masque par défaut les dossiers des collègues :
-  // on les exclut aussi du compte, sinon il annonce un dossier introuvable.
-  const urgentCount = tenders.filter(t => isUrgent(t) && !estDossierDunCollegue(t, userProfile)).length;
+  // Les dossiers des collègues sont déjà écartés de `tenders`.
+  const urgentCount = tenders.filter(isUrgent).length;
 
   const getDaysRemaining = (dateString: string) => {
     if (!dateString) return 0;

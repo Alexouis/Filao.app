@@ -37,7 +37,6 @@ const ConditionsUtilisation = lazy(() => import('./components/LegalPages').then(
 const ConfirmerCompte = lazy(() => import('./components/ConfirmerCompte').then(m => ({ default: m.ConfirmerCompte })));
 const CollaboratorSubmission = lazy(() => import('./components/CollaboratorSubmission').then(m => ({ default: m.CollaboratorSubmission })));
 import { ToastProvider } from './components/ui/Toast';
-const InvitationLanding = lazy(() => import('./components/InvitationLanding').then(m => ({ default: m.InvitationLanding })));
 const ResetPassword = lazy(() => import('./components/ResetPassword').then(m => ({ default: m.ResetPassword })));
 import { supabase } from './lib/supabaseClient';
 import { NotFound } from './components/NotFound';
@@ -212,8 +211,8 @@ const AppContent = () => {
   /**
    * Rattachement au dossier après création de compte ou connexion.
    *
-   * `InvitationLanding` dépose le jeton et l'identifiant du dossier en
-   * `sessionStorage` avant d'envoyer l'invité vers `/register` ou `/login` —
+   * L'espace invité dépose l'identifiant du dossier (et, en mode jeton, le
+   * jeton) en `sessionStorage` avant d'envoyer l'invité vers `/register` —
    * mais rien ne les relisait. L'utilisateur arrivait donc sur un tableau de
    * bord vide et devait retrouver l'appel d'offres par lui-même, ce que le
    * critère de recette interdit explicitement.
@@ -572,13 +571,19 @@ const AppContent = () => {
     return <ConditionsUtilisation />;
   }
 
-  // Public invitation landing page (no auth required).
-  // `/invitation` sans jeton est une route valide : la page l'efface de l'URL
-  // après lecture pour qu'il ne reste ni dans l'historique ni dans les outils de
-  // mesure. Un rechargement arrive donc ici sans jeton, et l'écran invite alors
-  // à rouvrir le lien reçu — plutôt qu'une page 404 incompréhensible.
+  // Anciens liens d'invitation `/invitation/<jeton>`.
+  //
+  // Les e-mails d'invitation mènent désormais à l'espace invité par code
+  // d'accès (`/collaborator-access?tenderId=…`), et la page intermédiaire qui
+  // lisait ce jeton a été retirée. Les invitations restent valables 30 jours :
+  // un lien reçu avant ce changement est redirigé vers l'espace invité, qui sait
+  // toujours ouvrir une session à partir du jeton.
   if (location.pathname === '/invitation' || location.pathname.startsWith('/invitation/')) {
-    return <InvitationLanding />;
+    const jeton = location.pathname.split('/invitation/')[1];
+    return <Navigate
+      to={jeton ? `/collaborator-access?token=${encodeURIComponent(jeton)}` : '/collaborator-access'}
+      replace
+    />;
   }
 
   // `/login` n'était pas déclaré : il affichait l'écran de connexion par effet

@@ -4,6 +4,15 @@ import { genererJetonInvitation, empreinteJeton } from "./invitationTokens.ts";
 import { EXPEDITEUR } from "./emailConfig.ts";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * Échappement HTML.
  *
  * Le gabarit de l'e-mail est construit par concaténation de chaînes : sans
@@ -191,7 +200,7 @@ Deno.serve(async (req: Request) => {
       const { data: existingUser } = await adminClient
         .from("utilisateurs")
         .select("id, entreprise_id")
-        .ilike("email", email!.trim())
+        .ilike("email", motifExact(email!.trim()))
         .maybeSingle();
       recipientId = existingUser?.id;
       recipientEntrepriseId = existingUser?.entreprise_id ?? undefined;
@@ -333,7 +342,12 @@ Deno.serve(async (req: Request) => {
       compteUtilisable = !!compteAuth?.user?.email_confirmed_at;
     }
 
-    const origin = req.headers.get("origin") || "https://filao.io";
+    // Adresse de l'APPLICATION (filao-app.fr), pas du site vitrine (filao.io).
+    // `APP_URL` prime : un appel sans navigateur (cron des rappels de jalons)
+    // n'a pas d'en-tête Origin, et un envoi lancé depuis un poste de
+    // développement mettait sinon « localhost » dans l'e-mail d'un vrai
+    // destinataire.
+    const origin = (Deno.env.get("APP_URL") || req.headers.get("origin") || "https://filao-app.fr").replace(/\/$/, "");
     const invitationUrl = compteUtilisable
       ? `${origin}/?tab=wizard&id=${tenderId}`
       : `${origin}/collaborator-access?tenderId=${tenderId}`;
@@ -395,7 +409,9 @@ Deno.serve(async (req: Request) => {
       throw new Error("Echec de l'envoi de l'email");
     }
 
-    return new Response(JSON.stringify({ success: true, token, recipientId }), {
+    // Le jeton en clair n'est PAS renvoyé : il donnerait à l'invitant le
+    // moyen d'agir à la place de l'invité (accepter, déposer).
+    return new Response(JSON.stringify({ success: true, recipientId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

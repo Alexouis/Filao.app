@@ -2,6 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * Rappel de jalon à J-2.
  *
  * Contrairement à `send-reminder`, déclenchée à la main depuis l'application,
@@ -162,7 +171,7 @@ Deno.serve(async (req: Request) => {
           const { data: utilisateur } = await admin
             .from("utilisateurs")
             .select("id, notification_preferences")
-            .ilike("email", email)
+            .ilike("email", motifExact(email))
             .maybeSingle();
 
           // Respecte la préférence « Rappels ». Voir la note détaillée dans

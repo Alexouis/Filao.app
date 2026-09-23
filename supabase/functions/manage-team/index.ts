@@ -1,6 +1,15 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { genererJetonInvitation, empreinteJeton } from "./invitationTokens.ts";
 
+/**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -89,7 +98,7 @@ Deno.serve(async (req) => {
             const { data } = await supabaseClient
               .from('utilisateurs')
               .select('id, notifications')
-              .ilike('email', String(cible.email).trim())
+              .ilike('email', motifExact(String(cible.email).trim()))
             destinataires = data || []
           }
 

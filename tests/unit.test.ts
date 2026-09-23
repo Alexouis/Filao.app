@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import {
   emailValide, normaliserEmail, nettoyerTexteLibre, contientBalise,
   sirenValide, siretValide, messageErreurIdentifiantAcheteur, dateValide,
+  motifIlikeExact,
 } from '../src/helpers/validationHelpers.ts';
 
 import {
@@ -1197,4 +1198,14 @@ test('rueDepuisEtablissement : les composants de voie priment sur l’adresse en
   });
   assert.equal(rue, '14 AVENUE DES CHANTIERS');
   assert.equal(rueDepuisEtablissement({}), '');
+});
+
+
+test('motifIlikeExact : échappe les jokers ILIKE et normalise les espaces', () => {
+  // « _ » et « % » sont des jokers : sans échappement, « a_b@x.fr »
+  // correspondait aussi à « aXb@x.fr ».
+  assert.equal(motifIlikeExact(' alexandre_louis@outlook.fr '), 'alexandre\\_louis@outlook.fr');
+  assert.equal(motifIlikeExact('100%@x.fr'), '100\\%@x.fr');
+  assert.equal(motifIlikeExact('a\\b@x.fr'), 'a\\\\b@x.fr');
+  assert.equal(motifIlikeExact('simple@x.fr'), 'simple@x.fr');
 });

@@ -2,6 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * Rattachement d'une pièce du coffre-fort à un appel d'offres.
  *
  * POURQUOI UNE FONCTION
@@ -59,7 +68,7 @@ Deno.serve(async (req: Request) => {
     const { data: profil } = await admin
       .from("utilisateurs")
       .select("id, entreprise_id")
-      .ilike("email", email)
+      .ilike("email", motifExact(email))
       .maybeSingle();
 
     const { source, nomCible } = await req.json();

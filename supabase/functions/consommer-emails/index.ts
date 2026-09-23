@@ -171,7 +171,7 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
     const brevoApiKey = Deno.env.get("BREVO_API_KEY");
-    const appUrl = Deno.env.get("APP_URL") ?? "https://filao.io";
+    const appUrl = (Deno.env.get("APP_URL") || "https://filao-app.fr").replace(/\/$/, "");
     if (!brevoApiKey) throw new Error("BREVO_API_KEY absente");
 
     // Lot d'emails en attente, les plus anciens d'abord.

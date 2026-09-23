@@ -111,7 +111,7 @@ serve(async (req) => {
 
     console.log(`Creating checkout session for user ${user.id} / entreprise ${entrepriseId} / price ${priceId}`);
 
-    const origine = req.headers.get('origin') || 'https://filao.io';
+    const origine = req.headers.get('origin') || Deno.env.get('APP_URL') || 'https://filao-app.fr';
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [

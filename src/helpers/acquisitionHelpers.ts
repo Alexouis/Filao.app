@@ -94,7 +94,7 @@ export const getAcquisitionParams = (): AcquisitionData => {
  * referral | direct. Toute autre valeur ferait échouer l'inscription. On s'y
  * tient strictement — les UTM détaillés vivent dans leurs propres colonnes.
  *
- * @param invitationTenderId identifiant de dossier déposé par InvitationLanding
+ * @param invitationTenderId identifiant de dossier déposé par l'espace invité
  */
 export const resolveSourceInscription = (
   invitationTenderId?: string | null

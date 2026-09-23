@@ -150,7 +150,6 @@ export interface UserProfile {
     avatar_url?: string;
     telephone?: string;
     forfait?: string;
-    storage_used?: number;
     created_at?: string;
 }
 

@@ -147,3 +147,13 @@ export const dateValide = (valeur: string | null | undefined): boolean => {
     // Rejette les dates décalées (31/02 → 03/03) : les composantes doivent tenir.
     return d.getUTCFullYear() === annee && d.getUTCMonth() === mois - 1 && d.getUTCDate() === jour;
 };
+
+
+/**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * Pour comparer des adresses e-mail stockées telles que saisies : `_` et `%`
+ * sont des jokers pour ILIKE, et « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ».
+ */
+export const motifIlikeExact = (valeur: string): string =>
+    String(valeur ?? '').trim().replace(/[\\%_]/g, (c) => '\\' + c);

@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabaseClient';
 import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acquisitionHelpers';
 import { LegalFooter } from './LegalPages';
 import { track } from '../helpers/analytics';
+import { motifIlikeExact } from '../helpers/validationHelpers';
 
 const GoogleIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -288,7 +289,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                 const { data: existingUser } = await supabase
                     .from('utilisateurs')
                     .select('email')
-                    .ilike('email', email.trim())
+                    .ilike('email', motifIlikeExact(email))
                     .maybeSingle();
 
                 // If we found a row, stop everything
@@ -296,7 +297,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     throw new Error('Un compte existe déjà avec cette adresse email. Veuillez vous connecter.');
                 }
 
-                // Origine du compte. `InvitationLanding` dépose l'identifiant du
+                // Origine du compte. L'espace invité dépose l'identifiant du
                 // dossier avant de rediriger : sa présence qualifie une
                 // invitation. Sinon, la source est dérivée des UTM / referrer
                 // capturés au premier contact (voir acquisitionHelpers).

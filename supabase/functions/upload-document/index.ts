@@ -9,6 +9,15 @@ import {
 import { verifierDebit } from "./rateLimit.ts";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * Point d'entrée unique des dépôts de fichiers (bug B4).
  *
  * POURQUOI PASSER PAR ICI
@@ -150,7 +159,7 @@ Deno.serve(async (req: Request) => {
         const { data: profil } = await admin
           .from("utilisateurs")
           .select("entreprise_id")
-          .ilike("email", data.user.email)
+          .ilike("email", motifExact(data.user.email))
           .maybeSingle();
         identite = {
           email: data.user.email.toLowerCase(),

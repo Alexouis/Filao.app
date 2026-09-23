@@ -25,6 +25,10 @@ export const ConfirmerCompte: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     const tokenHash = params.get('token_hash');
     const type = (params.get('type') || 'signup') as 'signup' | 'email' | 'email_change' | 'recovery';
+    // Même page pour la réinitialisation de mot de passe : le lien de
+    // récupération est consommé par les mêmes analyseurs de liens (Outlook
+    // Safe Links…) que celui d'inscription.
+    const estReinit = type === 'recovery';
 
     const [etat, setEtat] = useState<'attente' | 'encours' | 'ok' | 'erreur'>(
         tokenHash ? 'attente' : 'erreur'
@@ -65,7 +69,7 @@ export const ConfirmerCompte: React.FC = () => {
                 // ni dans l'historique, ni dans un lien partagé par mégarde.
                 window.history.replaceState(null, '', window.location.pathname);
                 setEtat('ok');
-                setTimeout(() => { window.location.href = '/'; }, 1800);
+                setTimeout(() => { window.location.href = estReinit ? '/reset-password' : '/'; }, estReinit ? 600 : 1800);
                 return;
             }
             derniereErreur = error;
@@ -92,7 +96,7 @@ export const ConfirmerCompte: React.FC = () => {
                         <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
                             <CheckCircle className="text-green-500" size={32} />
                         </div>
-                        <h1 className="text-2xl font-bold text-filao-dark">Compte confirmé</h1>
+                        <h1 className="text-2xl font-bold text-filao-dark">{estReinit ? 'Lien vérifié' : 'Compte confirmé'}</h1>
                         <p className="text-sm text-gray-500">Vous allez être redirigé…</p>
                     </>
                 ) : etat === 'erreur' ? (
@@ -125,10 +129,16 @@ export const ConfirmerCompte: React.FC = () => {
                                         if (!emailRenvoi.trim()) return;
                                         setRenvoiEnCours(true);
                                         try {
-                                            await supabase.auth.resend({
-                                                type: 'signup',
-                                                email: emailRenvoi.trim(),
-                                            });
+                                            if (estReinit) {
+                                                await supabase.auth.resetPasswordForEmail(emailRenvoi.trim(), {
+                                                    redirectTo: `${window.location.origin}/reset-password`,
+                                                });
+                                            } else {
+                                                await supabase.auth.resend({
+                                                    type: 'signup',
+                                                    email: emailRenvoi.trim(),
+                                                });
+                                            }
                                             // Réponse neutre quoi qu'il arrive : confirmer
                                             // qu'une adresse existe en ferait un outil
                                             // d'énumération.
@@ -161,9 +171,13 @@ export const ConfirmerCompte: React.FC = () => {
                     </>
                 ) : (
                     <>
-                        <h1 className="text-2xl font-bold text-filao-dark">Confirmez votre compte</h1>
+                        <h1 className="text-2xl font-bold text-filao-dark">
+                            {estReinit ? 'Réinitialiser votre mot de passe' : 'Confirmez votre compte'}
+                        </h1>
                         <p className="text-sm text-gray-500 leading-relaxed">
-                            Dernière étape : cliquez ci-dessous pour activer votre compte Filao.
+                            {estReinit
+                                ? 'Cliquez ci-dessous pour choisir un nouveau mot de passe.'
+                                : 'Dernière étape : cliquez ci-dessous pour activer votre compte Filao.'}
                         </p>
                         <button
                             onClick={confirmer}
@@ -171,7 +185,7 @@ export const ConfirmerCompte: React.FC = () => {
                             className="w-full bg-[#0E4F70] text-white font-bold py-3.5 rounded-lg hover:bg-[#0A3D58] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                         >
                             {etat === 'encours' && <Loader2 className="w-4 h-4 animate-spin" />}
-                            Confirmer mon compte
+                            {estReinit ? 'Continuer' : 'Confirmer mon compte'}
                         </button>
                     </>
                 )}

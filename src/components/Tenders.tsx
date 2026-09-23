@@ -21,11 +21,11 @@ import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
 import { filtrerEtTrierDossiers, dansPerimetreListe } from '@/helpers/listeDossiersHelpers';
 import { supprimerDossier } from '@/helpers/suppressionDossier';
+import { enregistrerIssue } from '@/helpers/issueDossier';
 import { BarreFiltresDossiers } from './BarreFiltresDossiers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
 import { RatePartnersModal } from './RatePartnersModal';
-import { notifyTenderWon, notifyTenderLost } from '../helpers/notificationHelpers';
 
 // --- TYPES ---
 
@@ -557,14 +557,10 @@ export const Tenders: React.FC<TendersProps> = ({
 
     try {
       setLoading(true);
-      const totalSizeFreed = await supprimerDossier(selectedTenderId, userProfile?.id);
+      await supprimerDossier(selectedTenderId);
 
       setIsDeleteModalOpen(false);
       if (onTenderUpdate) onTenderUpdate();
-
-      if (userProfile && totalSizeFreed > 0) {
-        userProfile.storage_used = Math.max(0, (userProfile.storage_used || 0) - totalSizeFreed);
-      }
 
       fetchTenders();
       setSelectedTenderId(null);
@@ -584,32 +580,21 @@ export const Tenders: React.FC<TendersProps> = ({
   const executeOutcome = async () => {
     if (!outcomeConfirm) return;
     const { id: tenderId, type: outcome } = outcomeConfirm;
-    const newStatus = outcome === 'won' ? STATUSES.won : STATUSES.lost;
 
     try {
       setLoading(true);
-      const { error } = await supabase
-        .from('reponses_ao')
-        .update({ statut: newStatus })
-        .eq('id', tenderId);
-
-      if (error) throw error;
-
       const tender = tenders.find(t => t.id === tenderId);
+      // Statut, notifications de l'équipe et analytique : même chemin que
+      // depuis le dossier. Seul l'auteur du clic était notifié ici.
+      await enregistrerIssue(tenderId, outcome, tender?.montant_estime);
+
       showToast(outcome === 'won' ? "Félicitations pour cette victoire !" : "Statut mis à jour.", 'success');
       setOutcomeConfirm(null);
       fetchTenders();
       if (onTenderUpdate) onTenderUpdate();
-
-      // Notifications
-      if (outcome === 'won') {
-        await notifyTenderWon(userProfile?.id, tenderId, tender?.titre || 'Appel d\'offres', tender?.montant_estime || 0);
-      } else {
-        await notifyTenderLost(userProfile?.id, tenderId, tender?.titre || 'Appel d\'offres');
-      }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating outcome:", error);
-      showToast("Erreur lors de la mise à jour.", 'error');
+      showToast(error?.message || "Erreur lors de la mise à jour.", 'error');
     } finally {
       setLoading(false);
     }

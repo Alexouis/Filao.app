@@ -2,6 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
 
+/**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -86,7 +95,12 @@ Deno.serve(async (req: Request) => {
     const senderName = [senderData.prenom, senderData.nom].filter(Boolean).join(" ") || senderData.email;
     const senderCompanyName = (senderData as any).entreprises?.nom || "une entreprise";
     const senderCompanyId = senderData.entreprise_id;
-    const origin = req.headers.get("origin") || "https://filao-app.vercel.app";
+    // Adresse de l'APPLICATION (filao-app.fr), pas du site vitrine (filao.io).
+    // `APP_URL` prime : un appel sans navigateur (cron des rappels de jalons)
+    // n'a pas d'en-tête Origin, et un envoi lancé depuis un poste de
+    // développement mettait sinon « localhost » dans l'e-mail d'un vrai
+    // destinataire.
+    const origin = (Deno.env.get("APP_URL") || req.headers.get("origin") || "https://filao-app.fr").replace(/\/$/, "");
 
     // Jeton de rattachement au réseau.
     //
@@ -132,7 +146,7 @@ Deno.serve(async (req: Request) => {
     const { data: recipientUser } = await adminClient
       .from("utilisateurs")
       .select("id, entreprise_id, prenom, nom, notifications")
-      .ilike("email", normalizedEmail)
+      .ilike("email", motifExact(normalizedEmail))
       .maybeSingle();
 
     let recipientFound = false;

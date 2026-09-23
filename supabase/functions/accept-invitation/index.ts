@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+/**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -85,7 +94,7 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .select("role, status")
       .eq("tender_id", tenderId)
-      .ilike("email", userData.email)
+      .ilike("email", motifExact(userData.email))
       .single();
 
     // 2. Upsert groupements row (use role from invite if groupement doesn't exist yet)
@@ -119,7 +128,7 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .update(updatePayload)
       .eq("tender_id", tenderId)
-      .ilike("email", userData.email);
+      .ilike("email", motifExact(userData.email));
 
     // 5. AUTO-ADD TO NETWORK on acceptance
     if (accept) {

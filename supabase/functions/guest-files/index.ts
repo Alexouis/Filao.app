@@ -4,6 +4,15 @@ import { lirePieceCollaborateur, concernePiece } from "./documentNaming.ts";
 import { verifierDebit } from "./rateLimit.ts";
 
 /**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
+/**
  * Accès en lecture aux fichiers d'un partenaire non inscrit.
  *
  * POURQUOI
@@ -225,7 +234,7 @@ Deno.serve(async (req: Request) => {
         // le client ne peut pas annoncer une acceptation qui n'a pas eu lieu.
         const { data: inv } = await admin.from("invitations")
           .select("status, accepted_at, refused_at")
-          .eq("tender_id", idAo).ilike("email", dossier).maybeSingle();
+          .eq("tender_id", idAo).ilike("email", motifExact(dossier)).maybeSingle();
         const acceptee = inv?.status === "accepted";
         const quand = acceptee ? inv?.accepted_at : inv?.refused_at;
         const recente = quand && Date.now() - new Date(quand).getTime() < 10 * 60 * 1000;

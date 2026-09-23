@@ -2,6 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
 
+/**
+ * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
+ * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
+ * « alexandreXlouis@… ». On les échappe.
+ */
+const motifExact = (valeur: string): string =>
+  String(valeur ?? "").trim().replace(/[\\%_]/g, (c) => "\\" + c);
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -128,12 +137,12 @@ Deno.serve(async (req: Request) => {
     // e-mail (partenaire sans compte, qui existe légitimement dans
     // `invitations`).
     const { data: destinataireProfil } = await adminClient
-      .from("utilisateurs").select("entreprise_id").ilike("email", email.trim()).maybeSingle();
+      .from("utilisateurs").select("entreprise_id").ilike("email", motifExact(email.trim())).maybeSingle();
     let destinataireLie = !!destinataireProfil?.entreprise_id
       && entreprisesDuDossier.has(destinataireProfil.entreprise_id);
     if (!destinataireLie) {
       const { data: inv } = await adminClient
-        .from("invitations").select("id").eq("tender_id", tenderId).ilike("email", email.trim()).maybeSingle();
+        .from("invitations").select("id").eq("tender_id", tenderId).ilike("email", motifExact(email.trim())).maybeSingle();
       destinataireLie = !!inv;
     }
     if (!destinataireLie) {
@@ -151,7 +160,7 @@ Deno.serve(async (req: Request) => {
       // que saisis (« Alexandre_Louis@outlook.fr »). La comparaison échouait
       // donc silencieusement pour tout utilisateur ayant une majuscule dans son
       // adresse : la notification in-app était simplement sautée.
-      .ilike("email", email.trim())
+      .ilike("email", motifExact(email.trim()))
       .maybeSingle();
 
     // 2. Resolve Sender Avatar
@@ -212,13 +221,18 @@ Deno.serve(async (req: Request) => {
       .from("invitations")
       .select("access_code")
       .eq("tender_id", tenderId)
-      .ilike("email", email.trim())
+      .ilike("email", motifExact(email.trim()))
       .maybeSingle();
 
     const accessCode = invite?.access_code || "??????";
 
     // 5. Build Invitation URL
-    const origin = req.headers.get("origin") || "https://filao.io";
+    // Adresse de l'APPLICATION (filao-app.fr), pas du site vitrine (filao.io).
+    // `APP_URL` prime : un appel sans navigateur (cron des rappels de jalons)
+    // n'a pas d'en-tête Origin, et un envoi lancé depuis un poste de
+    // développement mettait sinon « localhost » dans l'e-mail d'un vrai
+    // destinataire.
+    const origin = (Deno.env.get("APP_URL") || req.headers.get("origin") || "https://filao-app.fr").replace(/\/$/, "");
     const appUrl = recipient
       ? `${origin}/?tab=wizard&id=${tenderId}`
       : `${origin}/collaborator-access?tenderId=${tenderId}`;

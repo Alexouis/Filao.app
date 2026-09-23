@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabaseClient';
  *
  * @returns octets libérés par la purge des pièces.
  */
-export const supprimerDossier = async (tenderId: string, userId?: string | null): Promise<number> => {
+export const supprimerDossier = async (tenderId: string): Promise<number> => {
     // Les pièces vivent dans le dossier de chaque déposant : seule une
     // fonction serveur peut toutes les atteindre (policy DELETE limitée au
     // dossier de l'appelant, migration 037).
@@ -30,13 +30,6 @@ export const supprimerDossier = async (tenderId: string, userId?: string | null)
     }
 
     const octetsLiberes = Number(purge?.octetsLiberes ?? 0);
-    if (octetsLiberes > 0 && userId) {
-        const { error } = await supabase.rpc('increment_storage_usage', {
-            user_id: userId,
-            bytes_added: -octetsLiberes,
-        });
-        if (error) console.error('Mise à jour du compteur de stockage', error);
-    }
 
     try {
         await supabase.functions.invoke('sync-google-calendar', {

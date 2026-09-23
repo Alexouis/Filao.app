@@ -51,12 +51,13 @@ import { useHistoryView } from '../helpers/useHistoryView';
 import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
-import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
+import { emailValide, nettoyerTexteLibre, contientBalise, motifIlikeExact } from '../helpers/validationHelpers';
 import { supprimerDossier } from '../helpers/suppressionDossier';
 import { messageErreurFonction } from '../helpers/erreurFonction';
+import { enregistrerIssue } from '../helpers/issueDossier';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { libelleCpv } from '../helpers/cpvLabels';
-import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
+import { notifyCollaboratorInvited, notifyDocumentReminder, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
 import {
     extractCpvCodes,
     extractCriteresAttribution,
@@ -515,7 +516,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // Même suppression que depuis la liste : pièces, agenda, puis
             // ligne. Seule la ligne était effacée ici — les pièces restaient
             // dans le stockage et les événements dans Google Agenda.
-            await supprimerDossier(tenderId, userProfile?.id);
+            await supprimerDossier(tenderId);
 
             showToast('Dossier supprimé avec succès.', 'success');
             if (onTenderUpdate) onTenderUpdate();
@@ -3430,7 +3431,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             .from('invitations')
             .select('id')
             .eq('tender_id', tenderId)
-            .ilike('email', email.trim())
+            .ilike('email', motifIlikeExact(email))
             .is('revoked_at', null);
 
         if (errLecture || !invitations?.length) return;
@@ -3586,19 +3587,6 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 nom: fileName,
             });
             if (erreurDepot) throw new Error(erreurDepot);
-
-            // Increment Usage
-            //
-            // `storage_used` ne décide plus rien : ni le blocage (qui passe par
-            // `stockage_restant_entreprise`), ni l'affichage (par
-            // `stockage_consomme_entreprise`). On continue de l'entretenir le
-            // temps que les autres écrans s'en détachent — retirer la colonne
-            // pendant qu'elle est encore lue ailleurs casserait plus que ça ne
-            // nettoierait.
-            if (delta !== 0) {
-                await supabase.rpc('increment_storage_usage', { user_id: user.id, bytes_added: delta });
-                setUserProfile((prev: any) => ({ ...prev, storage_used: (prev?.storage_used || 0) + delta }));
-            }
 
             // Trace le dépôt pour le récapitulatif quotidien de 18h.
             //
@@ -4209,56 +4197,17 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         setLoading(true);
         try {
             const newStatus = outcome === 'won' ? STATUSES.won : STATUSES.lost;
-            const { error } = await supabase
-                .from('reponses_ao')
-                .update({ statut: newStatus })
-                .eq('id', tenderId);
-            // Sans ce contrôle, un refus de la base (droits, verrou de quota)
-            // affichait quand même « Félicitations » et le nouveau statut.
-            if (error) throw error;
+            // Statut, notifications de l'équipe et analytique : même chemin
+            // que depuis la liste (`enregistrer-issue`).
+            await enregistrerIssue(tenderId, outcome, formData.montant_estime);
 
-            // 1. Update form data locally
             setFormData(prev => ({ ...prev, statut: newStatus }));
-
-            // Analytics : résultat saisi. Le montant est émis en FOURCHETTE, jamais
-            // la valeur exacte (donnée sensible).
-            const trancheMontant = (m: number): string => {
-                if (!m || m <= 0) return 'nc';
-                if (m < 50000) return '<50k';
-                if (m < 200000) return '50-200k';
-                if (m < 1000000) return '200k-1M';
-                return '>1M';
-            };
-            track('resultat_saisi', {
-                resultat: outcome === 'won' ? 'gagne' : 'perdu',
-                montant_tranche: trancheMontant(formData.montant_estime || 0),
-            });
-
             showToast(outcome === 'won' ? "Félicitations pour cette victoire !" : "Statut mis à jour.", 'success');
             setShowOutcomeModal(null);
             if (onTenderUpdate) onTenderUpdate();
-
-            // 2. Notifications to team members (only those with an account/ID)
-            const teamIds = groupementMembers
-                .filter(m => m.status === GROUPEMENT_STATUSES.accepte && m.id)
-                .map(m => m.id as string);
-
-            // Include Mandataire
-            if (formData.createur_id) teamIds.push(formData.createur_id);
-
-            // Ensure distinct
-            const uniqueRecipients = Array.from(new Set(teamIds));
-
-            for (const recipientId of uniqueRecipients) {
-                if (outcome === 'won') {
-                    await notifyTenderWon(recipientId as string, tenderId, formData.titre, formData.montant_estime || 0);
-                } else {
-                    await notifyTenderLost(recipientId as string, tenderId, formData.titre);
-                }
-            }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error updating outcome:", error);
-            showToast("Erreur lors de la mise à jour.", 'error');
+            showToast(error?.message || "Erreur lors de la mise à jour.", 'error');
         } finally {
             setLoading(false);
         }

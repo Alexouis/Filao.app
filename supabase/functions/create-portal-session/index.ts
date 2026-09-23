@@ -92,7 +92,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const origin = req.headers.get("origin") || "https://filao.io";
+    const origin = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://filao-app.fr";
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: entreprise.stripe_customer_id,
