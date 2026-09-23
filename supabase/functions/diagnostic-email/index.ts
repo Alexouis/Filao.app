@@ -15,6 +15,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  * Usage :
  *   GET /functions/v1/diagnostic-email?secret=…&email=adresse@x.fr[&days=7]
  *   GET /functions/v1/diagnostic-email?secret=…&messageId=<…>
+ *   GET /functions/v1/diagnostic-email?secret=…&config=1[&domaine=mail.filao.io]
+ *     → expéditeurs et domaines déclarés dans Brevo, avec leur état de
+ *       validation, et les enregistrements DNS attendus pour `domaine`.
  */
 
 const json = (corps: unknown, status = 200) =>
@@ -31,6 +34,34 @@ Deno.serve(async (req: Request) => {
 
   const cle = Deno.env.get("BREVO_API_KEY");
   if (!cle) return json({ error: "BREVO_API_KEY absente de l'environnement" }, 500);
+
+  const brevo = async (chemin: string) => {
+    const r = await fetch(`https://api.brevo.com/v3${chemin}`, {
+      headers: { "api-key": cle, Accept: "application/json" },
+    });
+    const t = await r.text();
+    return r.ok ? JSON.parse(t || "{}") : { erreur: `Brevo ${r.status}`, detail: t.slice(0, 300) };
+  };
+
+  // Mode configuration : qu'est-ce qui est validé côté Brevo ?
+  if (url.searchParams.get("config")) {
+    const domaine = url.searchParams.get("domaine")?.trim() || "mail.filao.io";
+    const [expediteurs, domaines, detail] = await Promise.all([
+      brevo("/senders"),
+      brevo("/senders/domains"),
+      brevo(`/senders/domains/${encodeURIComponent(domaine)}`),
+    ]);
+    return json({
+      aide: {
+        expediteur_actif: "active: true → l'adresse peut servir d'expéditeur",
+        domaine_ok: "authenticated: true ET verified: true → domaine utilisable",
+        dns: "detail_domaine.dns_records : enregistrements à créer chez l'hébergeur DNS (status false = manquant)",
+      },
+      expediteurs: (expediteurs.senders ?? expediteurs),
+      domaines: (domaines.domains ?? domaines),
+      detail_domaine: detail,
+    });
+  }
 
   const email = url.searchParams.get("email")?.trim().toLowerCase();
   const messageId = url.searchParams.get("messageId")?.trim();
