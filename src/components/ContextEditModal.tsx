@@ -272,7 +272,7 @@ const ContextEditModalBase: React.FC<ContextEditModalProps> = ({
                             <label className={labelStyle}>Montant estimé</label>
                             <div className="relative">
                                 <Euro size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0B1F38]/40" />
-                                <input type="number" value={brouillon.montant_estime} onChange={(e) => maj('montant_estime', parseFloat(e.target.value) || 0)} className={`${inputGlass} bg-[#F8FAFC]`} />
+                                <input type="number" min={0} step="any" value={brouillon.montant_estime} onChange={(e) => maj('montant_estime', Math.max(0, parseFloat(e.target.value) || 0))} className={`${inputGlass} bg-[#F8FAFC]`} />
                             </div>
                         </div>
 

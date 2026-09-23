@@ -26,7 +26,7 @@ import {
 
 import {
   getEffectiveStatus, isActive, isUrgent, joursAvantEcheance, consommeQuota,
-  URGENCE_SEUIL_JOURS,
+  URGENCE_SEUIL_JOURS, dateDecision,
 } from '../src/helpers/tenderHelpers.ts';
 
 import {
@@ -1227,4 +1227,11 @@ test('dateNaissanceValide : entre 16 et 110 ans, facultative', () => {
   assert.equal(dateNaissanceValide('1026-05-12', ref), false);
   assert.equal(dateNaissanceValide('2020-01-01', ref), false);
   assert.equal(dateNaissanceValide('1986-02-30', ref), false);
+});
+
+
+test('dateDecision : date du verdict, repli sur la dernière modification puis la création', () => {
+  assert.equal(dateDecision({ date_decision: '2026-06-10T09:00:00Z', modified_at: '2026-07-01T00:00:00Z', created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-06-10T09:00:00.000Z');
+  assert.equal(dateDecision({ date_decision: null, modified_at: '2026-07-01T00:00:00Z', created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-07-01T00:00:00.000Z');
+  assert.equal(dateDecision({ created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-01-05T00:00:00.000Z');
 });

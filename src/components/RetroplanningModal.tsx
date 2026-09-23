@@ -222,7 +222,12 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                                                                     onClick={() => {
                                                                         if (!editingJalon) return;
                                                                         const nouveaux = [...jalons];
-                                                                        const realIdx = jalons.findIndex((j: any) => j.label === jalon.label && j.date === jalon.date);
+                                                                        // Par référence d'abord : deux jalons de même libellé et
+                                                                        // même date se confondaient, et c'est le premier qui était
+                                                                        // modifié.
+                                                                        const realIdx = jalons.indexOf(jalon) !== -1
+                                                                            ? jalons.indexOf(jalon)
+                                                                            : jalons.findIndex((j: any) => j.label === jalon.label && j.date === jalon.date);
                                                                         if (realIdx !== -1) {
                                                                             nouveaux[realIdx] = { ...jalon, ...editingJalon };
                                                                             onJalonsChange(nouveaux);
@@ -400,7 +405,12 @@ const RetroplanningModalBase: React.FC<RetroplanningModalProps> = ({
                 titre="Supprimer ce jalon ?"
                 message={`« ${jalonASupprimer?.label} » sera retiré du rétroplanning. Cette action est irréversible.`}
                 onConfirmer={() => {
-                    onJalonsChange(jalons.filter((j: any) => !(j.label === jalonASupprimer!.label && j.date === jalonASupprimer!.date)));
+                    // Retrait du SEUL jalon visé : le filtre par libellé et date
+                    // supprimait aussi ses homonymes du même jour.
+                    const cible = jalons.indexOf(jalonASupprimer!) !== -1
+                        ? jalons.indexOf(jalonASupprimer!)
+                        : jalons.findIndex((j: any) => j.label === jalonASupprimer!.label && j.date === jalonASupprimer!.date);
+                    onJalonsChange(jalons.filter((_: any, i: number) => i !== cible));
                     setJalonASupprimer(null);
                 }}
                 onAnnuler={() => setJalonASupprimer(null)}

@@ -192,7 +192,7 @@ export const SaisieManuelleView: React.FC<SaisieManuelleViewProps> = ({
                     {/* Montant — optional */}
                     <div className="md:col-span-2">
                         <label className={labelStyle}>Montant estimé (€ HT) <span className="text-[#0B1F38]/30 font-normal normal-case">— optionnel</span></label>
-                        <input value={formData.montant_estime || ''} onChange={e => setFormData(prev => ({ ...prev, montant_estime: parseFloat(e.target.value) || 0 }))} type="number" placeholder="Ex: 150000" className={`${inputGlassPlain} w-full`} />
+                        <input value={formData.montant_estime || ''} onChange={e => setFormData(prev => ({ ...prev, montant_estime: Math.max(0, parseFloat(e.target.value) || 0) }))} type="number" min={0} step="any" placeholder="Ex: 150000" className={`${inputGlassPlain} w-full`} />
                     </div>
                 </div>
             </div>

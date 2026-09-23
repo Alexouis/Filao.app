@@ -11,6 +11,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import { dateDecision } from '../helpers/tenderHelpers';
 import { THEME_COLORS, UserProfile, Tender, CollaboratorData, FinancialProps, MonthlyData, STATUSES, PLANS_CONFIG, PLANS_TYPES, PlanType } from '../config';
 import { ChevronDown, Pencil, Loader2 } from 'lucide-react';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -173,7 +174,7 @@ export const Financial: React.FC<FinancialProps> = ({
 
     return tenders
       .filter(tender => {
-        const tenderDate = new Date(tender.created_at);
+        const tenderDate = dateDecision(tender);
         return tender.statut === STATUSES.won &&
           tenderDate.getFullYear() === year &&
           tenderDate.getMonth() + 1 === month;
@@ -189,7 +190,7 @@ export const Financial: React.FC<FinancialProps> = ({
 
     return tenders
       .filter(tender => {
-        const tenderDate = new Date(tender.created_at);
+        const tenderDate = dateDecision(tender);
         return tender.statut === STATUSES.won && tenderDate.getFullYear() === year;
       })
       .reduce((sum, tender) => sum + (tender.montant_estime || 0), 0);
@@ -229,7 +230,7 @@ export const Financial: React.FC<FinancialProps> = ({
 
       const revenue = tenders
         .filter(tender => {
-          const tenderDate = new Date(tender.created_at);
+          const tenderDate = dateDecision(tender);
           return tender.statut === STATUSES.won &&
             tenderDate.getFullYear() === date.getFullYear() &&
             tenderDate.getMonth() === date.getMonth();

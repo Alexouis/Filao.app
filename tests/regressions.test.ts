@@ -662,3 +662,16 @@ test('base : le badge retombe si un champ officiel change, et ne se pose pas dep
     assert.match(corps, /v_officiels/);
     assert.match(corps, /AND NOT v_modifie/);
 });
+
+test('stockage : un porteur ne lit que les pièces de SES dossiers', () => {
+    // Inviter un partenaire ouvrait tout son dossier de fichiers, y compris
+    // les pièces déposées pour les dossiers d'autres entreprises.
+    const sql = migrationsTriees.map(m => m.sql).join('\n');
+    const policies = [...sql.matchAll(/CREATE POLICY "Lecture des documents autorises"[\s\S]*?\);\s*\n/g)].map(m => m[0]);
+    const derniere = policies[policies.length - 1];
+    assert.ok(derniere, 'policy introuvable');
+    assert.match(derniere, /app\.piece_de_mon_dossier\(name\)/);
+    assert.ok(!/i\.tender_id IN \(SELECT id FROM reponses_ao WHERE createur_id = auth\.uid\(\)\)/.test(derniere),
+        'l’ancienne branche ouverte à tout le dossier de fichiers est revenue');
+    assert.match(derniereDefinition('piece_de_mon_dossier'), /right\(p_objet, 36\)/);
+});

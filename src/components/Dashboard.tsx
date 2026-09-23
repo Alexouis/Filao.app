@@ -10,7 +10,7 @@ import {
 } from '../config';
 import { chargerForfaits, forfait, illimite } from '@/helpers/planLimits';
 import { canCreateTender } from '@/helpers/planHelpers';
-import { getEffectiveStatus, isActive, isUrgent } from '@/helpers/tenderHelpers';
+import { getEffectiveStatus, isActive, isUrgent, dateDecision } from '@/helpers/tenderHelpers';
 import { estDossierDunCollegue } from '@/helpers/accesDossier';
 import { progressionParDossier, Progression } from '@/helpers/progressionHelpers';
 import { GLASS_STYLE } from '../lib/styles';
@@ -315,7 +315,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const DAY_MS = 24 * 60 * 60 * 1000;
     const now = Date.now();
     const closedAt = (t: Tender) =>
-      new Date(t.date_decision || t.modified_at || t.created_at).getTime();
+      dateDecision(t).getTime();
     const closed = tendersData.filter(t => t.statut === STATUSES.won || t.statut === STATUSES.lost);
 
     const rateOver = (from: number, to: number): number | null => {

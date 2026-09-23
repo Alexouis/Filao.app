@@ -106,3 +106,15 @@ export const consommeQuota = (tender: Tender, userId?: string): boolean => {
     if (userId && tender.createur_id !== userId) return false;
     return getEffectiveStatus(tender) === STATUSES.on;
 }
+
+/**
+ * Date à laquelle un dossier a été tranché (Gagné / Perdu).
+ *
+ * `date_decision` (migration 052) fige ce moment. Repli sur `modified_at`
+ * pour les dossiers clôturés avant la migration, puis sur `created_at`.
+ * La page Finances datait le chiffre d'affaires de la CRÉATION du dossier :
+ * un marché créé en janvier et gagné en juin comptait en janvier — et pas le
+ * même mois que dans le tableau de bord.
+ */
+export const dateDecision = (t: { date_decision?: string | null; modified_at?: string | null; created_at?: string | null }): Date =>
+    new Date(t.date_decision || t.modified_at || t.created_at || 0);
