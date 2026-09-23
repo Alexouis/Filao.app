@@ -1,10 +1,26 @@
 import React, { memo } from 'react';
 import {
-    AlertTriangle, ArrowRight, CheckCircle, Crown, LogOut, Mail, Network,
-    Plus, ShieldAlert, Sparkles, Trash2, UserCheck, UserPlus, Users, X, XCircle,
+    AlertTriangle, ArrowRight, CheckCheck, CheckCircle, Crown, LogOut, Mail, Network,
+    Plus, ShieldAlert, Sparkles, Trash2, UploadCloud, UserPlus, Users, X, XCircle,
 } from 'lucide-react';
 import { UIGroupementMember } from '../types';
 import { GROUPEMENT_STATUSES, ROLES } from '../config';
+
+type TypeMembre = 'creator' | 'complete' | 'depots' | 'accepted' | 'invited' | 'refused';
+
+/**
+ * Badge de statut d'un membre : libellé, style et info-bulle au même endroit.
+ * Le créateur est « Porteur » et non « Admin », pour ne pas le confondre avec
+ * le rôle d'administrateur d'entreprise.
+ */
+const BADGES_MEMBRE: Record<TypeMembre, { libelle: string; aide: string; classe: string; Icone: React.ComponentType<any> }> = {
+    creator:  { libelle: 'Porteur',          Icone: Crown,       classe: 'text-[#00A3E0] bg-[#00A3E0]/10', aide: "A créé le dossier et le gère : équipe, invitations, relances et export des pièces." },
+    complete: { libelle: 'Complet',          Icone: CheckCheck,  classe: 'text-green-700 bg-green-100',    aide: "A accepté et déposé toutes les pièces attendues pour son rôle." },
+    depots:   { libelle: 'Dépôts en cours',  Icone: UploadCloud, classe: 'text-green-600 bg-green-50',     aide: "A accepté et commencé à déposer ses pièces ; il en manque encore." },
+    accepted: { libelle: 'Accepté',          Icone: CheckCircle, classe: 'text-sky-600 bg-sky-50',         aide: "A accepté l'invitation mais n'a encore déposé aucune pièce." },
+    invited:  { libelle: 'Invité',           Icone: Mail,        classe: 'text-orange-500 bg-orange-50',   aide: "Invitation envoyée, en attente de réponse." },
+    refused:  { libelle: 'Refusé',           Icone: XCircle,     classe: 'text-red-500 bg-red-50',         aide: "A décliné l'invitation." },
+};
 
 /**
  * Colonne « Équipe & pièces » d'un dossier : composition du groupement,
@@ -152,16 +168,24 @@ const EquipeEtPiecesBase: React.FC<EquipeEtPiecesProps> = ({
                                         // apparaissait « Connecté » sans avoir ouvert le dossier,
                                         // laissant croire au mandataire qu'il était actif.
                                         //
-                                        //   invited  — invitation envoyée, sans réponse
-                                        //   accepted — a accepté, mais n'a encore rien déposé
-                                        //   active   — a accepté et commencé à déposer ses pièces
+                                        //   invited   — invitation envoyée, sans réponse
+                                        //   accepted  — a accepté, mais n'a encore rien déposé
+                                        //   depots    — a accepté et commencé à déposer
+                                        //   complete  — toutes les pièces attendues sont déposées
+                                        //
+                                        // « Actif » disait « a déposé au moins une pièce » sans
+                                        // qu'on puisse le deviner, et apparaissait souvent en
+                                        // même temps que le dossier complet, d'où la confusion.
                                         const memberProgress = getMemberProgress(c, i);
-                                        const memberType: 'creator' | 'active' | 'accepted' | 'invited' | 'refused' =
+                                        const memberType: TypeMembre =
                                             isMemberOwner ? 'creator'
                                                 : effectiveStatus === GROUPEMENT_STATUSES.refuse ? 'refused'
                                                     : effectiveStatus === GROUPEMENT_STATUSES.accepte
-                                                        ? (memberProgress.received > 0 ? 'active' : 'accepted')
+                                                        ? (memberProgress.total > 0 && memberProgress.received >= memberProgress.total
+                                                            ? 'complete'
+                                                            : memberProgress.received > 0 ? 'depots' : 'accepted')
                                                         : 'invited';
+                                        const badge = BADGES_MEMBRE[memberType];
                                         const displayName = c.name && c.name.trim() ? c.name : c.email;
 
                                         return (
@@ -217,18 +241,11 @@ const EquipeEtPiecesBase: React.FC<EquipeEtPiecesProps> = ({
                                                         <div className="flex items-center gap-2 mt-0.5">
                                                             <span className="text-[11px] text-[#0B1F38]/50 truncate">{displayName !== c.company ? displayName : ''}</span>
                                                             <p className="text-[10px] text-[#0B1F38]/40 truncate">({c.email})</p>
-                                                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 ${
-                                                                memberType === 'creator' ? 'text-[#00A3E0] bg-[#00A3E0]/10'
-                                                                    : memberType === 'active' ? 'text-green-600 bg-green-50'
-                                                                        : memberType === 'accepted' ? 'text-sky-600 bg-sky-50'
-                                                                            : memberType === 'refused' ? 'text-red-500 bg-red-50'
-                                                                                : 'text-orange-500 bg-orange-50'
-                                                            }`}>
-                                                                {memberType === 'creator' && <><Crown size={9} /> Admin</>}
-                                                                {memberType === 'active' && <><UserCheck size={9} /> Actif</>}
-                                                                {memberType === 'accepted' && <><CheckCircle size={9} /> Accepté</>}
-                                                                {memberType === 'refused' && <><XCircle size={9} /> Refusé</>}
-                                                                {memberType === 'invited' && <><Mail size={9} /> Invité</>}
+                                                            <span
+                                                                title={badge.aide}
+                                                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 cursor-help ${badge.classe}`}
+                                                            >
+                                                                <badge.Icone size={9} aria-hidden="true" /> {badge.libelle}
                                                             </span>
                                                         </div>
                                                     </div>
