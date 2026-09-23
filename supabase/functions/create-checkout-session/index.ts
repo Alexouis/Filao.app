@@ -111,6 +111,7 @@ serve(async (req) => {
 
     console.log(`Creating checkout session for user ${user.id} / entreprise ${entrepriseId} / price ${priceId}`);
 
+    const origine = req.headers.get('origin') || 'https://filao.io';
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -120,8 +121,11 @@ serve(async (req) => {
         },
       ],
       mode: 'subscription',
-      success_url: `${req.headers.get('origin')}/settings?tab=billing&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.get('origin')}/settings?tab=pricing`,
+      // L'application n'a qu'un chemin authentifié, `/`, et navigue par
+      // paramètres (`?tab=…&section=…`). `/settings` n'existe pas : après un
+      // paiement réussi, le client atterrissait sur la page 404.
+      success_url: `${origine}/?tab=settings&section=billing&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origine}/?tab=pricing`,
 
       // Réutiliser le client Stripe de l'entreprise s'il existe (abonnement
       // résilié puis repris). Sans cela, chaque souscription créait un NOUVEAU

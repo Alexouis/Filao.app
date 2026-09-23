@@ -92,11 +92,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const origin = req.headers.get("origin") || "http://localhost:3000";
+    const origin = req.headers.get("origin") || "https://filao.io";
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: entreprise.stripe_customer_id,
-      return_url: `${origin}/?tab=settings`,
+      return_url: `${origin}/?tab=settings&section=billing`,
     });
 
     return new Response(JSON.stringify({ url: portalSession.url }), {

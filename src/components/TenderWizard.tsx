@@ -52,6 +52,8 @@ import { deposerFichier } from '../helpers/uploadHelpers';
 import { telechargerDocument, ouvrirDocument } from '../helpers/storageHelpers';
 import { nomPieceCollaborateur, lirePieceCollaborateur, clePieceCollaborateur } from '../helpers/documentNaming';
 import { emailValide, nettoyerTexteLibre, contientBalise } from '../helpers/validationHelpers';
+import { supprimerDossier } from '../helpers/suppressionDossier';
+import { messageErreurFonction } from '../helpers/erreurFonction';
 import { detecterType, OCTETS_A_LIRE, type TypeFichier } from '../helpers/fileValidation';
 import { libelleCpv } from '../helpers/cpvLabels';
 import { notifyCollaboratorInvited, notifyDocumentReminder, notifyTenderWon, notifyTenderLost, notifyCollaborationRejected, notifyCollaborationAccepted, notifyCollaborationLeft, notifyDocumentAdded } from '../helpers/notificationHelpers';
@@ -463,6 +465,8 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
 
     const [resentInvitations, setResentInvitations] = useState<Record<string, number>>({});
+    /** Dernier renvoi d'invitation par e-mail — distinct des relances de documents. */
+    const [renvoisInvitation, setRenvoisInvitation] = useState<Record<string, number>>({});
 
     // Dernières relances, lues depuis le journal d'e-mails plutôt que du seul
     // état local : sans cela, la date se perdait au rechargement de la page,
@@ -508,13 +512,10 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         if (!tenderId) return;
         setLoading(true);
         try {
-            // Delete from reponses_ao (cascade handles groupements/invitations if configured, but let's be explicit if not)
-            const { error } = await supabase
-                .from('reponses_ao')
-                .delete()
-                .eq('id', tenderId);
-
-            if (error) throw error;
+            // Même suppression que depuis la liste : pièces, agenda, puis
+            // ligne. Seule la ligne était effacée ici — les pièces restaient
+            // dans le stockage et les événements dans Google Agenda.
+            await supprimerDossier(tenderId, userProfile?.id);
 
             showToast('Dossier supprimé avec succès.', 'success');
             if (onTenderUpdate) onTenderUpdate();
@@ -1052,12 +1053,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             if (error) {
                 // Le motif réel (Brevo, adresse bloquée…) est dans le corps de
                 // la réponse : `error.message` ne dit que « non-2xx ».
-                let motif = error.message;
-                try {
-                    const corps = await (error as any)?.context?.clone?.().json();
-                    if (corps?.error) motif = corps.error;
-                } catch { /* corps illisible */ }
-                throw new Error(motif);
+                throw new Error(await messageErreurFonction(error, "Erreur lors de l'envoi de la relance"));
             }
 
             showToast(`Relance envoyée à ${member.name || member.email}`, 'success');
@@ -1083,15 +1079,19 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
 
         const normalizedEmail = email.trim().toLowerCase();
         // Anti-spam: check if sent in the last 60 minutes
+        //
+        // Verrou PROPRE au renvoi d'invitation. Il partageait l'état de la
+        // relance de documents : relancer un membre bloquait le renvoi de son
+        // invitation pendant une heure, et inversement.
         const now = Date.now();
-        const lastSent = resentInvitations[normalizedEmail] || 0;
+        const lastSent = renvoisInvitation[normalizedEmail] || 0;
         if (now - lastSent < 3600000) {
             showToast('Invitation déjà renvoyée récemment. Veuillez patienter une heure.', 'warning');
             return;
         }
 
         // Lock immediately to prevent spamming while the request is in flight
-        setResentInvitations(prev => ({ ...prev, [normalizedEmail]: now }));
+        setRenvoisInvitation(prev => ({ ...prev, [normalizedEmail]: now }));
 
         setLoading(true);
         try {
@@ -1113,11 +1113,18 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 }
             });
 
-            if (error) throw error;
+            if (error) throw new Error(await messageErreurFonction(error, "Erreur lors de l'envoi de l'invitation."));
 
             showToast('Invitation renvoyée avec succès !', 'success');
         } catch (err: any) {
             console.error('Resend error:', err);
+            // Rien n'est parti : on lève le verrou pour permettre un nouvel essai.
+            setRenvoisInvitation(prev => {
+                const suivant = { ...prev };
+                if (lastSent) suivant[normalizedEmail] = lastSent;
+                else delete suivant[normalizedEmail];
+                return suivant;
+            });
             showToast(err.message || 'Erreur lors de l\'envoi de l\'invitation.', 'error');
         } finally {
             setLoading(false);
@@ -4206,6 +4213,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 .from('reponses_ao')
                 .update({ statut: newStatus })
                 .eq('id', tenderId);
+            // Sans ce contrôle, un refus de la base (droits, verrou de quota)
+            // affichait quand même « Félicitations » et le nouveau statut.
+            if (error) throw error;
 
             // 1. Update form data locally
             setFormData(prev => ({ ...prev, statut: newStatus }));

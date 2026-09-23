@@ -20,6 +20,7 @@ import { canCreateTender } from '@/helpers/planHelpers';
 import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
 import { filtrerEtTrierDossiers, dansPerimetreListe } from '@/helpers/listeDossiersHelpers';
+import { supprimerDossier } from '@/helpers/suppressionDossier';
 import { BarreFiltresDossiers } from './BarreFiltresDossiers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -556,44 +557,7 @@ export const Tenders: React.FC<TendersProps> = ({
 
     try {
       setLoading(true);
-      // La suppression passe par une fonction serveur : les pièces d'un AO
-      // vivent dans le dossier de chaque déposant, et la policy DELETE ne
-      // couvre que le dossier de l'appelant et celui de son entreprise
-      // (migration 037). Le repérage côté client retirait la ligne en base et
-      // laissait les fichiers des autres membres derrière lui, sans erreur.
-      const { data: purge, error: purgeError } = await supabase.functions.invoke(
-        'delete-tender-documents',
-        { body: { tenderId: selectedTenderId } }
-      );
-
-      if (purgeError || purge?.error) {
-        // On n'interrompt pas la suppression du dossier pour autant : mieux
-        // vaut des fichiers orphelins qu'un AO à moitié supprimé.
-        console.error('Purge des pièces incomplète', purgeError ?? purge?.error);
-      }
-
-      const totalSizeFreed = Number(purge?.octetsLiberes ?? 0);
-      if (totalSizeFreed > 0) {
-        await supabase.rpc('increment_storage_usage', {
-          user_id: userProfile?.id,
-          bytes_added: -totalSizeFreed
-        });
-      }
-
-      try {
-        await supabase.functions.invoke('sync-google-calendar', {
-          body: { action: 'delete_tender', tenderId: selectedTenderId }
-        });
-      } catch (calErr) {
-        console.error("Failed to delete from Google Calendar:", calErr);
-      }
-
-      const { error: deleteDbError } = await supabase
-        .from('reponses_ao')
-        .delete()
-        .eq('id', selectedTenderId);
-
-      if (deleteDbError) throw deleteDbError;
+      const totalSizeFreed = await supprimerDossier(selectedTenderId, userProfile?.id);
 
       setIsDeleteModalOpen(false);
       if (onTenderUpdate) onTenderUpdate();
