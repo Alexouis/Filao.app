@@ -124,8 +124,9 @@ Deno.serve(async (req: Request) => {
     // Limitation de débit sur le seul chemin acceptant des fichiers sans
     // authentification : c'est celui qui transformerait un jeton fuité en
     // espace de dépôt anonyme.
-    if (jeton) {
-      const debit = await verifierDebit(admin, req, jeton);
+    // Mode code inclus : la clé de débit est alors le couple dossier/e-mail.
+    if (jeton || codeAcces) {
+      const debit = await verifierDebit(admin, req, jeton || `${tenderId}:${emailInvite.trim().toLowerCase()}`);
       if (!debit.autorise) return json({ error: debit.motif }, 429);
     }
 
@@ -134,6 +135,8 @@ Deno.serve(async (req: Request) => {
 
     // --- 1. Identité ---------------------------------------------------
     let identite: Identite | null = null;
+    /** Dossier de l'invitation, pour imputer le dépôt d'un invité. */
+    let aoInvite: string | null = null;
 
     // Un secret d'invité, s'il est présenté, prime sur la session : depuis le
     // portail invité, un navigateur déjà connecté à un autre compte Filao
@@ -168,14 +171,14 @@ Deno.serve(async (req: Request) => {
       // quelle invitation du dossier et permettait d'écraser les pièces d'un
       // autre partenaire. Révocation et expiration sont vérifiées dans les deux
       // modes (le résolveur par jeton les filtre déjà).
-      let invitation: { email?: string; status?: string } | null = null;
+      let invitation: { email?: string; status?: string; tender_id?: string } | null = null;
 
       if (jeton) {
         const { data } = await admin.rpc("resoudre_invitation_par_jeton", { p_token: jeton });
         invitation = data?.[0] ?? null;
       } else if (/^[0-9a-f-]{36}$/i.test(tenderId) && codeAcces.trim().length >= 6) {
         const { data } = await admin.from("invitations")
-          .select("email, status, access_code, revoked_at, expires_at")
+          .select("email, tender_id, status, access_code, revoked_at, expires_at")
           .eq("tender_id", tenderId);
         invitation = (data ?? []).find((i: any) =>
           String(i.email ?? "").toLowerCase() === emailInvite.trim().toLowerCase()
@@ -192,6 +195,7 @@ Deno.serve(async (req: Request) => {
       }
       if (invitation?.email) {
         identite = { email: String(invitation.email).toLowerCase(), userId: null, entrepriseId: null, invite: true };
+        aoInvite = invitation.tender_id ? String(invitation.tender_id) : null;
       }
     }
 
@@ -336,6 +340,38 @@ Deno.serve(async (req: Request) => {
       // 422 plutôt que 400 : la requête est bien formée, c'est son contenu qui
       // est refusé — la distinction aide au diagnostic côté client.
       return json({ error: verdict.motif, typeDetecte: verdict.type }, 422);
+    }
+
+    // --- 3bis. Quota d'un invité ----------------------------------------
+    // Un invité sans compte n'appartient à aucune entreprise : ses pièces
+    // échappaient à tout forfait. Elles sont imputées à l'entreprise PORTEUSE
+    // du dossier (c'est elle qui l'a invité, et c'est aussi ainsi que la
+    // migration 107 les compte). Contrôle avant écriture, sur la même source
+    // que l'affichage (`stockage_restant_entreprise`), en tenant compte de la
+    // version remplacée.
+    if (identite.invite) {
+      if (!aoInvite) return json({ error: "Dossier de l'invitation introuvable." }, 403);
+      const { data: ao } = await admin.from("reponses_ao").select("entreprise_id").eq("id", aoInvite).maybeSingle();
+      // Un invité ne dépose que les pièces de SON dossier.
+      const nomDepot = nettoyerNom(nomImpose || fichier.name);
+      if (!nomDepot.toLowerCase().endsWith(aoInvite.toLowerCase())) {
+        return json({ error: "Pièce non rattachée à ce dossier." }, 403);
+      }
+      if (ao?.entreprise_id) {
+        const { data: restant, error: errQuota } = await admin.rpc("stockage_restant_entreprise", { p_entreprise: ao.entreprise_id });
+        if (errQuota) {
+          console.error("upload-document (quota):", errQuota);
+        } else if (restant !== null && restant !== undefined) {
+          const { data: existants } = await admin.storage.from("documents").list(cible.slice(0, -1), { search: nomDepot });
+          const ancien = existants?.find((o: any) => o.name === nomDepot)?.metadata?.size ?? 0;
+          if (fichier.size - ancien > Number(restant)) {
+            return json({
+              error: "L'espace de stockage du porteur du dossier est plein. Prévenez-le pour qu'il libère de l'espace ou change d'offre.",
+              code: "quota_stockage",
+            }, 413);
+          }
+        }
+      }
     }
 
     // --- 4. Écriture ---------------------------------------------------

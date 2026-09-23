@@ -26,13 +26,19 @@ export const useNotificationListener = (userProfile: UserProfile | null) => {
         },
         (payload: any) => {
           const newData = payload.new;
-          const oldData = payload.old;
+
+          // Mise à jour d'un autre champ : `notifications` n'est pas émise
+          // (valeur TOAST inchangée). Rien à signaler.
+          if (!Array.isArray(newData?.notifications)) return;
 
           // 2. Check if notifications array has grown
-          const newNotifs: Notifications[] = newData.notifications || [];
-          const oldNotifs: Notifications[] = oldData.notifications || [];
+          // `payload.old` ne porte que la clé primaire (pas de REPLICA
+          // IDENTITY FULL) : la comparaison se fait avec le dernier compte vu.
+          const newNotifs: Notifications[] = newData.notifications;
+          const aGrandi = newNotifs.length > prevNotificationsLength.current;
+          prevNotificationsLength.current = newNotifs.length;
 
-          if (newNotifs.length > oldNotifs.length) {
+          if (aGrandi) {
             // Get the newest notification (Assuming unshift was used in helpers, index 0 is newest)
             // If push was used, logic would be newNotifs[newNotifs.length - 1]
             const newestNotification = newNotifs[0];

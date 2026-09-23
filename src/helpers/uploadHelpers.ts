@@ -46,6 +46,8 @@ export interface ResultatDepot {
     urlPublique?: string;
     /** Message présentable à l'utilisateur, absent en cas de succès. */
     erreur?: string;
+    /** Code machine du refus serveur (ex. `quota_stockage`), si fourni. */
+    code?: string;
 }
 
 /** Pré-contrôle local, pour éviter un envoi voué à l'échec. */
@@ -93,14 +95,16 @@ export const deposerFichier = async (
         // `FunctionsHttpError` ne dit que « non-2xx » : le motif du refus est
         // dans le corps de la réponse, qu'il faut lire explicitement.
         let motif = "Le dépôt du fichier a échoué.";
+        let code: string | undefined;
         try {
             const reponse = (error as any)?.context;
             if (reponse && typeof reponse.json === 'function') {
                 const corps = await reponse.json();
                 if (corps?.error) motif = corps.error;
+                if (corps?.code) code = corps.code;
             }
         } catch { /* corps illisible ou déjà consommé */ }
-        return { erreur: motif };
+        return { erreur: motif, code };
     }
 
     if (data?.error) return { erreur: data.error };

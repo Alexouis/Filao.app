@@ -197,8 +197,10 @@ export const Notifications: React.FC<NotificationsProps> = ({ onNavigate }) => {
             filter: `id=eq.${user.id}`,
           },
           (payload: any) => {
-            const newNotifs: Notification[] = payload.new?.notifications || [];
-            setNotifications(sortNotifications(newNotifs));
+            // Colonne absente = mise à jour d'un autre champ (valeur TOAST
+            // inchangée non émise) : l'appliquer viderait la liste affichée.
+            if (!Array.isArray(payload.new?.notifications)) return;
+            setNotifications(sortNotifications(payload.new.notifications));
           }
         )
         .subscribe();

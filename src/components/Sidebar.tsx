@@ -139,7 +139,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'utilisateurs', filter: `id=eq.${authUser.id}` },
-          (payload: any) => appliquer(payload.new?.notifications || [], false)
+          (payload: any) => {
+            // Une mise à jour de la ligne qui ne touche PAS `notifications`
+            // (compteur de stockage, dernière connexion…) arrive sans cette
+            // colonne : Postgres n'émet pas une valeur TOAST inchangée. Lue
+            // comme `[]`, elle vidait l'ensemble des notifications connues, et
+            // la mise à jour suivante les toastait TOUTES comme nouvelles.
+            if (!Array.isArray(payload.new?.notifications)) return;
+            appliquer(payload.new.notifications, false);
+          }
         )
         .subscribe();
     };

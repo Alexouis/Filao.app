@@ -12,7 +12,6 @@ import {
    Eye
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
-import { forfait } from '../helpers/planLimits';
 import { APP_CONFIG, REQUIRED_DOCS_BY_ROLE, SECTORS_LABELS, MARKET_TYPES_LABELS, Tender, HANDOVER_TYPES_LABELS, PlanType, PLANS_CONFIG, PLANS_TYPES } from '../config';
 import { capitalizeFirstLetter } from '../helpers/textHelpers'
 import { LimitReachedModal } from './LimitReachedModal';
@@ -365,26 +364,18 @@ export const CollaboratorSubmission: React.FC = () => {
          // Calculate the difference (Positive = using more space, Negative = freeing space)
          const delta = newFileSize - oldFileSize;
 
-         // --- 2. CHECK CREATOR'S STORAGE LIMIT (Using Delta) ---
-         // Quota du PORTEUR du dossier, lu dans `plan_limits` : c'est son
-         // stockage que consomme le dépôt d'un partenaire. `PLANS_CONFIG`
-         // annonçait jusqu'à quatre fois la valeur réelle (20 Go contre 5 sur
-         // l'offre Solo), le contrôle était donc largement trop permissif.
-         const storageLimit = forfait(owner.plan).maxStockageOctets;
-         const currentUsage = owner.storage_used || 0;
-
-         if (storageLimit !== null && delta > 0 && (currentUsage + delta > storageLimit)) {
-            setShowLimitModal(true);
-            setUploadingFile(null);
-            return; // STOP UPLOAD
-         }
+         // --- 2. QUOTA ---
+         // Contrôlé côté serveur (`upload-document`) sur le stockage réel de
+         // l'entreprise porteuse. L'ancien contrôle local lisait
+         // `storage_used`, compteur qui dérive (migration 104) : il pouvait
+         // refuser à tort, et un invité pouvait de toute façon le contourner.
 
          // --- 3. UPLOAD TO STORAGE ---
          // Dépôt d'un partenaire non inscrit : c'est le point d'entrée le plus
          // exposé, l'appelant n'ayant pas de compte. Le secret utilisé à
          // l'ouverture de la session invité est rejoué ici pour que le serveur
          // vérifie lui-même l'identité.
-         const { erreur } = await deposerFichier(file, {
+         const { erreur, code } = await deposerFichier(file, {
             dossier: myCollabData.email,
             point: 'depot_partenaire',
             upsert: true,
@@ -403,6 +394,10 @@ export const CollaboratorSubmission: React.FC = () => {
                   : {}),
          });
 
+         if (code === 'quota_stockage') {
+            setShowLimitModal(true);
+            return;
+         }
          if (erreur) throw new Error(erreur);
 
          // --- 4. INCREMENT CREATOR'S DB COUNTER (Storage) ---
@@ -448,9 +443,9 @@ export const CollaboratorSubmission: React.FC = () => {
          // cotraitant/invité). Aucun nom de fichier ni identité émis.
          track('piece_deposee', { origine: 'upload', par: 'partenaire' });
 
-      } catch (err) {
+      } catch (err: any) {
          console.error(err);
-         showToast('Erreur lors du téléchargement.', 'error');
+         showToast(err?.message || 'Erreur lors du téléchargement.', 'error');
       } finally {
          setUploadingFile(null);
       }
