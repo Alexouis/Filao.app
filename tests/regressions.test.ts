@@ -355,7 +355,7 @@ const sqlMigrations = fichiers('supabase/migrations', /\.sql$/).map(lire).join('
  * ce qui aurait signalé `generer_cle_reprise` ou
  * `respond_to_invitation_by_code`, appelées sans jamais avoir été créées.
  */
-const RPC_HORS_MIGRATIONS = new Set(['get_tender_owner_info', 'update_tender_file_count', 'toggle_comment_like']);
+const RPC_HORS_MIGRATIONS = new Set(['get_tender_owner_info', 'update_tender_file_count']);
 const TABLES_HORS_MIGRATIONS = new Set(['comments', 'comments_with_user', 'user_integrations']);
 
 test('garde-fou : toute RPC appelée existe (migrations ou liste documentée)', () => {
@@ -571,4 +571,37 @@ test('base : fonctions sensibles réservées au serveur', () => {
 test('base : une seule contestation en cours par demandeur et par entreprise', () => {
     const sql = migrationsTriees.map(m => m.sql).join('\n');
     assert.match(sql, /UNIQUE INDEX[^;]*contestations_entreprise \(entreprise_id, demandeur_id\) WHERE statut = 'en_attente'/);
+});
+
+test('base : « j’aime » au nom de l’appelant seulement, et sur un dossier accessible', () => {
+    const corps = derniereDefinition('toggle_comment_like');
+    assert.match(corps, /auth\.uid\(\)::TEXT/);
+    assert.ok(!/p_user_id::TEXT|to_jsonb\(p_user_id/.test(corps), 'p_user_id ne doit plus servir');
+    assert.match(corps, /app\.est_membre\(c\.tender_id\)/);
+});
+
+import { AVIS } from '../supabase/functions/avis-securite/regles.ts';
+
+test('garde-fou : send-reminder n’est appelée qu’avec un dossier', () => {
+    // Les avis de changement de mot de passe passaient par send-reminder sans
+    // dossier : 400 systématique, aucun avis envoyé, échec invisible.
+    const fautifs: string[] = [];
+    for (const f of fichiers('src', /\.tsx?$/)) {
+        const src = sansCommentaires(lire(f));
+        for (const m of src.matchAll(/invoke\(\s*['"]send-reminder['"]\s*,\s*\{\s*body:\s*\{([\s\S]*?)\}\s*,?\s*\}\s*\)/g)) {
+            if (!/tenderId/.test(m[1])) fautifs.push(f);
+        }
+    }
+    assert.deepEqual(fautifs, []);
+});
+
+test('avis de sécurité : types appelés par le front tous connus du serveur', () => {
+    const appels = new Set<string>();
+    for (const f of fichiers('src', /\.tsx?$/)) {
+        const src = lire(f);
+        if (!src.includes('avis-securite') && !src.includes('envoyerAvisSecurite')) continue;
+        for (const m of src.matchAll(/'((?:mot_de_passe|double_authentification)_[a-z_]+)'/g)) appels.add(m[1]);
+    }
+    assert.ok(appels.size >= 3);
+    assert.deepEqual([...appels].filter(t => !(t in AVIS)), []);
 });

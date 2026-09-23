@@ -40,6 +40,12 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     // Password modal
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+    /** Avis de sécurité au titulaire du compte. Best-effort : n'interrompt rien. */
+    const envoyerAvisSecurite = async (type: 'mot_de_passe_modifie' | 'double_authentification_activee' | 'double_authentification_desactivee') => {
+        const { error } = await supabase.functions.invoke('avis-securite', { body: { type } });
+        if (error) console.warn('Avis de sécurité non envoyé', type, error);
+    };
     const [passwordLoading, setPasswordLoading] = useState(false);
     const [passwordError, setPasswordError] = useState<string | null>(null);
     const [passwordSuccess, setPasswordSuccess] = useState(false);
@@ -157,6 +163,7 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                 code,
             });
             if (verifyError) throw verifyError;
+            await envoyerAvisSecurite('double_authentification_activee');
 
             // Génère les codes de secours (affichés une seule fois à l'étape
             // suivante). Un échec ici ne doit pas annuler l'activation réussie
@@ -219,6 +226,7 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
 
             const { error: unenrollError } = await supabase.auth.mfa.unenroll({ factorId: totp.id });
             if (unenrollError) throw unenrollError;
+            await envoyerAvisSecurite('double_authentification_desactivee');
 
             setMfaEnabled(false);
             setMfaLastUpdated(new Date().toISOString());
@@ -305,19 +313,10 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
             // l'attaquant change le mot de passe depuis l'application ne
             // produisait donc aucun signal, là où le même geste par « mot de
             // passe oublié » en produit deux.
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user?.email) {
-                const { error: errAvis } = await supabase.functions.invoke('send-reminder', {
-                    body: {
-                        email: user.email,
-                        senderName: 'Filao',
-                        tenderTitle: 'votre compte',
-                        milestoneLabel: 'Votre mot de passe a été modifié',
-                        milestoneDate: new Date().toISOString(),
-                    },
-                });
-                if (errAvis) console.warn('Avis de changement non envoyé', errAvis);
-            }
+            // Avis au titulaire, par `avis-securite`. L'ancien appel passait par
+            // `send-reminder`, qui exige un dossier : il échouait (400) et aucun
+            // avis ne partait, contrairement à ce qu'annonçait ce commentaire.
+            await envoyerAvisSecurite('mot_de_passe_modifie');
 
             // Déconnexion des autres sessions. Changer son mot de passe sans
             // fermer les sessions ouvertes ailleurs laisserait un accès actif à

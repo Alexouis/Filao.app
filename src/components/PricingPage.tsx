@@ -85,7 +85,8 @@ export const PricingPage: React.FC<PricingPageProps> = ({ userProfile, onNavigat
             if (response.data?.url) {
                 // Analytics : intention de souscription confirmée (session Checkout
                 // ouverte). La souscription effective est confirmée côté webhook.
-                track('offre_souscrite', {});
+                // `offre_souscrite` est compté au RETOUR de Stripe (BillingTab),
+                // une fois le paiement effectué, et non à l'ouverture.
 
                 // Redirection dans l'ONGLET COURANT.
                 //

@@ -14,6 +14,7 @@ import { progressionParDossier, Progression } from '../helpers/progressionHelper
 import { canCreateTender } from '@/helpers/planHelpers';
 import { lundiDe, libelleSemaine, premierMoisTrimestre, decaler, ancrageChangementVue } from '@/helpers/calendrierHelpers';
 import { estDossierDunCollegue } from '@/helpers/accesDossier';
+import { messageErreurFonction } from '@/helpers/erreurFonction';
 import { downloadICalendar } from '../helpers/icalHelpers';
 import { useToast } from './ui/Toast';
 import { GLASS_STYLE } from '../lib/styles';
@@ -123,7 +124,19 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             const isGoogleProvider = session.user?.app_metadata?.provider === 'google' || 
                                    session.user?.identities?.some(id => id.provider === 'google');
             
-            if (session.provider_token && isGoogleProvider) {
+            // Ne retenir les jetons Google QUE s'ils viennent de la connexion
+            // d'agenda lancée ici. Une connexion à Filao « avec Google » fournit
+            // aussi un `provider_token`, mais sans accès à l'agenda : il était
+            // enregistré comme intégration, et le calendrier affichait
+            // « Permissions insuffisantes » à des utilisateurs qui n'avaient
+            // rien demandé.
+            let connexionAgendaDemandee = false;
+            try {
+                connexionAgendaDemandee = sessionStorage.getItem('connexionAgenda') === '1';
+                sessionStorage.removeItem('connexionAgenda');
+            } catch { /* stockage indisponible */ }
+
+            if (session.provider_token && isGoogleProvider && connexionAgendaDemandee) {
                 // Upsert into user_integrations to ensure we have the latest tokens
                 const expiresAt = session.provider_refresh_token 
                     ? new Date(Date.now() + 3600 * 1000).toISOString() // Default 1h if not specified
@@ -260,6 +273,25 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
         }
     };
 
+    const [deconnexionEnCours, setDeconnexionEnCours] = useState(false);
+
+    /** Révoque l'accès à Google Agenda et oublie les jetons. */
+    const handleDisconnectGoogle = async () => {
+        setDeconnexionEnCours(true);
+        try {
+            const { error } = await supabase.functions.invoke('sync-google-calendar', { body: { action: 'disconnect' } });
+            if (error) throw new Error(await messageErreurFonction(error, "La déconnexion n'a pas abouti."));
+            setHasGoogleCalendar(false);
+            setGoogleEvents([]);
+            setGoogleSyncError(null);
+            showToast('Google Agenda déconnecté. Les échéances déjà copiées dans votre agenda y restent.', 'success');
+        } catch (err: any) {
+            showToast(err?.message || "La déconnexion n'a pas abouti.", 'error');
+        } finally {
+            setDeconnexionEnCours(false);
+        }
+    };
+
     const handleConnectGoogle = async () => {
         setIsConnectingGoogle(true);
         const options = {
@@ -271,6 +303,7 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
             scopes: 'https://www.googleapis.com/auth/calendar',
         };
         try {
+            try { sessionStorage.setItem('connexionAgenda', '1'); } catch { /* sans effet */ }
             // RATTACHER Google au compte en cours, et non s'y connecter.
             // `signInWithOAuth` ouvrait une session avec le compte Google
             // choisi : si son adresse différait de l'adresse Filao (Gmail
@@ -1034,7 +1067,16 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                         <div className="mt-auto shrink-0 p-4 rounded-xl bg-gradient-to-br from-[#00A3E0]/20 to-[#26367F]/20 border border-white/40">
                             <h4 className="font-bold text-[#0B1F38] text-sm mb-2">Synchronisation</h4>
                             {hasGoogleCalendar && !googleSyncError ? (
-                                <p className="text-xs text-green-700 mb-3 font-medium">✓ Agenda Google connecté</p>
+                                <>
+                                    <p className="text-xs text-green-700 mb-2 font-medium">✓ Agenda Google connecté</p>
+                                    <button
+                                        onClick={handleDisconnectGoogle}
+                                        disabled={deconnexionEnCours}
+                                        className="text-[11px] text-[#0B1F38]/60 hover:text-red-600 hover:underline disabled:opacity-50"
+                                    >
+                                        {deconnexionEnCours ? 'Déconnexion…' : 'Déconnecter'}
+                                    </button>
+                                </>
                             ) : hasGoogleCalendar && googleSyncError ? (
                                 <>
                                     <p className="text-xs text-red-600 mb-1 font-bold">⚠️ Accès agenda manquant</p>
@@ -1045,6 +1087,13 @@ export const CalendarPage: React.FC<CalendarPageProps> = ({
                                         className="w-full py-2 bg-white text-red-600 border border-red-100 text-xs font-bold rounded-lg shadow-sm hover:bg-red-50 transition-all disabled:opacity-50"
                                     >
                                         {isConnectingGoogle ? 'Connexion...' : 'Réinitialiser la connexion'}
+                                    </button>
+                                    <button
+                                        onClick={handleDisconnectGoogle}
+                                        disabled={deconnexionEnCours}
+                                        className="w-full mt-2 text-[11px] text-[#0B1F38]/60 hover:text-[#0B1F38] hover:underline disabled:opacity-50"
+                                    >
+                                        {deconnexionEnCours ? 'Déconnexion…' : 'Ne pas utiliser Google Agenda'}
                                     </button>
                                 </>
                             ) : (

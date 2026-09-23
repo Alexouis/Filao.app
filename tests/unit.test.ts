@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import {
   emailValide, normaliserEmail, nettoyerTexteLibre, contientBalise,
   sirenValide, siretValide, messageErreurIdentifiantAcheteur, dateValide,
-  motifIlikeExact,
+  motifIlikeExact, telephoneValide, dateNaissanceValide,
 } from '../src/helpers/validationHelpers.ts';
 
 import {
@@ -1208,4 +1208,23 @@ test('motifIlikeExact : échappe les jokers ILIKE et normalise les espaces', () 
   assert.equal(motifIlikeExact('100%@x.fr'), '100\\%@x.fr');
   assert.equal(motifIlikeExact('a\\b@x.fr'), 'a\\\\b@x.fr');
   assert.equal(motifIlikeExact('simple@x.fr'), 'simple@x.fr');
+});
+
+
+test('telephoneValide : formats français et internationaux, facultatif', () => {
+  for (const ok of ['', '06 12 34 56 78', '06.12.34.56.78', '+33 6 12 34 56 78', '(0)4 92 00 00 00']) {
+    assert.ok(telephoneValide(ok), ok);
+  }
+  for (const ko of ['06 12', 'abc', '06 12 34 56 78 90 12 34', '06-12-34-56-7x']) {
+    assert.equal(telephoneValide(ko), false, ko);
+  }
+});
+
+test('dateNaissanceValide : entre 16 et 110 ans, facultative', () => {
+  const ref = new Date(2026, 8, 23);
+  assert.ok(dateNaissanceValide('', ref));
+  assert.ok(dateNaissanceValide('1986-05-12', ref));
+  assert.equal(dateNaissanceValide('1026-05-12', ref), false);
+  assert.equal(dateNaissanceValide('2020-01-01', ref), false);
+  assert.equal(dateNaissanceValide('1986-02-30', ref), false);
 });

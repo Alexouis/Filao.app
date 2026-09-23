@@ -5,6 +5,9 @@ import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { PLANS, PLANS_CONFIG, PLANS_TYPES, PlanType, UserProfile, STATUSES } from '../../config';
 import { isActive } from '../../helpers/tenderHelpers';
+import { useToast } from '../ui/Toast';
+import { messageErreurFonction } from '../../helpers/erreurFonction';
+import { track } from '../../helpers/analytics';
 
 interface BillingTabProps {
     userProfile: UserProfile | null;
@@ -13,6 +16,28 @@ interface BillingTabProps {
 }
 
 export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, onNavigate }) => {
+    const { showToast } = useToast();
+
+    // Retour de Stripe après paiement (`?session_id=…`). Le forfait est mis à
+    // jour par le webhook, en différé : sans ce retour, l'utilisateur voyait
+    // encore son ancienne offre et pouvait croire le paiement perdu. C'est
+    // aussi ici — paiement effectué — que la souscription est comptée, et non
+    // à l'ouverture de la page Stripe, qui compte aussi les abandons.
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.get('session_id')) return;
+        track('offre_souscrite', {});
+        showToast('Paiement confirmé : votre nouvelle offre est en cours d\'activation.', 'success');
+        params.delete('session_id');
+        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+        // Deux relectures du profil : le webhook arrive en général en
+        // quelques secondes.
+        const t1 = setTimeout(onUpdate, 3000);
+        const t2 = setTimeout(onUpdate, 10000);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const [activeTendersCount, setActiveTendersCount] = useState(0);
     const [countLoading, setCountLoading] = useState(true);
     const [portalLoading, setPortalLoading] = useState(false);
@@ -91,10 +116,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({ userProfile, onUpdate, o
                 // courant ; Stripe ramène l'utilisateur via son URL de retour.
                 window.location.href = response.data.url;
             } else {
+                // L'échec n'allait qu'en console : le bouton semblait inerte.
                 console.error('Portal error:', response.error || response.data?.error);
+                const motif = response.error
+                    ? await messageErreurFonction(response.error, "Le portail de paiement n'a pas pu s'ouvrir.")
+                    : (response.data?.error || "Le portail de paiement n'a pas pu s'ouvrir.");
+                showToast(motif, 'error');
             }
         } catch (err) {
             console.error('Portal error:', err);
+            showToast("Le portail de paiement n'a pas pu s'ouvrir. Réessayez.", 'error');
         } finally {
             setPortalLoading(false);
         }

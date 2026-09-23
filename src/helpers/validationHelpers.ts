@@ -157,3 +157,29 @@ export const dateValide = (valeur: string | null | undefined): boolean => {
  */
 export const motifIlikeExact = (valeur: string): string =>
     String(valeur ?? '').trim().replace(/[\\%_]/g, (c) => '\\' + c);
+
+
+/**
+ * Numéro de téléphone plausible : 10 à 15 chiffres, séparateurs usuels et « + »
+ * initial admis. Vide = accepté (champ facultatif).
+ */
+export const telephoneValide = (valeur: string | null | undefined): boolean => {
+    const v = String(valeur ?? '').trim();
+    if (!v) return true;
+    if (!/^\+?[\d\s.\-()]+$/.test(v)) return false;
+    const chiffres = v.replace(/\D/g, '').length;
+    return chiffres >= 10 && chiffres <= 15;
+};
+
+/**
+ * Date de naissance plausible (`yyyy-MM-dd`) : 16 à 110 ans. Vide = accepté.
+ */
+export const dateNaissanceValide = (valeur: string | null | undefined, aujourdhui: Date = new Date()): boolean => {
+    const v = String(valeur ?? '').trim();
+    if (!v) return true;
+    if (!dateValide(v)) return false;
+    const [a, m, j] = v.slice(0, 10).split('-').map(Number);
+    const naissance = new Date(a, m - 1, j);
+    const age = (aujourdhui.getTime() - naissance.getTime()) / (365.25 * 24 * 3600 * 1000);
+    return age >= 16 && age <= 110;
+};

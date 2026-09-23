@@ -424,7 +424,10 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                 }
             } else {
                 const tenderName = activeTenders.find(t => t.id === selectedTenderId)?.titre || 'l\'AO';
-                showToast(`${inviteTargetCompany.nom} invité en tant que ${selectedRole} sur "${tenderName}"`, 'success');
+                // Le succès n'est annoncé qu'une fois l'invitation ENVOYÉE (plus
+                // bas) : il l'était avant, même quand l'e-mail ne partait pas.
+                let envoiOk = false;
+                let motifEchec = '';
 
                 // Send notifications via Edge Function
                 try {
@@ -463,12 +466,28 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                             }),
                         });
                         if (!response.ok) {
-                            const err = await response.json();
+                            const err = await response.json().catch(() => ({}));
                             console.error('Edge function error:', err);
+                            motifEchec = err?.error === 'No registered user found for this company'
+                                ? "cette entreprise n'a aucun compte actif pour recevoir l'invitation"
+                                : (err?.error || '');
+                        } else {
+                            envoiOk = true;
                         }
                     }
                 } catch (notifErr) {
                     console.error('Error sending invitation notification:', notifErr);
+                }
+
+                if (envoiOk) {
+                    showToast(`${inviteTargetCompany.nom} invité en tant que ${selectedRole} sur « ${tenderName} »`, 'success');
+                } else {
+                    showToast(
+                        `${inviteTargetCompany.nom} a été ajouté à « ${tenderName} », mais l'invitation n'a pas pu être envoyée`
+                        + (motifEchec ? ` : ${motifEchec}.` : '.')
+                        + " Vous pouvez la renvoyer depuis l'équipe du dossier.",
+                        'warning'
+                    );
                 }
             }
 

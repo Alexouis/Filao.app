@@ -26,6 +26,30 @@ Deno.serve(async (req) => {
     const payload = await req.json()
     const { action, tender, tenderId } = payload
 
+    // Déconnexion : révoque l'accès chez Google puis oublie les jetons.
+    // Aucun moyen n'existait de retirer l'accès accordé à l'agenda : les
+    // jetons (dont le jeton de rafraîchissement, valable indéfiniment)
+    // restaient stockés.
+    if (action === 'disconnect') {
+      const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '')
+      const { data: integ } = await admin.from('user_integrations')
+        .select('id, access_token, refresh_token').eq('user_id', user.id).eq('provider', 'google').maybeSingle()
+      if (integ) {
+        const jeton = integ.refresh_token || integ.access_token
+        if (jeton) {
+          // Best-effort : un jeton déjà expiré ou révoqué ne doit pas bloquer l'oubli.
+          await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(jeton)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          }).catch((e) => console.warn('Révocation Google :', e))
+        }
+        const { error } = await admin.from('user_integrations').delete().eq('id', integ.id).eq('user_id', user.id)
+        if (error) throw error
+      }
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // 1. Fetch Google integration
     const { data: integration, error: integrationError } = await supabaseClient
       .from('user_integrations')

@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { useUnsavedChanges, useDirtyState } from '../../helpers/useUnsavedChanges';
+import { telephoneValide, dateNaissanceValide } from '../../helpers/validationHelpers';
 
 interface ProfileTabProps {
     userProfile: UserProfile | null;
@@ -154,6 +155,16 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
 
     const handleSave = async () => {
         if (!userProfile) return;
+        // Contrôle avant envoi : une faute de frappe (« 06 12 », 1026 au lieu
+        // de 1986) était enregistrée telle quelle.
+        if (!telephoneValide(formData.telephone)) {
+            setError('Numéro de téléphone invalide : 10 chiffres attendus (ou format international).');
+            return;
+        }
+        if (!dateNaissanceValide(formData.date_naissance)) {
+            setError('Date de naissance invalide.');
+            return;
+        }
         try {
             setLoading(true);
             setError(null);
