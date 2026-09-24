@@ -348,6 +348,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     >
                         <div className={`flex-1 relative ${GLASS_TILE_STYLE} !bg-white/40 !rounded-2xl border-white/60 p-1`}>
                             <textarea
+                            maxLength={5000}
                                 value={newMessage}
                                 onChange={(e) => setNewMessage(e.target.value)}
                                 onKeyDown={(e) => {

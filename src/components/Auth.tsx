@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabaseClient';
 import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acquisitionHelpers';
 import { LegalFooter } from './LegalPages';
 import { track } from '../helpers/analytics';
-import { motifIlikeExact } from '../helpers/validationHelpers';
+import { motifIlikeExact, contientBalise, LONGUEUR_MOT_DE_PASSE } from '../helpers/validationHelpers';
 
 const GoogleIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -136,7 +136,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
             return "Veuillez confirmer votre adresse email en cliquant sur le lien reçu.";
         }
         if (msg.includes("password should be at least")) {
-            return "Le mot de passe doit contenir au moins 6 caractères.";
+            return `Le mot de passe doit contenir au moins ${LONGUEUR_MOT_DE_PASSE} caractères.`;
         }
         if (msg.includes("rate limit exceeded") || msg.includes("too many requests")) {
             return "Trop de tentatives. Veuillez réessayer dans quelques minutes.";
@@ -271,6 +271,17 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
 
                 if (password !== confirmPassword) {
                     throw new Error('Les mots de passe ne correspondent pas');
+                }
+
+                // Même seuil que le changement et la réinitialisation.
+                if (password.length < LONGUEUR_MOT_DE_PASSE) {
+                    throw new Error(`Le mot de passe doit contenir au moins ${LONGUEUR_MOT_DE_PASSE} caractères.`);
+                }
+
+                // Nom et prénom apparaissent dans les e-mails envoyés aux
+                // partenaires : pas de balise.
+                if (contientBalise(prenom) || contientBalise(nom)) {
+                    throw new Error('Le nom et le prénom ne peuvent pas contenir de caractères < ou >.');
                 }
 
                 if (!acceptTerms) {

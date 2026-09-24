@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { aalDuJeton, peutGenererCodes } from "./regles.ts";
 
 /**
  * mfa-backup-codes Edge Function
@@ -88,6 +89,14 @@ Deno.serve(async (req: Request) => {
 
     // ── GENERATE ──
     if (action === "generate") {
+      // Session validée par la double authentification exigée : en AAL1 (mot
+      // de passe seul), générer des codes neufs puis en consommer un avec
+      // `recover` retirait le facteur — la double authentification était
+      // contournable avec le seul mot de passe. Juste après l'activation, la
+      // session vient de passer en AAL2 : le parcours normal fonctionne.
+      if (!peutGenererCodes(aalDuJeton(authHeader))) {
+        return json({ error: "Validez d'abord la double authentification pour générer des codes de secours." }, 403);
+      }
       // Repart de zéro : on efface les anciens codes (une régénération invalide
       // les précédents, comportement attendu d'un jeu de codes de secours).
       await admin.from("mfa_backup_codes").delete().eq("user_id", user.id);
@@ -136,6 +145,17 @@ Deno.serve(async (req: Request) => {
       const { data: factorsList } = await admin.auth.admin.mfa.listFactors({ userId: user.id });
       for (const f of factorsList?.factors || []) {
         await admin.auth.admin.mfa.deleteFactor({ id: f.id, userId: user.id });
+      }
+
+      // Le titulaire est prévenu : un retrait de la double authentification
+      // qu'il n'aurait pas fait lui-même doit se voir. Best-effort.
+      try {
+        await admin.functions.invoke("avis-securite", {
+          headers: { Authorization: authHeader },
+          body: { type: "double_authentification_desactivee" },
+        });
+      } catch (e) {
+        console.warn("Avis de sécurité non envoyé", e);
       }
 
       return json({ success: true });

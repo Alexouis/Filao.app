@@ -361,6 +361,7 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
             {isEditing ? (
               <div className="space-y-3">
                 <textarea
+                            maxLength={5000}
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
                   className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white placeholder-white/40 focus:outline-none focus:border-white/40 resize-none min-h-[100px]"
@@ -449,6 +450,7 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
           <div className="mt-4 ml-8 pl-8 border-l-2 border-blue-500/30">
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <textarea
+                            maxLength={5000}
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
                 placeholder={`Répondre à ${comment.prenom}...`}
@@ -498,6 +500,7 @@ export const CommentsView: React.FC<CommentsViewProps> = ({ tenderId, onClose })
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8 shadow-inner">
           <h3 className="font-bold text-base mb-4 text-white/80">Ajouter un commentaire</h3>
           <textarea
+                            maxLength={5000}
             ref={textareaRef}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}

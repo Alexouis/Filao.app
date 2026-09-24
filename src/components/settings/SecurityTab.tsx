@@ -5,6 +5,7 @@ import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
 import { dateLocaleISO } from '../../helpers/dateHelpers';
+import { LONGUEUR_MOT_DE_PASSE } from '../../helpers/validationHelpers';
 
 interface SecurityTabProps {
     userProfile: UserProfile | null;
@@ -275,8 +276,8 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
         // 12 caractères, comme sur l'écran de réinitialisation. Deux seuils
         // différents pour un même mot de passe n'auraient aucun sens : il
         // suffirait de passer par le formulaire le plus permissif.
-        if (passwordForm.newPassword.length < 12) {
-            setPasswordError('Le mot de passe doit contenir au moins 12 caractères');
+        if (passwordForm.newPassword.length < LONGUEUR_MOT_DE_PASSE) {
+            setPasswordError(`Le mot de passe doit contenir au moins ${LONGUEUR_MOT_DE_PASSE} caractères`);
             return;
         }
         if (!passwordForm.currentPassword) {

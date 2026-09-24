@@ -183,3 +183,12 @@ export const dateNaissanceValide = (valeur: string | null | undefined, aujourdhu
     const age = (aujourdhui.getTime() - naissance.getTime()) / (365.25 * 24 * 3600 * 1000);
     return age >= 16 && age <= 110;
 };
+
+
+/**
+ * Longueur minimale d'un mot de passe, unique pour l'inscription, le
+ * changement et la réinitialisation. L'inscription n'en imposait aucune (le
+ * défaut Supabase, 6, s'appliquait) quand les deux autres parcours en
+ * exigeaient 12.
+ */
+export const LONGUEUR_MOT_DE_PASSE = 12;

@@ -745,3 +745,42 @@ test('garde-fou : aucun composant ni icône non importé ne retombe sur une glob
     }
     assert.deepEqual(fautifs, []);
 });
+
+import { dossierDePieces, estOrpheline } from '../supabase/functions/purge-pieces-orphelines/regles.ts';
+
+test('purge des pièces : bon emplacement, créateur protégé', () => {
+    // Elle cherchait sous `documents/{email}` et ne trouvait jamais rien.
+    assert.equal(dossierDePieces(' Alexandre_Louis@Outlook.fr '), 'alexandre_louis@outlook.fr');
+    assert.ok(!dossierDePieces('a@b.fr').startsWith('documents/'));
+    const base = { dossierExiste: true, estCreateur: false, liensGroupement: 0, liensInvitation: 0 };
+    assert.ok(estOrpheline(base), 'plus aucun lien : orpheline');
+    assert.ok(estOrpheline({ ...base, dossierExiste: false }), 'dossier supprimé : orpheline');
+    assert.equal(estOrpheline({ ...base, estCreateur: true }), false, 'pièces du créateur jamais purgées');
+    assert.equal(estOrpheline({ ...base, liensGroupement: 1 }), false);
+    assert.equal(estOrpheline({ ...base, liensInvitation: 1 }), false);
+});
+
+import { aalDuJeton, peutGenererCodes } from '../supabase/functions/mfa-backup-codes/regles.ts';
+
+test('codes de secours : générés seulement après la double authentification', () => {
+    // En AAL1 (mot de passe seul), générer puis consommer un code retirait
+    // la double authentification.
+    const jeton = (charge: object) =>
+        `Bearer x.${Buffer.from(JSON.stringify(charge)).toString('base64url')}.sig`;
+    assert.equal(aalDuJeton(jeton({ aal: 'aal2' })), 'aal2');
+    assert.equal(aalDuJeton(jeton({ aal: 'aal1' })), 'aal1');
+    assert.equal(aalDuJeton('Bearer pas-un-jeton'), null);
+    assert.equal(aalDuJeton(null), null);
+    assert.ok(peutGenererCodes('aal2'));
+    assert.equal(peutGenererCodes('aal1'), false);
+    assert.equal(peutGenererCodes(null), false);
+});
+
+test('garde-fou : un seul seuil de mot de passe pour tous les parcours', () => {
+    // L'inscription acceptait 6 caractères, le changement en exigeait 12.
+    for (const f of ['src/components/Auth.tsx', 'src/components/ResetPassword.tsx', 'src/components/settings/SecurityTab.tsx']) {
+        const src = sansCommentaires(lire(f));
+        assert.match(src, /LONGUEUR_MOT_DE_PASSE/, f);
+        assert.ok(!/length\s*<\s*(6|8|10|12)\b/.test(src), `${f} : seuil en dur`);
+    }
+});

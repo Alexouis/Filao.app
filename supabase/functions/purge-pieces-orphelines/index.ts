@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { dossierDePieces, estOrpheline } from "./regles.ts";
 
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
@@ -116,7 +117,8 @@ Deno.serve(async (req: Request) => {
 
     for (const u of utilisateurs ?? []) {
       if (!u.email) continue;
-      const prefixe = `documents/${u.email}`;
+      // Racine du bucket, en minuscules (voir `dossierDePieces`).
+      const prefixe = dossierDePieces(u.email);
 
       const { data: objets, error: errListe } = await admin.storage
         .from("documents")
@@ -139,15 +141,15 @@ Deno.serve(async (req: Request) => {
         // Le dossier existe-t-il encore ?
         const { data: dossier } = await admin
           .from("reponses_ao")
-          .select("id")
+          .select("id, createur_id")
           .eq("id", lu.tenderId)
           .maybeSingle();
 
-        let orphelin = !dossier;
-
-        if (dossier) {
+        let liensGroupement = 0;
+        let liensInvitation = 0;
+        if (dossier && dossier.createur_id !== u.id) {
           // Reste-t-il un lien entre ce déposant et ce dossier ?
-          const { count: liensGroupement } = u.entreprise_id
+          const { count: nbGroupement } = u.entreprise_id
             ? await admin
                 .from("groupements")
                 .select("id", { count: "exact", head: true })
@@ -155,15 +157,25 @@ Deno.serve(async (req: Request) => {
                 .eq("entreprise_id", u.entreprise_id)
             : { count: 0 };
 
-          const { count: liensInvitation } = await admin
+          const { count: nbInvitation } = await admin
             .from("invitations")
             .select("id", { count: "exact", head: true })
             .eq("tender_id", lu.tenderId)
             .ilike("email", motifExact(u.email))
             .is("revoked_at", null);
 
-          orphelin = (liensGroupement ?? 0) === 0 && (liensInvitation ?? 0) === 0;
+          liensGroupement = nbGroupement ?? 0;
+          liensInvitation = nbInvitation ?? 0;
         }
+
+        // Décision testée (regles.ts) : les pièces du créateur sur son propre
+        // dossier ne sont jamais orphelines.
+        const orphelin = estOrpheline({
+          dossierExiste: !!dossier,
+          estCreateur: !!dossier && dossier.createur_id === u.id,
+          liensGroupement,
+          liensInvitation,
+        });
 
         if (!orphelin) continue;
 

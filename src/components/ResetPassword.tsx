@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Loader2, Check, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { LONGUEUR_MOT_DE_PASSE } from '../helpers/validationHelpers';
 
 /**
  * Page de définition d'un nouveau mot de passe, atteinte depuis le lien envoyé
@@ -20,7 +21,7 @@ import { Loader2, Check, Eye, EyeOff, ShieldAlert } from 'lucide-react';
  * longueur augmente réellement le coût d'une attaque. C'est aussi la règle
  * retenue par la conception.
  */
-const LONGUEUR_MINIMALE = 12;
+const LONGUEUR_MINIMALE = LONGUEUR_MOT_DE_PASSE;
 
 export const ResetPassword: React.FC = () => {
     const [pret, setPret] = useState(false);

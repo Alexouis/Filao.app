@@ -104,7 +104,9 @@ Deno.serve(async (req: Request) => {
     let octetsLiberes = 0;
 
     for (const dossier of dossiers) {
-      const { data: objets, error } = await admin.storage.from("documents").list(dossier);
+      // Limite explicite : par défaut, `list()` s'arrête à 100 objets, et les
+      // pièces d'un partenaire très actif seraient restées derrière.
+      const { data: objets, error } = await admin.storage.from("documents").list(dossier, { limit: 1000 });
       if (error) {
         console.warn("Listage impossible", dossier, error.message);
         continue;
