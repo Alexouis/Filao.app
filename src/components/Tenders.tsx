@@ -21,7 +21,6 @@ import { BandeauQuotaDepasse } from './BandeauQuotaDepasse';
 import { getEffectiveStatus, isUrgent } from '@/helpers/tenderHelpers';
 import { filtrerEtTrierDossiers, dansPerimetreListe } from '@/helpers/listeDossiersHelpers';
 import { supprimerDossier } from '@/helpers/suppressionDossier';
-import { enregistrerIssue } from '@/helpers/issueDossier';
 import { BarreFiltresDossiers } from './BarreFiltresDossiers';
 import { GLASS_STYLE } from '../lib/styles';
 import { LimitReachedModal } from './LimitReachedModal';
@@ -71,7 +70,6 @@ export const Tenders: React.FC<TendersProps> = ({
   // Filters & Sorting
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState(initialFilter || 'Tous');
-  const [outcomeConfirm, setOutcomeConfirm] = useState<{ id: string; type: 'won' | 'lost' } | null>(null);
   const [filterCategory, setFilterCategory] = useState('Tous');
   const [filterDomain, setFilterDomain] = useState('Tous');
   // Filtre de rôle : Tous | Portés (créés par l'entreprise) | Rejoints (invité).
@@ -499,43 +497,6 @@ export const Tenders: React.FC<TendersProps> = ({
     }
   };
 
-  const OutcomeConfirmationModal = () => {
-    if (!outcomeConfirm) return null;
-    const isWon = outcomeConfirm.type === 'won';
-    return (
-      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-[#0B1F38]/60 backdrop-blur-sm" onClick={() => setOutcomeConfirm(null)}></div>
-        <div className="relative bg-white rounded-[2rem] p-10 max-w-md w-full text-center shadow-2xl animate-in zoom-in-95 duration-200">
-          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isWon ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-            {isWon ? <Trophy size={40} /> : <Frown size={40} />}
-          </div>
-          <h2 className="text-2xl font-bold text-[#0B1F38] mb-4 font-outfit">
-            {isWon ? "Félicitations !" : "Résultat du marché"}
-          </h2>
-          <p className="text-[#0B1F38]/60 mb-8 font-medium">
-            {isWon
-              ? "Confirmez-vous que vous avez remporté ce marché ?"
-              : "Confirmez-vous que ce marché est perdu ?"}
-          </p>
-          <div className="flex gap-4">
-            <button
-              onClick={() => setOutcomeConfirm(null)}
-              className="flex-1 py-3 px-4 border border-[#0B1F38]/10 rounded-xl font-bold text-[#0B1F38] hover:bg-gray-50 transition-all font-outfit"
-            >
-              Annuler
-            </button>
-            <button
-              onClick={executeOutcome}
-              className={`flex-1 py-3 px-4 rounded-xl font-bold text-white transition-all shadow-lg font-outfit ${isWon ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'}`}
-            >
-              Confirmer
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const handleOpenTender = (statut: string, id: string) => {
     // Un membre ordinaire voit la ligne du dossier d'un collègue et la
     // composition du groupement (092, 095), mais ni les échanges ni les pièces.
@@ -569,32 +530,6 @@ export const Tenders: React.FC<TendersProps> = ({
     } catch (error) {
       console.error('Error deleting tender:', error);
       showToast('Erreur lors de la suppression.', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };  const handleOutcome = async (e: React.MouseEvent, tenderId: string, outcome: 'won' | 'lost') => {
-    e.stopPropagation();
-    setOutcomeConfirm({ id: tenderId, type: outcome });
-  };
-
-  const executeOutcome = async () => {
-    if (!outcomeConfirm) return;
-    const { id: tenderId, type: outcome } = outcomeConfirm;
-
-    try {
-      setLoading(true);
-      const tender = tenders.find(t => t.id === tenderId);
-      // Statut, notifications de l'équipe et analytique : même chemin que
-      // depuis le dossier. Seul l'auteur du clic était notifié ici.
-      await enregistrerIssue(tenderId, outcome, tender?.montant_estime);
-
-      showToast(outcome === 'won' ? "Félicitations pour cette victoire !" : "Statut mis à jour.", 'success');
-      setOutcomeConfirm(null);
-      fetchTenders();
-      if (onTenderUpdate) onTenderUpdate();
-    } catch (error: any) {
-      console.error("Error updating outcome:", error);
-      showToast(error?.message || "Erreur lors de la mise à jour.", 'error');
     } finally {
       setLoading(false);
     }
@@ -1231,7 +1166,6 @@ export const Tenders: React.FC<TendersProps> = ({
           })) || []}
         />
       )}
-      {OutcomeConfirmationModal()}
     </div>
   );
 };
