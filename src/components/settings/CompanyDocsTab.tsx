@@ -1,8 +1,82 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import {
-    Calendar as CalendarIcon, Download, FileText, FolderOpen, Loader2, Plus,
+    Calendar as CalendarIcon, Check, Download, Eye, FileText, FolderOpen, Loader2, Pencil, Plus,
     Upload, X,
 } from 'lucide-react';
+
+/**
+ * Nom d'un document, modifiable sur place. Entrée enregistre, Échap annule.
+ * Seul état local de l'onglet : il ne concerne que la saisie en cours.
+ */
+const LibelleModifiable: React.FC<{
+    libelle: string;
+    onRenommer: (libelle: string) => Promise<boolean>;
+}> = ({ libelle, onRenommer }) => {
+    const [edition, setEdition] = useState(false);
+    const [valeur, setValeur] = useState(libelle);
+    const [envoi, setEnvoi] = useState(false);
+
+    const valider = async () => {
+        if (valeur.trim() === libelle) { setEdition(false); return; }
+        setEnvoi(true);
+        const ok = await onRenommer(valeur);
+        setEnvoi(false);
+        if (ok) setEdition(false);
+    };
+
+    if (!edition) {
+        return (
+            <span className="flex items-center gap-1 min-w-0">
+                <span className="text-xs text-gray-700 truncate font-medium" title={libelle}>{libelle}</span>
+                <button
+                    type="button"
+                    onClick={() => { setValeur(libelle); setEdition(true); }}
+                    className="text-gray-300 hover:text-filao-primary p-0.5 shrink-0"
+                    title="Renommer"
+                    aria-label={`Renommer « ${libelle} »`}
+                >
+                    <Pencil size={11} />
+                </button>
+            </span>
+        );
+    }
+    return (
+        <span className="flex items-center gap-1 min-w-0">
+            <input
+                autoFocus
+                value={valeur}
+                maxLength={120}
+                onChange={(e) => setValeur(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') valider();
+                    if (e.key === 'Escape') setEdition(false);
+                }}
+                disabled={envoi}
+                className="flex-1 min-w-0 text-xs bg-white border border-filao-primary/40 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-filao-primary"
+                aria-label="Nouveau nom du document"
+            />
+            <button type="button" onClick={valider} disabled={envoi} className="text-emerald-600 p-0.5" title="Enregistrer le nom">
+                {envoi ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+            </button>
+        </span>
+    );
+};
+
+/** Boutons Voir / Télécharger d'un document déposé. */
+const ActionsLecture: React.FC<{
+    chemin: string; nom: string;
+    onOuvrir: (chemin: string) => void;
+    onTelecharger: (chemin: string, nom: string) => void;
+}> = ({ chemin, nom, onOuvrir, onTelecharger }) => (
+    <>
+        <button type="button" onClick={() => onOuvrir(chemin)} className="text-gray-400 hover:text-filao-primary p-1 shrink-0" title="Voir" aria-label={`Voir « ${nom} »`}>
+            <Eye size={13} />
+        </button>
+        <button type="button" onClick={() => onTelecharger(chemin, nom)} className="text-gray-400 hover:text-filao-primary p-1 shrink-0" title="Télécharger" aria-label={`Télécharger « ${nom} »`}>
+            <Download size={13} />
+        </button>
+    </>
+);
 
 /**
  * Onglet « Documents de candidature » de la fiche entreprise : coffre-fort des
@@ -50,6 +124,8 @@ export interface CompanyDocsTabProps {
     onAjouterDocPersonnalise: (e: React.ChangeEvent<HTMLInputElement>, categorie: any, libelle?: string) => void;
     onRedeposerDocPersonnalise: (e: React.ChangeEvent<HTMLInputElement>, doc: any) => void;
     onSupprimerDocPersonnalise: (doc: any) => void;
+    /** Renomme un document personnalisé ; `true` si enregistré. */
+    onRenommerDocPersonnalise: (docId: string, libelle: string) => Promise<boolean>;
     onMajExpiration: (champ: string, doc?: any) => void;
 }
 
@@ -60,7 +136,7 @@ const CompanyDocsTabBase: React.FC<CompanyDocsTabProps> = ({
     formData, customDocs, docStatuses, computeEffectiveStatus, formatDate,
     onOuvrirDocument, onTelechargerDocument,
     onDeposerDocument, onAjouterDocPersonnalise, onRedeposerDocPersonnalise,
-    onSupprimerDocPersonnalise, onMajExpiration,
+    onSupprimerDocPersonnalise, onRenommerDocPersonnalise, onMajExpiration,
 }) => {
     return (
                 <div className="flex flex-col h-full gap-3">
@@ -175,6 +251,10 @@ const CompanyDocsTabBase: React.FC<CompanyDocsTabProps> = ({
                                                         <span className="text-xs text-gray-500 flex-1 truncate" title={matchingDoc?.label}>
                                                             {matchingDoc ? matchingDoc.label : 'Aucun fichier'}
                                                         </span>
+                                                        {matchingDoc?.url && (
+                                                            <ActionsLecture chemin={matchingDoc.url} nom={matchingDoc.label}
+                                                                onOuvrir={onOuvrirDocument} onTelecharger={onTelechargerDocument} />
+                                                        )}
                                                         {matchingDoc ? (
                                                             <label className="px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200 shrink-0 transition-all">
                                                                 <Upload size={10} className="inline mr-1" />Modifier
@@ -200,13 +280,20 @@ const CompanyDocsTabBase: React.FC<CompanyDocsTabProps> = ({
                                                 <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 group">
                                                     <FileText size={14} className="text-emerald-500" />
                                                     <div className="flex-1 min-w-0 flex flex-col">
-                                                        <span className="text-xs text-gray-700 truncate font-medium" title={doc.label}>{doc.label}</span>
+                                                        {/* Renommable : un nom par défaut (celui du fichier)
+                                                            n'est pas toujours parlant pour les partenaires. */}
+                                                        <LibelleModifiable libelle={doc.label}
+                                                            onRenommer={(l) => onRenommerDocPersonnalise(doc.id, l)} />
                                                         {doc.created_at && (
                                                             <span className="text-[9px] text-gray-400">
                                                                 Ajouté le {formatDate(doc.created_at)}
                                                             </span>
                                                         )}
                                                     </div>
+                                                    {doc.url && (
+                                                        <ActionsLecture chemin={doc.url} nom={doc.label}
+                                                            onOuvrir={onOuvrirDocument} onTelecharger={onTelechargerDocument} />
+                                                    )}
                                                     <label className="px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200 shrink-0 transition-all opacity-0 group-hover:opacity-100">
                                                         <Upload size={10} className="inline mr-1" />Modifier
                                                         <input type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
@@ -231,7 +318,7 @@ const CompanyDocsTabBase: React.FC<CompanyDocsTabProps> = ({
                                                     <input type="text"
                                                         value={newDocLabel}
                                                         onChange={(e) => setNewDocLabel(e.target.value)}
-                                                        placeholder={cat.placeholder || "Nom du document..."}
+                                                        placeholder={cat.placeholder || "Nom du document (sinon, celui du fichier)"}
                                                         className="flex-1 bg-transparent border-none text-xs focus:ring-0 px-0 text-gray-700 placeholder:text-gray-400 font-medium"
                                                         autoFocus
                                                     />

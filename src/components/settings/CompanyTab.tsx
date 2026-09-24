@@ -21,6 +21,9 @@ import {
 import { dateLocaleISO } from '../../helpers/dateHelpers';
 import { enregistrerTaxonomie } from '../../helpers/taxonomieEntreprise';
 import { verifierSiret } from '../../helpers/verificationSiret';
+import { nettoyerTexteLibre } from '../../helpers/validationHelpers';
+import { libelleDepuisNomFichier } from '../../helpers/textHelpers';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 
 interface CompanyTabProps {
     userProfile: UserProfile | null;
@@ -917,10 +920,29 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
 
 
     // --- CUSTOM DOCUMENTS ---
+    /**
+     * Changement de sous-onglet. Le mode édition appartient à « Informations » :
+     * il restait ouvert en passant sur Documents ou Équipe, où « Enregistrer »
+     * sauvegardait en réalité la FICHE ENTREPRISE — trompeur. On le referme, en
+     * demandant confirmation s'il reste des modifications non enregistrées.
+     */
+    const changerSousOnglet = async (onglet: typeof subTab) => {
+        if (onglet === subTab) return;
+        if (isEditing) {
+            if (!(await confirmerSortie())) return;
+            handleCancelEditing();
+        }
+        setSubTab(onglet);
+    };
+
     const handleAddCustomDoc = async (e: React.ChangeEvent<HTMLInputElement>, categorie: DocCategorie, labelOverride?: string) => {
         const file = e.target.files?.[0];
         // Use provided label, or newDocLabel (if set), or default to filename (without extension)
-        const labelToUse = labelOverride || newDocLabel.trim() || file?.name.split('.').slice(0, -1).join('.') || 'Nouveau document';
+        // Libellé saisi, sinon nom du fichier rendu lisible (« scan_attestation-urssaf »
+        // → « Scan attestation urssaf ») ; il reste modifiable ensuite.
+        const labelToUse = nettoyerTexteLibre(labelOverride || newDocLabel.trim(), 120)
+            || libelleDepuisNomFichier(file?.name ?? '')
+            || 'Nouveau document';
 
         if (!file || !labelToUse || !entrepriseData?.id || !userProfile?.id) return;
         try {
@@ -928,9 +950,12 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             setUploadingField('custom_new');
             // Ici le nom d'origine est conservé : chaque document personnalisé
             // est distinct, il n'y a rien à écraser.
+            // Nom rendu unique : deux documents dont les fichiers portent le même
+            // nom (deux « attestation.pdf ») faisaient échouer le second dépôt.
             const { chemin, erreur } = await deposerFichier(file, {
                 dossier: `documents/${entrepriseData.id}`,
                 point: 'coffre_fort',
+                nom: `${Date.now()}-${file.name}`,
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
@@ -946,10 +971,31 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             setAddingInCategory(null);
         } catch (err: any) {
             console.error(err);
-            setError('Erreur lors de l\'ajout du document');
+            setError(err?.message ? `Le document n'a pas pu être ajouté : ${err.message}` : 'Erreur lors de l\'ajout du document');
         } finally {
+            if (e.target) e.target.value = '';
             setUploadingField(null);
         }
+    };
+
+    /** Demande de suppression : confirmée d'abord (le clic effaçait aussitôt). */
+    const [docASupprimer, setDocASupprimer] = useState<any | null>(null);
+    const demanderSuppressionDoc = (docId: string) => setDocASupprimer(customDocs.find(d => d.id === docId) ?? null);
+
+    /** Renomme un document du coffre-fort. */
+    const handleRenameCustomDoc = async (docId: string, libelle: string) => {
+        const propre = nettoyerTexteLibre(libelle, 120);
+        if (!propre) { setError('Le nom du document ne peut pas être vide.'); return false; }
+        setError(null);
+        const { error: erreurNom } = await supabase.from('documents_candidature')
+            .update({ label: propre, updated_at: new Date().toISOString() }).eq('id', docId);
+        if (erreurNom) {
+            console.error('Renommage :', erreurNom);
+            setError("Le document n'a pas pu être renommé. Réessayez.");
+            return false;
+        }
+        setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, label: propre } : d));
+        return true;
     };
 
     const handleDeleteCustomDoc = async (docId: string) => {
@@ -971,8 +1017,12 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             }
 
             const { error } = await supabase.from('documents_candidature').delete().eq('id', docId);
-            if (!error) setCustomDocs(prev => prev.filter(d => d.id !== docId));
-        } catch (err: any) { console.error(err); }
+            if (error) throw error;
+            setCustomDocs(prev => prev.filter(d => d.id !== docId));
+        } catch (err: any) {
+            console.error(err);
+            setError("Le document n'a pas pu être supprimé. Réessayez.");
+        }
     };
 
     const handleValidateDoc = async (field: string) => {
@@ -1039,14 +1089,21 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
             });
             if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
-            const { error: updateError } = await supabase.from('documents_candidature').update({ url: chemin, statut: 'en_attente', updated_at: new Date().toISOString() }).eq('id', docId);
-            if (!updateError) setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, url: chemin, statut: 'en_attente' } : d));
+            // « valide », comme à l'ajout. Le passage en « en_attente » bloquait le
+            // document : cet onglet n'offre aucun moyen de le revalider, et il
+            // disparaissait des pièces comptées comme fournies.
+            const { error: updateError } = await supabase.from('documents_candidature')
+                .update({ url: chemin, statut: 'valide', date_emission: dateLocaleISO(), updated_at: new Date().toISOString() })
+                .eq('id', docId);
+            if (updateError) throw updateError;
+            setCustomDocs(prev => prev.map(d => d.id === docId ? { ...d, url: chemin, statut: 'valide' } : d));
             oublierUrl(chemin);
         } catch (err: any) {
             console.error(err);
-            setError('Erreur lors de la mise à jour du document');
+            setError(err?.message ? `Le document n'a pas pu être remplacé : ${err.message}` : 'Erreur lors de la mise à jour du document');
         } finally {
             setUploadingField(null);
+            if (e.target) e.target.value = '';
         }
     };
 
@@ -1098,7 +1155,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                             Modifier
                         </button>
                     )}
-                    {!lectureSeule && (isEditing || !isVerified) && (
+                    {!lectureSeule && subTab === 'info' && (isEditing || !isVerified) && (
                         <>
                             {isEditing && isVerified && (
                                 <button onClick={handleCancelEditing}
@@ -1118,17 +1175,17 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
 
             {/* Sub-tab navigation */}
             <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTab('info')}
+                <button onClick={() => changerSousOnglet('info')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'info' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     <Building2 size={15} />
                     Informations générales
                 </button>
-                <button onClick={() => setSubTab('docs')}
+                <button onClick={() => changerSousOnglet('docs')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'docs' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     <FolderOpen size={15} />
                     Documents de candidature
                 </button>
-                <button onClick={() => setSubTab('equipe')}
+                <button onClick={() => changerSousOnglet('equipe')}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab === 'equipe' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     <Users size={15} />
                     Équipe{membres.length > 0 ? ` (${membres.length})` : ''}
@@ -1421,13 +1478,24 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                     onDeposerDocument={handleDocumentUpload}
                     onAjouterDocPersonnalise={handleAddCustomDoc}
                     onRedeposerDocPersonnalise={handleCustomDocReupload}
-                    onSupprimerDocPersonnalise={handleDeleteCustomDoc}
+                    onSupprimerDocPersonnalise={demanderSuppressionDoc}
+                    onRenommerDocPersonnalise={handleRenameCustomDoc}
                     onMajExpiration={handleUpdateExpiry}
                     onOuvrirDocument={ouvrirDocument}
                     onTelechargerDocument={telechargerDocument}
                 />
-            )
-            }
+            )}
+
+            {/* Suppression d'un document du coffre-fort : confirmée. */}
+            <ConfirmDialog
+                ouvert={!!docASupprimer}
+                titre="Supprimer ce document ?"
+                message={`« ${docASupprimer?.label ?? ''} » sera retiré du coffre-fort, et son fichier supprimé. Les dossiers qui l'utilisaient n'en disposeront plus.`}
+                libelleConfirmer="Supprimer"
+                destructif
+                onConfirmer={() => { const id = docASupprimer?.id; setDocASupprimer(null); if (id) handleDeleteCustomDoc(id); }}
+                onAnnuler={() => setDocASupprimer(null)}
+            />
         </div >
     );
 };

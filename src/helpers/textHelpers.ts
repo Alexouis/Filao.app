@@ -34,3 +34,14 @@ export function lienExterne(valeur: string | null | undefined): string {
     return `https://${v}`;
 }
 
+
+
+/**
+ * Libellé lisible tiré d'un nom de fichier, quand l'utilisateur n'en saisit
+ * pas : extension retirée, `_` et `-` changés en espaces, première lettre en
+ * capitale. « scan_attestation-urssaf.pdf » → « Scan attestation urssaf ».
+ */
+export function libelleDepuisNomFichier(nom: string): string {
+    const base = String(nom ?? '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return base ? base.charAt(0).toUpperCase() + base.slice(1) : '';
+}

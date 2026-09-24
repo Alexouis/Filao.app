@@ -41,7 +41,7 @@ import {
   genererCodeAcces, masquerJeton, masquerJetonDansTexte, genererTokenInvitation,
 } from '../src/helpers/inviteCodeHelpers.ts';
 
-import { lienExterne } from '../src/helpers/textHelpers.ts';
+import { lienExterne, libelleDepuisNomFichier } from '../src/helpers/textHelpers.ts';
 
 import { estDossierDunCollegue, estEnLectureSeule } from '../src/helpers/accesDossier.ts';
 import { canCreateTender } from '../src/helpers/planHelpers.ts';
@@ -1234,4 +1234,12 @@ test('dateDecision : date du verdict, repli sur la dernière modification puis l
   assert.equal(dateDecision({ date_decision: '2026-06-10T09:00:00Z', modified_at: '2026-07-01T00:00:00Z', created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-06-10T09:00:00.000Z');
   assert.equal(dateDecision({ date_decision: null, modified_at: '2026-07-01T00:00:00Z', created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-07-01T00:00:00.000Z');
   assert.equal(dateDecision({ created_at: '2026-01-05T00:00:00Z' }).toISOString(), '2026-01-05T00:00:00.000Z');
+});
+
+
+test('libelleDepuisNomFichier : un nom de fichier devient un libellé lisible', () => {
+  assert.equal(libelleDepuisNomFichier('scan_attestation-urssaf.pdf'), 'Scan attestation urssaf');
+  assert.equal(libelleDepuisNomFichier('Kbis.2026.pdf'), 'Kbis.2026');
+  assert.equal(libelleDepuisNomFichier('.pdf'), '');
+  assert.equal(libelleDepuisNomFichier(''), '');
 });

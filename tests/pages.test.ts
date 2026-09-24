@@ -83,6 +83,55 @@ test('Mon entreprise : « Modifier » ouvre l’édition sans planter', async ()
     } finally { restaurer(); }
 });
 
+test('Mon entreprise : changer d’onglet referme l’édition (plus de « Enregistrer » hors contexte)', async () => {
+    cleanup();
+    const restaurer = installerFauxSupabase({
+        tables: { entreprises: [entreprise], utilisateurs: [{ ...profil }], roles: [{ id: 'r-admin', name: 'admin' }] },
+        rpc: { est_admin_entreprise: true, places_restantes_entreprise: 5 },
+    });
+    try {
+        const { erreurs } = await afficher(React.createElement(CompanyTab, { userProfile: profil, onUpdate: () => {} }));
+        fireEvent.click(await screen.findByText('Modifier'));
+        await attendre();
+        assert.ok(screen.getByText('Enregistrer'), 'édition ouverte');
+        fireEvent.click(screen.getByText(/Documents de candidature/));
+        await attendre();
+        // « Enregistrer » sauvegardait la FICHE depuis l'onglet Documents.
+        assert.equal(screen.queryByText('Enregistrer'), null);
+        assert.deepEqual(erreurs.map(e => e.message), []);
+    } finally { restaurer(); }
+});
+
+test('Coffre-fort : un document ajouté se consulte, se télécharge et se renomme', async () => {
+    cleanup();
+    const restaurer = installerFauxSupabase({
+        tables: {
+            entreprises: [entreprise], utilisateurs: [{ ...profil }], roles: [{ id: 'r-admin', name: 'admin' }],
+            documents_candidature: [{ id: 'd1', entreprise_id: 'e1', label: 'Scan 0923', url: 'documents/e1/1-scan.pdf',
+                statut: 'valide', categorie: 'references', created_at: '2026-09-01T00:00:00Z' }],
+        },
+        rpc: { est_admin_entreprise: true, places_restantes_entreprise: 5 },
+    });
+    try {
+        const { erreurs } = await afficher(React.createElement(CompanyTab, { userProfile: profil, onUpdate: () => {} }));
+        fireEvent.click(await screen.findByText(/Documents de candidature/));
+        await attendre();
+        assert.ok(screen.getByLabelText('Voir « Scan 0923 »'));
+        assert.ok(screen.getByLabelText('Télécharger « Scan 0923 »'));
+        fireEvent.click(screen.getByLabelText('Renommer « Scan 0923 »'));
+        const champ = screen.getByLabelText('Nouveau nom du document');
+        fireEvent.change(champ, { target: { value: 'Référence chantier Digne' } });
+        fireEvent.keyDown(champ, { key: 'Enter' });
+        await attendre();
+        assert.ok((await screen.findAllByText('Référence chantier Digne')).length > 0);
+        // Suppression : une confirmation, plus d'effacement immédiat.
+        fireEvent.click(screen.getByTitle('Supprimer'));
+        await attendre();
+        assert.ok(screen.getByText('Supprimer ce document ?'));
+        assert.deepEqual(erreurs.map(e => e.message), []);
+    } finally { restaurer(); }
+});
+
 // ---------------------------------------------------------------------------
 // Toutes les pages touchées pendant la revue : affichage et gestes principaux
 // ---------------------------------------------------------------------------
