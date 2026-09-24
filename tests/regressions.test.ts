@@ -356,7 +356,7 @@ const sqlMigrations = fichiers('supabase/migrations', /\.sql$/).map(lire).join('
  * `respond_to_invitation_by_code`, appelées sans jamais avoir été créées.
  */
 const RPC_HORS_MIGRATIONS = new Set(['get_tender_owner_info', 'update_tender_file_count']);
-const TABLES_HORS_MIGRATIONS = new Set(['comments', 'comments_with_user', 'user_integrations']);
+const TABLES_HORS_MIGRATIONS = new Set(['user_integrations']);
 
 test('garde-fou : toute RPC appelée existe (migrations ou liste documentée)', () => {
     const sources = [...fichiers('src', /\.tsx?$/), ...fichiers(FONCTIONS, /\.ts$/)];

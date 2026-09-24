@@ -80,7 +80,6 @@ import {
     champsManquants,
     messageErreurBase
 } from '../helpers/tenderEnums';
-import { CommentsView } from './ui/CommentsView';
 import { BadgeAVenir } from './ui/BadgeAVenir';
 import { supabase } from '../lib/supabaseClient';
 import { forfait } from '../helpers/planLimits';

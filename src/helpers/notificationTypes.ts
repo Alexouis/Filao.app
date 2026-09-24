@@ -53,6 +53,8 @@ const NOTIFICATION_TYPES: (NotifTypeDef & { categoriesExtra?: NotifCategorie[] }
   { type: 'deadline_reminder',         categorie: 'reminders',   prefKey: 'rappels' },
   { type: 'tender_won',                categorie: 'results',     prefKey: null },
   { type: 'tender_lost',               categorie: 'results',     prefKey: null },
+  // Historique : l'ancien fil de commentaires a été retiré, mais des
+  // notifications de ce type peuvent rester dans les fils existants.
   { type: 'comment_added',             categorie: 'comments',    prefKey: 'messages_feed' },
   // Messagerie d'un dossier. Même famille de préférence que les commentaires :
   // pour l'utilisateur, « Messages » couvre les deux fils de discussion.

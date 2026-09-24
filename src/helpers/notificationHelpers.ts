@@ -116,33 +116,6 @@ export const notifyDocumentReminder = async (
   return Promise.all(promises);
 };
 
-/**
- * Notify when someone adds a comment
- * prefKey: messages_feed
- */
-export const notifyCommentAdded = async (
-  recipientIds: string[],
-  commenterName: string,
-  commenterAvatar: string,
-  tenderId: string,
-  tenderTitle: string,
-  commentPreview: string
-) => {
-  const promises = recipientIds.map(userId =>
-    addNotification(userId, {
-      type: 'comment_added',
-      titre: 'Nouveau commentaire',
-      message: `a commenté sur`,
-      sender_name: commenterName,
-      sender_avatar: commenterAvatar,
-      related_tender_id: tenderId,
-      related_tender_titre: `${tenderTitle}: "${commentPreview}"`
-    }, 'messages_feed')
-  );
-
-  return Promise.all(promises);
-};
-
 // =========================================================================
 // ALWAYS-SEND NOTIFICATIONS (critical system events, no preference filter)
 // =========================================================================

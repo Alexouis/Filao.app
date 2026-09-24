@@ -12,7 +12,6 @@
 export const TITRES: Record<string, string> = {
   document_added: "Document ajouté",
   document_reminder: "Rappel de documents",
-  comment_added: "Nouveau commentaire",
   collaboration_accepted: "Collaboration acceptée",
   collaboration_rejected: "Collaboration refusée",
   collaboration_left: "Départ du groupement",
