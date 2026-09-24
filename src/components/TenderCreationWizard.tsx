@@ -265,9 +265,12 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             try {
+                // Nom rendu unique : deux pièces de même nom faisaient échouer
+                // le second dépôt (le stockage refuse d'écraser).
                 const { chemin, erreur } = await deposerFichier(file, {
                     dossier: `tenders/temp/${userProfile?.id}`,
                     point: 'dce',
+                    nom: `${Date.now()}-${file.name}`,
                 });
                 if (erreur || !chemin) throw new Error(erreur || 'Dépôt refusé.');
 
@@ -308,6 +311,9 @@ export const TenderCreationWizard: React.FC<TenderCreationWizardProps> = ({
 
             const { chemin: cheminDepose, erreur: erreurDepot } = await deposerFichier(file, {
                 dossier: `documents/${userProfile.id}`,
+                // Nom unique : un « kbis.pdf » redéposé à la création d'un autre
+                // dossier entrait en conflit avec celui de la fois précédente.
+                nom: `${Date.now()}-${file.name}`,
                 point: 'candidature',
             });
             if (erreurDepot || !cheminDepose) throw new Error(erreurDepot || 'Dépôt refusé.');

@@ -132,6 +132,27 @@ test('Coffre-fort : un document ajouté se consulte, se télécharge et se renom
     } finally { restaurer(); }
 });
 
+test('Réseau : les invitations envoyées par e-mail sont suivies (relancer, annuler)', async () => {
+    cleanup();
+    const restaurer = installerFauxSupabase({
+        tables: { entreprises: [entreprise], utilisateurs: [{ ...profil }] },
+        rpc: { mes_invitations_reseau: [
+            { id: 'i1', email: 'futur@partenaire.fr', created_at: '2026-09-20T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', consumed_at: null },
+            { id: 'i2', email: 'inscrit@partenaire.fr', created_at: '2026-09-10T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', consumed_at: '2026-09-12T00:00:00Z' },
+        ] },
+    });
+    try {
+        const { erreurs } = await afficher(React.createElement(Collaborators, { onNavigate: () => {} }));
+        assert.ok(await screen.findByText(/Invitations envoyées par e-mail \(2\)/));
+        assert.ok(screen.getByText('Relancer'));
+        assert.ok(screen.getByText('Inscrit'));
+        fireEvent.click(screen.getByLabelText("Annuler l'invitation de futur@partenaire.fr"));
+        await attendre();
+        assert.ok(screen.getByText('Annuler cette invitation ?'));
+        assert.deepEqual(erreurs.map(e => e.message), []);
+    } finally { restaurer(); }
+});
+
 // ---------------------------------------------------------------------------
 // Toutes les pages touchées pendant la revue : affichage et gestes principaux
 // ---------------------------------------------------------------------------

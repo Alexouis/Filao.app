@@ -35,6 +35,7 @@ import { Entreprise } from '@/types';
 import { useToast } from './ui/Toast';
 import { LoadingState, ErrorState, EmptyState } from './ui/StateViews';
 import { InviteCompanyModal } from './network/InviteCompanyModal';
+import { InvitationsReseauEnvoyees } from './network/InvitationsReseauEnvoyees';
 import { genererCodeAcces } from '../helpers/inviteCodeHelpers';
 import { lienExterne } from '../helpers/textHelpers';
 import { ConfirmDialog } from './ui/ConfirmDialog';
@@ -110,6 +111,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
     const [entrepriseARetirer, setEntrepriseARetirer] = useState<NetworkCompany | null>(null);
     const [filaoNetwork, setFilaoNetwork] = useState<NetworkCompany[]>([]);
     const [pendingInvites, setPendingInvites] = useState<PendingNetworkInvite[]>([]);
+    /** Incrémentée après un envoi : recharge la liste des invitations envoyées. */
+    const [versionInvitations, setVersionInvitations] = useState(0);
     const [loading, setLoading] = useState(true);
     // Échec du chargement du réseau : distingue « réseau vide » de « erreur ».
     const [loadError, setLoadError] = useState(false);
@@ -1005,6 +1008,8 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                                         />
                                     ) : (
                                         <>
+                                            {/* Invitations envoyées à des non-inscrits (migration 122) */}
+                                            {activeTab === 'network' && <InvitationsReseauEnvoyees version={versionInvitations} />}
                                             {activeTab === 'network' && pendingInvites.length > 0 && (
                                                 <div className="mb-6 space-y-3">
                                                     <h3 className="text-sm font-bold text-[#0B1F38] flex items-center gap-2">
@@ -1144,7 +1149,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
             <InviteCompanyModal 
                 isOpen={isInviteModalOpen} 
                 onClose={() => setIsInviteModalOpen(false)} 
-                onSuccess={fetchNetwork}
+                onSuccess={() => { fetchNetwork(); setVersionInvitations(v => v + 1); }}
             />
 
             {/* Invite to Tender Modal */}

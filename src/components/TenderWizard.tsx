@@ -2522,9 +2522,14 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                 showToast('Partenaires mis à jour !', 'success');
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            showToast('Erreur lors de la sauvegarde des partenaires.', 'error');
+            // `manage-team` renvoie un motif rédigé (droits, quota d'invitations…).
+            showToast(
+                messageErreurBase(error)
+                    ?? await messageErreurFonction(error, 'Erreur lors de la sauvegarde des partenaires.'),
+                'error'
+            );
         } finally {
             setLoading(false);
         }
@@ -3301,7 +3306,7 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
         } catch (error) {
             console.error("Error finalizing:", error);
             track('erreur_applicative', { type: 'finalisation', contexte: 'handleFinalize' });
-            showToast('Erreur lors de la finalisation.', 'error');
+            showToast(messageErreurBase(error) ?? 'Erreur lors de la finalisation.', 'error');
         } finally {
             setLoading(false);
         }
@@ -3661,9 +3666,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             }
 
             showToast(`Document "${docType}" mis à jour.`, 'success');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error uploading file:', error);
-            showToast(`Erreur lors de l'upload.`, 'error');
+            // Le motif du serveur (format, taille, quota) est rédigé pour
+            // l'utilisateur : on l'affiche plutôt qu'un message générique.
+            showToast(error?.message || `Erreur lors de l'upload.`, 'error');
         }
     };
 

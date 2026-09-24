@@ -793,3 +793,32 @@ test('garde-fou : une nouvelle version de pièce n’est pas annoncée comme un 
     const fonction = sansCommentaires(lire(`${FONCTIONS}/send-reminder/index.ts`));
     assert.match(fonction, /const estJalon = Boolean\(milestoneLabel\) && !estVersion/);
 });
+
+// ---------------------------------------------------------------------------
+// Oublis : dépôts à nom unique, invitations réseau suivies
+// ---------------------------------------------------------------------------
+import { etatInvitationReseau } from '../src/components/network/InvitationsReseauEnvoyees.tsx';
+
+test('garde-fou : tout dépôt de fichier a un nom unique ou remplace volontairement', () => {
+    // Sans nom imposé ni remplacement, deux fichiers de même nom faisaient
+    // échouer le second dépôt (coffre-fort, pièces du marché, documents de
+    // la création de dossier). Logo et photo ont un nom stable côté serveur.
+    const EXCEPTIONS = /logos\/|photos\//;
+    const fautifs: string[] = [];
+    for (const f of fichiers('src', /\.tsx$/)) {
+        const src = sansCommentaires(lire(f));
+        for (const m of src.matchAll(/deposerFichier\([^,]+,\s*\{([\s\S]*?)\}\)/g)) {
+            const opts = m[1];
+            if (/\bnom:|upsert:/.test(opts) || EXCEPTIONS.test(opts)) continue;
+            fautifs.push(`${f} : ${opts.replace(/\s+/g, ' ').trim()}`);
+        }
+    }
+    assert.deepEqual(fautifs, []);
+});
+
+test('invitations réseau envoyées : état affiché', () => {
+    const t = Date.parse('2026-09-24T12:00:00Z');
+    assert.equal(etatInvitationReseau({ expires_at: '2026-10-01T00:00:00Z', consumed_at: null }, t), 'en_attente');
+    assert.equal(etatInvitationReseau({ expires_at: '2026-09-01T00:00:00Z', consumed_at: null }, t), 'expiree');
+    assert.equal(etatInvitationReseau({ expires_at: '2026-09-01T00:00:00Z', consumed_at: '2026-08-20T00:00:00Z' }, t), 'inscrit');
+});
