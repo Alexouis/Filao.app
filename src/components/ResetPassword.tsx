@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { Loader2, Check, Eye, EyeOff, ShieldAlert } from 'lucide-react';
-import { LONGUEUR_MOT_DE_PASSE } from '../helpers/validationHelpers';
+import { Loader2, Check, ShieldAlert } from 'lucide-react';
+import { ChampsMotDePasse } from './ui/ChampsMotDePasse';
+import { evaluerMotDePasse, premierCritereManquant } from '../helpers/motDePasse';
 
 /**
  * Page de définition d'un nouveau mot de passe, atteinte depuis le lien envoyé
@@ -13,22 +14,14 @@ import { LONGUEUR_MOT_DE_PASSE } from '../helpers/validationHelpers';
  * consommé, elle ne le sera jamais, et il faut le dire clairement au lieu
  * d'afficher un formulaire qui échouera à la validation.
  */
-/**
- * Longueur minimale du mot de passe.
- *
- * Douze caractères sans contrainte de composition : imposer une majuscule et un
- * chiffre produit surtout des variantes prévisibles d'un même mot, là où la
- * longueur augmente réellement le coût d'une attaque. C'est aussi la règle
- * retenue par la conception.
- */
-const LONGUEUR_MINIMALE = LONGUEUR_MOT_DE_PASSE;
 
 export const ResetPassword: React.FC = () => {
     const [pret, setPret] = useState(false);
     const [lienInvalide, setLienInvalide] = useState(false);
     const [motDePasse, setMotDePasse] = useState('');
     const [confirmation, setConfirmation] = useState('');
-    const [visible, setVisible] = useState(false);
+    /** Adresse du compte : le nouveau mot de passe ne doit pas la contenir. */
+    const [emailCompte, setEmailCompte] = useState<string | null>(null);
     const [enCours, setEnCours] = useState(false);
     const [erreur, setErreur] = useState<string | null>(null);
     const [succes, setSucces] = useState(false);
@@ -36,11 +29,13 @@ export const ResetPassword: React.FC = () => {
     useEffect(() => {
         const { data: ecoute } = supabase.auth.onAuthStateChange((evenement, session) => {
             if (evenement === 'PASSWORD_RECOVERY' || session) setPret(true);
+            if (session?.user?.email) setEmailCompte(session.user.email);
         });
 
         // L'événement peut avoir été émis avant le montage du composant : on
         // vérifie aussi la session courante.
         supabase.auth.getSession().then(({ data }) => {
+            if (data.session?.user?.email) setEmailCompte(data.session.user.email);
             if (data.session) setPret(true);
             else {
                 // Laisse à Supabase le temps de traiter le fragment d'URL.
@@ -57,38 +52,15 @@ export const ResetPassword: React.FC = () => {
         return () => ecoute.subscription.unsubscribe();
     }, []);
 
-    /**
-     * Évaluation de la robustesse.
-     *
-     * Longueur d'abord, variété ensuite. Une phrase de vingt caractères en
-     * minuscules vaut mieux qu'un « P@ssw0rd! » de neuf, alors que la plupart
-     * des indicateurs classent l'inverse.
-     */
-    const robustesse = React.useMemo(() => {
-        const n = motDePasse.length;
-        const varietes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/]
-            .filter(r => r.test(motDePasse)).length;
-
-        if (n === 0) return { niveau: 0, libelle: '', couleur: 'bg-gray-200' };
-        if (n < LONGUEUR_MINIMALE) return { niveau: 1, libelle: `Trop court — ${LONGUEUR_MINIMALE - n} caractère(s) manquant(s)`, couleur: 'bg-red-400' };
-        if (n < 16 && varietes < 3) return { niveau: 2, libelle: 'Acceptable — allongez-le pour plus de sûreté', couleur: 'bg-amber-400' };
-        if (n < 20) return { niveau: 3, libelle: 'Bon mot de passe', couleur: 'bg-emerald-400' };
-        return { niveau: 4, libelle: 'Excellent', couleur: 'bg-emerald-500' };
-    }, [motDePasse]);
 
     const valider = async (e: React.FormEvent) => {
         e.preventDefault();
         setErreur(null);
 
-        // 12 caractères, sans contrainte de composition : la longueur protège
-        // davantage qu'un mélange imposé de majuscules et de chiffres, qui pousse
-        // surtout à des variantes prévisibles du même mot.
-        if (motDePasse.length < LONGUEUR_MINIMALE) {
-            setErreur(`Le mot de passe doit contenir au moins ${LONGUEUR_MINIMALE} caractères.`);
-            return;
-        }
-        if (motDePasse !== confirmation) {
-            setErreur('Les deux saisies ne correspondent pas.');
+        // Mêmes critères que l'inscription et le changement (helpers/motDePasse).
+        const manquant = premierCritereManquant(evaluerMotDePasse(motDePasse, confirmation, { email: emailCompte }));
+        if (manquant) {
+            setErreur(`Mot de passe : ${manquant.libelle.charAt(0).toLowerCase()}${manquant.libelle.slice(1)}.`);
             return;
         }
 
@@ -167,63 +139,17 @@ export const ResetPassword: React.FC = () => {
                     </div>
                 ) : (
                     <form onSubmit={valider} className="mt-6 space-y-4">
-                        <p className="text-sm text-gray-500">
-                            Choisissez un mot de passe d'au moins {LONGUEUR_MINIMALE} caractères.
-                        </p>
-
-                        <div className="relative">
-                            <label htmlFor="mdp" className="sr-only">Nouveau mot de passe</label>
-                            <input
-                                id="mdp"
-                                type={visible ? 'text' : 'password'}
-                                value={motDePasse}
-                                onChange={(e) => setMotDePasse(e.target.value)}
-                                placeholder="Nouveau mot de passe"
-                                autoComplete="new-password"
-                                className={champ}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setVisible(v => !v)}
-                                aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                            >
-                                {visible ? <EyeOff size={16} /> : <Eye size={16} />}
-                            </button>
-                        </div>
-
-                        {/* Indicateur de robustesse. Volontairement fondé sur la
-                            longueur et la variété réelle, pas sur des règles de
-                            composition : un mot de passe long et simple résiste
-                            mieux qu'un court truffé de symboles. */}
-                        {motDePasse.length > 0 && (
-                            <div>
-                                <div className="flex gap-1 h-1.5">
-                                    {[0, 1, 2, 3].map(i => (
-                                        <div
-                                            key={i}
-                                            className={`flex-1 rounded-full transition-colors ${
-                                                i < robustesse.niveau ? robustesse.couleur : 'bg-gray-200'
-                                            }`}
-                                        />
-                                    ))}
-                                </div>
-                                <p className="text-xs text-gray-500 mt-1.5">{robustesse.libelle}</p>
-                            </div>
-                        )}
-
-                        <div>
-                            <label htmlFor="mdp2" className="sr-only">Confirmation</label>
-                            <input
-                                id="mdp2"
-                                type={visible ? 'text' : 'password'}
-                                value={confirmation}
-                                onChange={(e) => setConfirmation(e.target.value)}
-                                placeholder="Confirmez le mot de passe"
-                                autoComplete="new-password"
-                                className={champ}
-                            />
-                        </div>
+                        {/* Saisie commune aux trois formulaires de mot de passe :
+                            jauge et légende des critères, cochée au fil de la
+                            saisie (helpers/motDePasse). */}
+                        <ChampsMotDePasse
+                            valeur={motDePasse}
+                            confirmation={confirmation}
+                            onValeur={setMotDePasse}
+                            onConfirmation={setConfirmation}
+                            contexte={{ email: emailCompte }}
+                            classeChamp={champ}
+                        />
 
                         {erreur && <p className="text-sm text-red-600">{erreur}</p>}
 

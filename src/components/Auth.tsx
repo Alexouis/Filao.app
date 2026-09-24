@@ -15,6 +15,8 @@ import { getAcquisitionParams, resolveSourceInscription } from '../helpers/acqui
 import { LegalFooter } from './LegalPages';
 import { track } from '../helpers/analytics';
 import { motifIlikeExact, contientBalise, LONGUEUR_MOT_DE_PASSE } from '../helpers/validationHelpers';
+import { ChampsMotDePasse } from './ui/ChampsMotDePasse';
+import { evaluerMotDePasse, premierCritereManquant } from '../helpers/motDePasse';
 
 const GoogleIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -71,7 +73,6 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
         setError(null);
     }, [mode]);
     const [showPassword, setShowPassword] = useState(false);
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmEmail, setConfirmEmail] = useState('');
@@ -273,9 +274,11 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     throw new Error('Les mots de passe ne correspondent pas');
                 }
 
-                // Même seuil que le changement et la réinitialisation.
-                if (password.length < LONGUEUR_MOT_DE_PASSE) {
-                    throw new Error(`Le mot de passe doit contenir au moins ${LONGUEUR_MOT_DE_PASSE} caractères.`);
+                // Mêmes critères que le changement et la réinitialisation
+                // (helpers/motDePasse) : ceux de la légende affichée.
+                const manquant = premierCritereManquant(evaluerMotDePasse(password, confirmPassword, { email, prenom, nom }));
+                if (manquant) {
+                    throw new Error(`Mot de passe : ${manquant.libelle.charAt(0).toLowerCase()}${manquant.libelle.slice(1)}.`);
                 }
 
                 // Nom et prénom apparaissent dans les e-mails envoyés aux
@@ -730,50 +733,20 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, viewMode }) => {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className={labelClass}>Mot de passe*</label>
-                        <div className="relative">
-                            <input
-                                type={showPassword ? "text" : "password"}
-                                required
-                                placeholder="Entrer le mot de passe"
-                                autoComplete="new-password"
-                                className={inputClass}
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                            >
-                                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                            </button>
-                        </div>
-                    </div>
-                    <div>
-                        <label className={labelClass}>Confirmer le mot de passe*</label>
-                        <div className="relative">
-                            <input
-                                type={showConfirmPassword ? "text" : "password"}
-                                required
-                                placeholder="Entrer le mot de passe"
-                                autoComplete="new-password"
-                                className={inputClass}
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                            >
-                                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                {/* Saisie commune aux trois formulaires de mot de passe :
+                    légende des critères cochée au fil de la saisie. */}
+                <ChampsMotDePasse
+                    valeur={password}
+                    confirmation={confirmPassword}
+                    onValeur={setPassword}
+                    onConfirmation={setConfirmPassword}
+                    contexte={{ email, prenom, nom }}
+                    classeChamp={inputClass}
+                    classeLibelle={labelClass}
+                    libelleValeur="Mot de passe*"
+                    libelleConfirmation="Confirmer le mot de passe*"
+                    disposition="colonnes"
+                />
 
                 <div className="flex items-start gap-3 mt-2">
                     <input

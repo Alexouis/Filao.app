@@ -1251,3 +1251,44 @@ test('nettoyerDescription : retours à la ligne gardés, lignes vides limitées,
   assert.equal(nettoyerDescription('x'.repeat(LONGUEUR_DESCRIPTION + 50)).length, LONGUEUR_DESCRIPTION);
   assert.equal(nettoyerDescription(null), '');
 });
+
+import { estPrevisible, contientIdentite, evaluerMotDePasse, premierCritereManquant, robustesseMotDePasse } from '../src/helpers/motDePasse.ts';
+
+test('mot de passe : suites, répétitions et mots courants à peine décorés sont devinables', () => {
+  for (const p of ['123456789012', 'azertyuiopqs', 'aaaaaaaaaaaa', 'Azerty2026!!', 'Motdepasse12', 'P@ssword', 'Soleil2024']) {
+    assert.ok(estPrevisible(p), p);
+  }
+  for (const p of ['cheval-lampe-rivière', 'Tr0mbone.Violet.Nuage', 'marché public 2026 Digne']) {
+    assert.equal(estPrevisible(p), false, p);
+  }
+});
+
+test('mot de passe : le nom, le prénom ou l’identifiant de l’e-mail sont refusés', () => {
+  const ctx = { email: 'alexandre_louis@outlook.fr', prenom: 'Alexandre', nom: 'Louis' };
+  assert.ok(contientIdentite('alexandre2026!!', ctx));
+  assert.ok(contientIdentite('Mon-LOUIS-favori', ctx));
+  assert.ok(contientIdentite('xxalexandrelouisxx', ctx));
+  assert.equal(contientIdentite('cheval-lampe-rivière', ctx), false);
+  // Morceaux de moins de 4 lettres ignorés : « Léa » ne bloque pas « Léanne ».
+  assert.equal(contientIdentite('leanne-voyage-2026', { prenom: 'Léa' }), false);
+});
+
+test('mot de passe : critères de la légende et premier manquant', () => {
+  const ctx = { email: 'a.b@x.fr', prenom: 'Claire', nom: 'Martin' };
+  const tous = evaluerMotDePasse('cheval-lampe-rivière', 'cheval-lampe-rivière', ctx);
+  assert.deepEqual(tous.map(c => c.ok), [true, true, true, true]);
+  assert.equal(premierCritereManquant(tous), null);
+  const court = evaluerMotDePasse('court', 'court', ctx);
+  assert.equal(premierCritereManquant(court)?.cle, 'longueur');
+  const diff = evaluerMotDePasse('cheval-lampe-rivière', 'cheval-lampe', ctx);
+  assert.equal(premierCritereManquant(diff)?.cle, 'confirmation');
+  // Vide : aucun critère coché d'avance.
+  assert.ok(evaluerMotDePasse('', '', ctx).every(c => !c.ok));
+});
+
+test('mot de passe : la jauge plafonne un mot de passe long mais devinable', () => {
+  assert.equal(robustesseMotDePasse('').niveau, 0);
+  assert.equal(robustesseMotDePasse('court').niveau, 1);
+  assert.equal(robustesseMotDePasse('123456789012345678901').niveau, 1);
+  assert.ok(robustesseMotDePasse('Cheval-Lampe-Rivière-9').niveau >= 3);
+});

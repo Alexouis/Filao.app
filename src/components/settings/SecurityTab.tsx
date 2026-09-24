@@ -5,7 +5,8 @@ import { SettingsCard } from './SettingsCard';
 import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
 import { dateLocaleISO } from '../../helpers/dateHelpers';
-import { LONGUEUR_MOT_DE_PASSE } from '../../helpers/validationHelpers';
+import { ChampsMotDePasse } from '../ui/ChampsMotDePasse';
+import { evaluerMotDePasse, premierCritereManquant } from '../../helpers/motDePasse';
 
 interface SecurityTabProps {
     userProfile: UserProfile | null;
@@ -269,15 +270,16 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
     };
 
     const handlePasswordChange = async () => {
-        if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-            setPasswordError('Les mots de passe ne correspondent pas');
-            return;
-        }
-        // 12 caractères, comme sur l'écran de réinitialisation. Deux seuils
-        // différents pour un même mot de passe n'auraient aucun sens : il
-        // suffirait de passer par le formulaire le plus permissif.
-        if (passwordForm.newPassword.length < LONGUEUR_MOT_DE_PASSE) {
-            setPasswordError(`Le mot de passe doit contenir au moins ${LONGUEUR_MOT_DE_PASSE} caractères`);
+        // Mêmes critères que l'inscription et la réinitialisation : des règles
+        // différentes n'auraient aucun sens, il suffirait de passer par le
+        // formulaire le plus permissif
+        // (helpers/motDePasse) : ceux de la légende affichée.
+        const manquant = premierCritereManquant(evaluerMotDePasse(
+            passwordForm.newPassword, passwordForm.confirmPassword,
+            { email: userProfile?.email, prenom: userProfile?.prenom, nom: userProfile?.nom },
+        ));
+        if (manquant) {
+            setPasswordError(`Mot de passe : ${manquant.libelle.charAt(0).toLowerCase()}${manquant.libelle.slice(1)}.`);
             return;
         }
         if (!passwordForm.currentPassword) {
@@ -694,14 +696,14 @@ export const SecurityTab: React.FC<SecurityTabProps> = ({ userProfile, onUpdate 
                                 <label className="text-xs font-medium text-gray-600 block mb-1">Mot de passe actuel</label>
                                 <input type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))} className={modalInputClass} autoComplete="current-password" />
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-600 block mb-1">Nouveau mot de passe</label>
-                                <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))} className={modalInputClass} autoComplete="new-password" />
-                            </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-600 block mb-1">Confirmer</label>
-                                <input type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))} className={modalInputClass} autoComplete="new-password" />
-                            </div>
+                            <ChampsMotDePasse
+                                valeur={passwordForm.newPassword}
+                                confirmation={passwordForm.confirmPassword}
+                                onValeur={(v) => setPasswordForm(prev => ({ ...prev, newPassword: v }))}
+                                onConfirmation={(v) => setPasswordForm(prev => ({ ...prev, confirmPassword: v }))}
+                                contexte={{ email: userProfile?.email, prenom: userProfile?.prenom, nom: userProfile?.nom }}
+                                classeChamp={modalInputClass}
+                            />
                         </div>
                         <button
                             onClick={handlePasswordChange}

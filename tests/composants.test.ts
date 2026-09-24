@@ -43,6 +43,7 @@ import { ContextEditModal } from '../src/components/ContextEditModal.tsx';
 import { useModale, __reinitialiserPileModales } from '../src/helpers/useModale.ts';
 import { enregistrerTaxonomie, enregistrerCompetencesDossier } from '../src/helpers/taxonomieEntreprise.ts';
 import { ContestationEntreprise } from '../src/components/ContestationEntreprise.tsx';
+import { ChampsMotDePasse } from '../src/components/ui/ChampsMotDePasse.tsx';
 
 // ---------------------------------------------------------------------------
 // Aides
@@ -1435,6 +1436,33 @@ test('FondModale : un clic à l’intérieur de la modale n’atteint jamais le 
 // Fermeture propre
 // ---------------------------------------------------------------------------
 // POURQUOI CE BLOC EXISTE
+// ===========================================================================
+// Saisie d'un nouveau mot de passe (commune aux trois formulaires)
+// ===========================================================================
+test('ChampsMotDePasse : la légende se coche au fil de la saisie', () => {
+    cleanup();
+    const Hote = () => {
+        const [v, setV] = React.useState('');
+        const [c, setC] = React.useState('');
+        return React.createElement(ChampsMotDePasse, {
+            valeur: v, confirmation: c, onValeur: setV, onConfirmation: setC,
+            contexte: { email: 'claire.martin@x.fr', prenom: 'Claire', nom: 'Martin' }, classeChamp: '',
+        });
+    };
+    render(React.createElement(Hote));
+    // Visible dès le départ, rien de coché.
+    assert.ok(screen.getByText(/Au moins 12 caractères/));
+    assert.equal(screen.queryAllByText('(respecté)').length, 0);
+
+    fireEvent.change(screen.getByLabelText('Nouveau mot de passe'), { target: { value: 'cheval-lampe-rivière' } });
+    assert.equal(screen.queryAllByText('(respecté)').length, 3, 'longueur, identité, prévisibilité');
+    fireEvent.change(screen.getByLabelText('Confirmer le mot de passe'), { target: { value: 'cheval-lampe-rivière' } });
+    assert.equal(screen.queryAllByText('(respecté)').length, 4);
+
+    fireEvent.change(screen.getByLabelText('Nouveau mot de passe'), { target: { value: 'claire-martin-2026' } });
+    assert.ok(screen.getByText('Facile à deviner'));
+});
+
 // ===========================================================================
 // Contestation d'inscription d'entreprise
 // ===========================================================================

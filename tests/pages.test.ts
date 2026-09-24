@@ -30,6 +30,7 @@ import { CollaboratorSubmission } from '../src/components/CollaboratorSubmission
 import { OnboardingWizard } from '../src/components/OnboardingWizard.tsx';
 import { Financial } from '../src/components/Financial.tsx';
 import { AuthProvider } from '../src/context/AuthContext.tsx';
+import { Auth } from '../src/components/Auth.tsx';
 
 type ProprietesCapteur = { erreurs: Error[]; children: React.ReactNode };
 class Capteur extends React.Component<ProprietesCapteur, { plante: boolean }> {
@@ -168,6 +169,19 @@ test('Mon entreprise : la présentation se lit et se saisit', async () => {
         assert.equal(champ.value, 'Bureau d’études VRD.');
         fireEvent.change(champ, { target: { value: 'Nouvelle présentation' } });
         assert.ok(screen.getByText(`21/1000`));
+        assert.deepEqual(erreurs.map(e => e.message), []);
+    } finally { restaurer(); }
+});
+
+test('Inscription : légende des critères du mot de passe, cochée à la saisie', async () => {
+    cleanup();
+    const restaurer = installerFauxSupabase({});
+    try {
+        const { erreurs } = await afficher(React.createElement(Auth, { viewMode: 'new' }));
+        assert.ok(await screen.findByText(/Au moins 12 caractères/));
+        fireEvent.change(screen.getByLabelText('Mot de passe*'), { target: { value: 'cheval-lampe-rivière' } });
+        fireEvent.change(screen.getByLabelText('Confirmer le mot de passe*'), { target: { value: 'cheval-lampe-rivière' } });
+        assert.equal(screen.queryAllByText('(respecté)').length, 4);
         assert.deepEqual(erreurs.map(e => e.message), []);
     } finally { restaurer(); }
 });

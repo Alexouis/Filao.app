@@ -783,7 +783,7 @@ test('garde-fou : un seul seuil de mot de passe pour tous les parcours', () => {
     // L'inscription acceptait 6 caractères, le changement en exigeait 12.
     for (const f of ['src/components/Auth.tsx', 'src/components/ResetPassword.tsx', 'src/components/settings/SecurityTab.tsx']) {
         const src = sansCommentaires(lire(f));
-        assert.match(src, /LONGUEUR_MOT_DE_PASSE/, f);
+        assert.match(src, /evaluerMotDePasse|LONGUEUR_MOT_DE_PASSE/, f);
         assert.ok(!/length\s*<\s*(6|8|10|12)\b/.test(src), `${f} : seuil en dur`);
     }
 });
@@ -824,4 +824,14 @@ test('invitations réseau envoyées : état affiché', () => {
     assert.equal(etatInvitationReseau({ expires_at: '2026-10-01T00:00:00Z', consumed_at: null }, t), 'en_attente');
     assert.equal(etatInvitationReseau({ expires_at: '2026-09-01T00:00:00Z', consumed_at: null }, t), 'expiree');
     assert.equal(etatInvitationReseau({ expires_at: '2026-09-01T00:00:00Z', consumed_at: '2026-08-20T00:00:00Z' }, t), 'inscrit');
+});
+
+test('garde-fou : les trois formulaires de mot de passe partagent la même saisie', () => {
+    // Inscription, changement et réinitialisation avaient chacun leur
+    // présentation ; deux n'affichaient aucune règle avant l'envoi.
+    for (const f of ['src/components/Auth.tsx', 'src/components/ResetPassword.tsx', 'src/components/settings/SecurityTab.tsx']) {
+        const src = sansCommentaires(lire(f));
+        assert.match(src, /<ChampsMotDePasse/, `${f} : saisie commune`);
+        assert.match(src, /premierCritereManquant\(evaluerMotDePasse\(/, `${f} : validation commune`);
+    }
 });
