@@ -71,6 +71,7 @@ const SUITES = [
     { fichier: 'tests/regressions.test.ts', dom: false },
     { fichier: 'tests/navigateur.test.ts', dom: true },
     { fichier: 'tests/composants.test.ts', dom: true },
+    { fichier: 'tests/pages.test.ts', dom: true },
 ];
 
 let echec = false;

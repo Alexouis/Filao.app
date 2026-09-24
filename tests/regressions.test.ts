@@ -706,3 +706,42 @@ test('garde-fou : send-reminder accepte les appels serveur à clé exacte', () =
     assert.match(src, /authHeader === `Bearer \$\{cleService\}`/);
     assert.match(sansCommentaires(lire(`${FONCTIONS}/send-milestone-reminders/index.ts`)), /Bearer \$\{serviceKey\}/);
 });
+
+// ---------------------------------------------------------------------------
+// Composants et icônes qui retombent sur une valeur GLOBALE
+// ---------------------------------------------------------------------------
+import ts from 'typescript';
+
+test('garde-fou : aucun composant ni icône non importé ne retombe sur une globale (Map, Set, Image…)', () => {
+    // « Modifier l'entreprise » plantait : l'icône `Map` n'était pas importée,
+    // `<item.icon />` affichait le constructeur global `Map`. Le typecheck
+    // passait, `Map` existant bien comme valeur. On demande donc au
+    // compilateur OÙ chaque nom est déclaré : uniquement dans la bibliothèque
+    // standard = oubli d'import.
+    const config = ts.readConfigFile(join(racine, 'tsconfig.json'), ts.sys.readFile).config;
+    const parse = ts.parseJsonConfigFileContent(config, ts.sys, racine);
+    const programme = ts.createProgram(parse.fileNames.filter(f => /\/src\/.*\.tsx$/.test(f)), parse.options);
+    const verif = programme.getTypeChecker();
+    const estGlobale = (id: ts.Identifier) => {
+        const sym = verif.getSymbolAtLocation(id);
+        const decls = sym?.declarations ?? [];
+        return decls.length > 0 && decls.every(d => /[\\/]typescript[\\/]lib[\\/]lib\./.test(d.getSourceFile().fileName));
+    };
+    const fautifs: string[] = [];
+    for (const fichier of programme.getSourceFiles()) {
+        if (!/\/src\/.*\.tsx$/.test(fichier.fileName)) continue;
+        const visiter = (n: ts.Node) => {
+            if ((ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) && ts.isIdentifier(n.tagName)
+                && /^[A-Z]/.test(n.tagName.text) && estGlobale(n.tagName)) {
+                fautifs.push(`${fichier.fileName.split('/src/')[1]} : <${n.tagName.text}>`);
+            }
+            if (ts.isPropertyAssignment(n) && /icon/i.test(n.name.getText(fichier))
+                && ts.isIdentifier(n.initializer) && estGlobale(n.initializer)) {
+                fautifs.push(`${fichier.fileName.split('/src/')[1]} : ${n.name.getText(fichier)}: ${n.initializer.text}`);
+            }
+            ts.forEachChild(n, visiter);
+        };
+        visiter(fichier);
+    }
+    assert.deepEqual(fautifs, []);
+});

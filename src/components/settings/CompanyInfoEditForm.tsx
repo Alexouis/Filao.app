@@ -1,7 +1,9 @@
 import React, { useState, memo } from 'react';
 import {
     Briefcase, Building2, ChevronDown, Eye, EyeOff, Globe, Leaf, Loader2,
-    ShieldCheck, Wrench,
+    // `Map` manquait : non importée, elle désignait le constructeur global
+    // `Map`, et « Modifier l'entreprise » plantait l'application.
+    Map as MapIcon, ShieldCheck, Wrench,
 } from 'lucide-react';
 import { SpecialtyAccordion } from '../ui/SpecialtyAccordion';
 
@@ -253,7 +255,7 @@ const CompanyInfoEditFormBase: React.FC<CompanyInfoEditFormProps> = ({
                                         <div className="space-y-2">
                                             {[
                                                 { key: 'environnement', label: 'Approches environnementales & énergétiques', icon: Leaf },
-                                                { key: 'contexte', label: 'Contextes d\'intervention', icon: Map },
+                                                { key: 'contexte', label: 'Contextes d\'intervention', icon: MapIcon },
                                                 { key: 'methodologie', label: 'Méthodologies & outils', icon: Wrench },
                                                 { key: 'certification', label: 'Certifications & labels', icon: ShieldCheck }
                                             ].map((thematic) => (
