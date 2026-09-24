@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { UserProfile } from '../../config';
 import { useAuth } from '../../context/AuthContext';
 import { useUnsavedChanges, useDirtyState } from '../../helpers/useUnsavedChanges';
-import { telephoneValide, dateNaissanceValide } from '../../helpers/validationHelpers';
+import { telephoneValide, dateNaissanceValide, contientBalise } from '../../helpers/validationHelpers';
 
 interface ProfileTabProps {
     userProfile: UserProfile | null;
@@ -157,6 +157,12 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({ userProfile, onUpdate })
         if (!userProfile) return;
         // Contrôle avant envoi : une faute de frappe (« 06 12 », 1026 au lieu
         // de 1986) était enregistrée telle quelle.
+        // Nom et prénom apparaissent dans les e-mails envoyés aux partenaires :
+        // pas de balise (les modèles échappent aussi, c'est une seconde barrière).
+        if (contientBalise(formData.prenom) || contientBalise(formData.nom)) {
+            setError('Le nom et le prénom ne peuvent pas contenir de caractères < ou >.');
+            return;
+        }
         if (!telephoneValide(formData.telephone)) {
             setError('Numéro de téléphone invalide : 10 chiffres attendus (ou format international).');
             return;

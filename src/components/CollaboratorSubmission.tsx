@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { APP_CONFIG, REQUIRED_DOCS_BY_ROLE, SECTORS_LABELS, MARKET_TYPES_LABELS, Tender, HANDOVER_TYPES_LABELS, PlanType, PLANS_CONFIG, PLANS_TYPES } from '../config';
-import { capitalizeFirstLetter } from '../helpers/textHelpers'
+import { capitalizeFirstLetter, lienExterne } from '../helpers/textHelpers'
 import { LimitReachedModal } from './LimitReachedModal';
 
 export const CollaboratorSubmission: React.FC = () => {
@@ -556,7 +556,9 @@ export const CollaboratorSubmission: React.FC = () => {
             <div className="flex flex-col gap-1">
                <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
                {isLink && value ? (
-                  <a href={value} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-blue-600 underline truncate hover:text-blue-800">
+                  // `lienExterne` écarte tout schéma autre que http(s) : un lien
+                  // `javascript:` saisi par le porteur s'exécutait chez l'invité.
+                  <a href={lienExterne(String(value))} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-blue-600 underline truncate hover:text-blue-800">
                      Accéder au lien
                   </a>
                ) : (

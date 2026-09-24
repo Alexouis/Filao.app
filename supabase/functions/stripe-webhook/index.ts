@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { EXPEDITEUR } from "./emailConfig.ts";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
     apiVersion: "2024-06-20",
@@ -87,18 +88,35 @@ async function avertirEchecPaiement(
         ? "Dernier échec de paiement — votre offre a été rétrogradée"
         : `Échec de paiement (tentative ${tentative}) — merci de vérifier votre moyen de paiement`;
 
-    const { error } = await supabase.functions.invoke("send-reminder", {
-        body: {
-            email: destinataire,
-            senderName: "Filao",
-            tenderTitle: "votre abonnement",
-            milestoneLabel: libelle,
-            milestoneDate: new Date().toISOString(),
-        },
-    });
-    // Un avis non parti ne doit pas faire échouer le webhook : Stripe le
-    // rejouerait, et la rétrogradation serait appliquée deux fois.
-    if (error) console.error("Avis d'échec de paiement non envoyé", error);
+    // Envoi direct. Il passait par `send-reminder`, qui exige un dossier :
+    // refusé (400), l'avis ne partait jamais — le client était rétrogradé
+    // sans avoir été prévenu.
+    const cle = Deno.env.get("BREVO_API_KEY");
+    if (!cle) { console.error("BREVO_API_KEY absente : avis d'échec de paiement non envoyé."); return; }
+    const appUrl = (Deno.env.get("APP_URL") || "https://filao-app.fr").replace(/\/$/, "");
+    const texte = derniere
+        ? `Bonjour,\n\nMalgré plusieurs tentatives, le paiement de l'abonnement Filao de ${entreprise.nom ?? "votre entreprise"} n'a pas abouti. Votre offre est revenue à l'offre gratuite.\n\nPour la rétablir : ${appUrl}/?tab=settings&section=billing\n\n— Filao`
+        : `Bonjour,\n\nLe paiement de l'abonnement Filao de ${entreprise.nom ?? "votre entreprise"} a échoué (tentative ${tentative}). Une nouvelle tentative aura lieu automatiquement.\n\nMerci de vérifier votre moyen de paiement : ${appUrl}/?tab=settings&section=billing\n\n— Filao`;
+    const echapper = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    try {
+        const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: { "api-key": cle, "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+                sender: EXPEDITEUR,
+                to: [{ email: destinataire }],
+                subject: libelle,
+                textContent: texte,
+                htmlContent: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:20px">${texte
+                    .split("\n").map((l) => (l ? `<p style="margin:0 0 10px">${echapper(l)}</p>` : "")).join("")}</div>`,
+            }),
+        });
+        // Un avis non parti ne doit pas faire échouer le webhook : Stripe le
+        // rejouerait, et la rétrogradation serait appliquée deux fois.
+        if (!r.ok) console.error("Avis d'échec de paiement non envoyé", await r.text());
+    } catch (e) {
+        console.error("Avis d'échec de paiement non envoyé", e);
+    }
 }
 
 async function appliquerQuota(supabase: any, entrepriseId: string) {

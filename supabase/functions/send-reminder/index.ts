@@ -2,6 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
 
+/** Échappement HTML des valeurs insérées dans un e-mail. */
+const echapperHtml = (v: unknown): string => String(v ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
  * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
@@ -55,7 +61,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ReminderRequest = await req.json();
-    const { tenderId, tenderTitle, email, senderName, milestoneLabel, milestoneDate } = body;
+    const { tenderId, tenderTitle: titreFourni, email, senderName, milestoneLabel, milestoneDate } = body;
 
     // Un même envoi sert deux usages : le gabarit et le libellé de la
     // notification en dépendent entièrement.
@@ -87,25 +93,42 @@ Deno.serve(async (req: Request) => {
     // administrateur de l'entreprise porteuse. Le destinataire doit lui aussi
     // être lié au dossier : un rappel ne se destine pas à un inconnu.
     // `senderUserId` n'est plus lu dans le corps : c'est l'appelant.
-    const { data: { user: appelant } } = await createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } },
-    ).auth.getUser();
+    //
+    // Appel SERVEUR : `send-milestone-reminders` (tâche planifiée) appelle
+    // cette fonction avec la clé de service, qui n'est pas un jeton
+    // d'utilisateur. Le contrôle ci-dessous la refusait (401) : aucun rappel
+    // de jalon à J-2 ne partait. La clé est comparée À L'IDENTIQUE — pas
+    // seulement décodée — puis le contrôle d'identité est sauté ; celui du
+    // destinataire, lui, s'applique toujours.
+    const cleService = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const appelServeur = !!cleService && authHeader === `Bearer ${cleService}`;
+
+    const { data: { user: appelantAuth } } = appelServeur
+      ? { data: { user: null } }
+      : await createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+          { global: { headers: { Authorization: authHeader } } },
+        ).auth.getUser();
+    const appelant = appelServeur ? { id: "" } : appelantAuth;
     if (!appelant) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const senderUserId = appelant.id;
+    const senderUserId = appelServeur ? null : appelant.id;
 
     const { data: dossier } = await adminClient
-      .from("reponses_ao").select("id, createur_id, entreprise_id").eq("id", tenderId).maybeSingle();
+      .from("reponses_ao").select("id, titre, createur_id, entreprise_id").eq("id", tenderId).maybeSingle();
     if (!dossier) {
       return new Response(JSON.stringify({ error: "Dossier introuvable." }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Intitulé lu en base : celui du corps de la requête, choisi par
+    // l'appelant, s'affichait tel quel dans l'e-mail et la notification.
+    const tenderTitle: string = dossier.titre ?? titreFourni ?? "";
 
     const { data: profilAppelant } = await adminClient
       .from("utilisateurs").select("entreprise_id, roles(name)").eq("id", appelant.id).maybeSingle();
@@ -123,7 +146,8 @@ Deno.serve(async (req: Request) => {
     );
     if (dossier.entreprise_id) entreprisesDuDossier.add(dossier.entreprise_id);
 
-    const appelantLie = dossier.createur_id === appelant.id
+    const appelantLie = appelServeur
+      || dossier.createur_id === appelant.id
       || estAdminPorteuse
       || (!!entrepriseAppelant && entreprisesDuDossier.has(entrepriseAppelant));
     if (!appelantLie) {
@@ -287,13 +311,13 @@ Deno.serve(async (req: Request) => {
             <h2 style="color: #1B5D7A; font-size: 20px;">${estJalon ? "Rappel d'échéance" : "Rappel : Coordination Documentaire"}</h2>
             <p>Bonjour,</p>
             ${estJalon
-              ? `<p>L'échéance <strong>« ${milestoneLabel} »</strong> arrive dans 2 jours sur l'appel d'offres <strong>"${tenderTitle}"</strong>.</p>
+              ? `<p>L'échéance <strong>« ${echapperHtml(milestoneLabel)} »</strong> arrive dans 2 jours sur l'appel d'offres <strong>"${echapperHtml(tenderTitle)}"</strong>.</p>
                  <p style="margin: 20px 0; padding: 14px 18px; background: #fff7ed; border-left: 4px solid #EF9F27; border-radius: 8px; font-size: 15px;">
-                   <strong>${milestoneLabel}</strong><br/>
-                   <span style="color:#666;">Échéance : ${dateJalon}</span>
+                   <strong>${echapperHtml(milestoneLabel)}</strong><br/>
+                   <span style="color:#666;">Échéance : ${echapperHtml(dateJalon)}</span>
                  </p>
                  <p style="margin-top: 25px;">Accédez au rétroplanning du dossier :</p>`
-              : `<p><strong>${senderName}</strong> vous informe que des documents sont encore manquants pour l'appel d'offres : <strong>"${tenderTitle}"</strong>.</p>
+              : `<p><strong>${echapperHtml(senderName)}</strong> vous informe que des documents sont encore manquants pour l'appel d'offres : <strong>"${echapperHtml(tenderTitle)}"</strong>.</p>
                  <p style="margin-top: 25px;">Merci de vous connecter pour régulariser votre dossier :</p>`}
             
             <div style="text-align: center; margin: 30px 0;">
@@ -304,8 +328,8 @@ Deno.serve(async (req: Request) => {
 
             <div style="background: #eef7f9; padding: 20px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #00A3E0;">
               <p style="margin: 0 0 10px 0; font-size: 14px; color: #1B5D7A; font-weight: bold;">Rappel de vos identifiants :</p>
-              <p style="margin: 0; font-size: 13px;">Email : <strong>${email.toLowerCase().trim()}</strong></p>
-              <p style="margin: 5px 0 0 0; font-size: 13px;">Code d'accès : <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #1B5D7A; letter-spacing: 1px;">${accessCode}</span></p>
+              <p style="margin: 0; font-size: 13px;">Email : <strong>${echapperHtml(email.toLowerCase().trim())}</strong></p>
+              <p style="margin: 5px 0 0 0; font-size: 13px;">Code d'accès : <span style="font-family: monospace; font-size: 16px; font-weight: bold; color: #1B5D7A; letter-spacing: 1px;">${echapperHtml(accessCode)}</span></p>
             </div>
             
             <p style="font-size: 12px; color: #777; margin-top: 40px; text-align: center; border-top: 1px solid #eee; padding-top: 20px;">

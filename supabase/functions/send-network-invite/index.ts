@@ -2,6 +2,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EXPEDITEUR } from "./emailConfig.ts";
 
+/** Échappement HTML des valeurs insérées dans un e-mail. */
+const echapperHtml = (v: unknown): string => String(v ?? "")
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+
 /**
  * Motif ILIKE correspondant EXACTEMENT à `valeur`, casse ignorée.
  * `_` et `%` sont des jokers pour ILIKE : « alexandre_louis@… » désignait aussi
@@ -239,7 +245,7 @@ Deno.serve(async (req: Request) => {
 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
   <h2 style="color: #0E4F70;">Bonjour,</h2>
   <p>
-    <strong>${senderName}</strong> de <strong>${senderCompanyName}</strong> souhaite vous ajouter à son réseau professionnel sur Filao.
+    <strong>${echapperHtml(senderName)}</strong> de <strong>${echapperHtml(senderCompanyName)}</strong> souhaite vous ajouter à son réseau professionnel sur Filao.
   </p>
   <p>
     Connectez-vous à votre compte pour consulter cette invitation dans vos notifications.
@@ -259,7 +265,7 @@ Deno.serve(async (req: Request) => {
 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
   <h2 style="color: #0E4F70;">Bonjour,</h2>
   <p>
-    <strong>${senderName}</strong> de <strong>${senderCompanyName}</strong> vous invite à rejoindre <strong>Filao</strong>, la plateforme collaborative de gestion d'appels d'offres.
+    <strong>${echapperHtml(senderName)}</strong> de <strong>${echapperHtml(senderCompanyName)}</strong> vous invite à rejoindre <strong>Filao</strong>, la plateforme collaborative de gestion d'appels d'offres.
   </p>
   <p>
     Créez votre compte pour rejoindre son réseau et collaborer ensemble sur vos prochains marchés publics.

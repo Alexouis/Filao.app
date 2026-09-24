@@ -586,9 +586,12 @@ test('garde-fou : send-reminder n’est appelée qu’avec un dossier', () => {
     // Les avis de changement de mot de passe passaient par send-reminder sans
     // dossier : 400 systématique, aucun avis envoyé, échec invisible.
     const fautifs: string[] = [];
-    for (const f of fichiers('src', /\.tsx?$/)) {
+    // Front ET fonctions serveur : le webhook Stripe faisait la même erreur
+    // pour l'avis d'échec de paiement.
+    const sources = [...fichiers('src', /\.tsx?$/), ...dossiersFonctions.map(n => `${FONCTIONS}/${n}/index.ts`)];
+    for (const f of sources) {
         const src = sansCommentaires(lire(f));
-        for (const m of src.matchAll(/invoke\(\s*['"]send-reminder['"]\s*,\s*\{\s*body:\s*\{([\s\S]*?)\}\s*,?\s*\}\s*\)/g)) {
+        for (const m of src.matchAll(/invoke\(\s*['"]send-reminder['"]\s*,\s*\{\s*body:\s*\{([\s\S]*?)\}\s*,/g)) {
             if (!/tenderId/.test(m[1])) fautifs.push(f);
         }
     }
@@ -674,4 +677,32 @@ test('stockage : un porteur ne lit que les pièces de SES dossiers', () => {
     assert.ok(!/i\.tender_id IN \(SELECT id FROM reponses_ao WHERE createur_id = auth\.uid\(\)\)/.test(derniere),
         'l’ancienne branche ouverte à tout le dossier de fichiers est revenue');
     assert.match(derniereDefinition('piece_de_mon_dossier'), /right\(p_objet, 36\)/);
+});
+
+test('garde-fou : pas de lien ni de HTML issus des données sans neutralisation', () => {
+    // Un lien `javascript:` saisi dans un dossier s'exécutait chez l'invité
+    // qui cliquait « Lien DCE ». Toute donnée devenue href passe par
+    // `lienExterne`, qui ne laisse passer que http(s).
+    const HREF_AUTORISES = new Set(['currentUrl']);   // chemin de stockage interne
+    const HTML_AUTORISES = new Set(['mfaQrSvg']);      // QR code produit par Supabase Auth
+    const fautifs: string[] = [];
+    for (const f of fichiers('src', /\.tsx$/)) {
+        const src = sansCommentaires(lire(f));
+        for (const m of src.matchAll(/href=\{([^}]+)\}/g)) {
+            const expr = m[1].trim();
+            if (/^lienExterne\(/.test(expr) || /^[`'"](mailto:|\/|#)/.test(expr) || HREF_AUTORISES.has(expr)) continue;
+            fautifs.push(`${f} : href={${expr}}`);
+        }
+        for (const m of src.matchAll(/dangerouslySetInnerHTML=\{\{\s*__html:\s*([^}\s]+)\s*\}\}/g)) {
+            if (!HTML_AUTORISES.has(m[1])) fautifs.push(`${f} : __html ${m[1]}`);
+        }
+    }
+    assert.deepEqual(fautifs, []);
+});
+
+test('garde-fou : send-reminder accepte les appels serveur à clé exacte', () => {
+    // Les rappels de jalons (tâche planifiée) étaient refusés en 401.
+    const src = sansCommentaires(lire(`${FONCTIONS}/send-reminder/index.ts`));
+    assert.match(src, /authHeader === `Bearer \$\{cleService\}`/);
+    assert.match(sansCommentaires(lire(`${FONCTIONS}/send-milestone-reminders/index.ts`)), /Bearer \$\{serviceKey\}/);
 });
