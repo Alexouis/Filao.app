@@ -784,3 +784,12 @@ test('garde-fou : un seul seuil de mot de passe pour tous les parcours', () => {
         assert.ok(!/length\s*<\s*(6|8|10|12)\b/.test(src), `${f} : seuil en dur`);
     }
 });
+
+test('garde-fou : une nouvelle version de pièce n’est pas annoncée comme un jalon', () => {
+    // L'alerte partait intitulée « Jalon dans 2 jours : Nouvelle version — … ».
+    const wizard = sansCommentaires(lire('src/components/TenderWizard.tsx'));
+    assert.ok(!/milestoneLabel:\s*`Nouvelle version/.test(wizard));
+    assert.match(wizard, /nouvelleVersion:/);
+    const fonction = sansCommentaires(lire(`${FONCTIONS}/send-reminder/index.ts`));
+    assert.match(fonction, /const estJalon = Boolean\(milestoneLabel\) && !estVersion/);
+});

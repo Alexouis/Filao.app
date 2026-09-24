@@ -1336,9 +1336,13 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             const fileName = file.name;
             // Le dépôt passe par l'edge function : le nom final est décidé
             // côté serveur (nettoyage), on ne le devine pas ici.
+            // Nom rendu unique : deux pièces de même nom (un « RC.pdf » publié
+            // en rectificatif, par exemple) faisaient échouer le dépôt — le
+            // stockage refuse d'écraser un objet existant.
             const { chemin: filePath, erreur } = await deposerFichier(file, {
                 dossier: `tenders/dce/${tenderId}`,
                 point: 'dce',
+                nom: `${Date.now()}-${fileName}`,
             });
             if (erreur || !filePath) throw new Error(erreur || 'Dépôt refusé.');
 
@@ -1411,9 +1415,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             }
 
             showToast('Document ajouté avec succès', 'success');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error uploading DCE document:', error);
-            showToast('Erreur lors du téléchargement', 'error');
+            // Le motif du serveur (format refusé, taille) plutôt qu'un message
+            // générique.
+            showToast(error?.message || 'Erreur lors du téléchargement', 'error');
         } finally {
             setIsUploadingDCE(false);
             if (e.target) e.target.value = '';
@@ -1437,7 +1443,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
             // s'affichait quoi qu'il arrive.
             const { error: erreurListe } = await supabase.from('reponses_ao').update({ dce_documents: updatedDocs }).eq('id', tenderId);
             if (erreurListe) throw erreurListe;
-            const { error: erreurFichier } = await supabase.storage.from('documents').remove([doc.path]);
+            // Toutes les versions : l'historique d'une pièce remplacée restait
+            // dans le stockage — compté dans le forfait, sans plus aucune liste
+            // pour le désigner.
+            const chemins = [doc.path, ...((doc.historique || []).map((v: any) => v?.path))].filter(Boolean);
+            const { error: erreurFichier } = await supabase.storage.from('documents').remove(chemins);
             if (erreurFichier) console.warn('Fichier du DCE non supprimé (orphelin, purgé plus tard) :', erreurFichier);
             setFormData(prev => ({ ...prev, dce_documents: updatedDocs }));
             showToast(`"${doc.name}" supprimé.`, 'success');
@@ -1521,8 +1531,11 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
      * travaillent a changé.
      */
     const notifierNouvelleVersionDCE = async (doc: any) => {
+        // Membres ACCEPTÉS seulement, comme pour l'ajout d'une pièce : un invité
+        // qui n'a pas répondu — ou qui a refusé — n'a pas à suivre la vie du
+        // dossier.
         const destinataires = groupementMembers
-            .filter(m => !m.deleted && m.email && m.email !== userProfile?.email)
+            .filter(m => !m.deleted && m.status === 'accepte' && m.email && m.email !== userProfile?.email)
             .map(m => m.email as string);
 
         if (destinataires.length === 0) return;
@@ -1535,8 +1548,9 @@ export const TenderWizard: React.FC<TenderWizardProps> = ({
                     email,
                     senderName: `${userProfile?.prenom || ''} ${userProfile?.nom || ''}`.trim() || 'Le mandataire',
                     senderUserId: userProfile?.id,
-                    milestoneLabel: `Nouvelle version — ${doc.categorie || 'pièce'} : ${doc.name}`,
-                    milestoneDate: doc.uploaded_at,
+                    // Nature « nouvelle version » : l'alerte passait pour un
+                    // « jalon dans 2 jours ».
+                    nouvelleVersion: `${doc.categorie || 'pièce'} : ${doc.name}`,
                 },
             });
             // Un échec de notification ne doit pas remettre en cause le dépôt :

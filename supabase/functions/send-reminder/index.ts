@@ -35,6 +35,12 @@ interface ReminderRequest {
    */
   milestoneLabel?: string;
   milestoneDate?: string;
+  /**
+   * Libellé d'une pièce du marché republiée (nouvelle version). Envoyé par
+   * l'écran du dossier ; l'alerte passait auparavant pour un « jalon dans
+   * 2 jours », ce qu'elle n'est pas.
+   */
+  nouvelleVersion?: string;
 }
 
 /** Date lisible en français, avec repli sur la valeur brute si non parsable. */
@@ -61,11 +67,12 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ReminderRequest = await req.json();
-    const { tenderId, tenderTitle: titreFourni, email, senderName, milestoneLabel, milestoneDate } = body;
+    const { tenderId, tenderTitle: titreFourni, email, senderName, milestoneLabel, milestoneDate, nouvelleVersion } = body;
 
     // Un même envoi sert deux usages : le gabarit et le libellé de la
     // notification en dépendent entièrement.
-    const estJalon = Boolean(milestoneLabel);
+    const estVersion = Boolean(nouvelleVersion);
+    const estJalon = Boolean(milestoneLabel) && !estVersion;
     const dateJalon = dateLisible(milestoneDate);
 
     if (!tenderId || !email || !senderName) {
@@ -200,8 +207,10 @@ Deno.serve(async (req: Request) => {
 
     // 3. In-app notification
     if (recipient) {
-      const type = estJalon ? "deadline_reminder" : "document_reminder";
-      const titre = estJalon ? `Jalon dans 2 jours : ${milestoneLabel}` : "Rappel de documents";
+      const type = estVersion ? "document_added" : estJalon ? "deadline_reminder" : "document_reminder";
+      const titre = estVersion
+        ? "Nouvelle version d'une pièce du marché"
+        : estJalon ? `Jalon dans 2 jours : ${milestoneLabel}` : "Rappel de documents";
 
       // Déduplication : un même rappel (même type + même dossier + même libellé)
       // ne doit pas être réécrit s'il a déjà été émis dans les dernières 24 h.
@@ -222,7 +231,9 @@ Deno.serve(async (req: Request) => {
           id: crypto.randomUUID(),
           type,
           titre,
-          message: estJalon
+          message: estVersion
+            ? `a publié une nouvelle version de « ${nouvelleVersion} » sur`
+            : estJalon
             ? `« ${milestoneLabel} » est prévu le ${dateJalon} sur`
             : `${senderName} vous a envoyé un rappel pour les pièces manquantes sur`,
           sender_name: senderName,
@@ -262,11 +273,13 @@ Deno.serve(async (req: Request) => {
       ? `${origin}/?tab=wizard&id=${tenderId}`
       : `${origin}/collaborator-access?tenderId=${tenderId}`;
 
-    const sujet = estJalon
+    const sujet = estVersion
+      ? `Nouvelle version d'une pièce du marché — "${tenderTitle}"`
+      : estJalon
       ? `Jalon dans 2 jours : ${milestoneLabel} — "${tenderTitle}"`
       : `Rappel : Documents manquants pour le projet "${tenderTitle}"`;
     const destinataireNormalise = email.toLowerCase().trim();
-    const typeEmail = estJalon ? "rappel_jalon" : "relance_documents";
+    const typeEmail = estVersion ? "nouvelle_version_dce" : estJalon ? "rappel_jalon" : "relance_documents";
 
     /** Journal best-effort : un échec d'écriture ne doit rien bloquer. */
     const journaliser = async (ligne: Record<string, unknown>) => {
@@ -303,14 +316,19 @@ Deno.serve(async (req: Request) => {
         subject: sujet,
         // Version texte : un e-mail HTML seul est pénalisé par les filtres
         // anti-spam (Outlook/Hotmail en particulier).
-        textContent: estJalon
+        textContent: estVersion
+          ? `Bonjour,\n\n${senderName} a publié une nouvelle version de « ${nouvelleVersion} » sur l'appel d'offres "${tenderTitle}". Pensez à travailler sur cette version.\n\nAccéder au dossier : ${appUrl}\n\nEmail : ${destinataireNormalise}\nCode d'accès : ${accessCode}\n\n— Filao.io`
+          : estJalon
           ? `Bonjour,\n\nL'échéance « ${milestoneLabel} » arrive dans 2 jours (${dateJalon}) sur l'appel d'offres "${tenderTitle}".\n\nVoir le rétroplanning : ${appUrl}\n\nEmail : ${destinataireNormalise}\nCode d'accès : ${accessCode}\n\n— Filao.io`
           : `Bonjour,\n\n${senderName} vous informe que des documents sont encore manquants pour l'appel d'offres "${tenderTitle}".\n\nAccéder au dossier : ${appUrl}\n\nEmail : ${destinataireNormalise}\nCode d'accès : ${accessCode}\n\n— Filao.io`,
         htmlContent: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-            <h2 style="color: #1B5D7A; font-size: 20px;">${estJalon ? "Rappel d'échéance" : "Rappel : Coordination Documentaire"}</h2>
+            <h2 style="color: #1B5D7A; font-size: 20px;">${estVersion ? "Nouvelle version d'une pièce du marché" : estJalon ? "Rappel d'échéance" : "Rappel : Coordination Documentaire"}</h2>
             <p>Bonjour,</p>
-            ${estJalon
+            ${estVersion
+              ? `<p><strong>${echapperHtml(senderName)}</strong> a publié une nouvelle version de <strong>« ${echapperHtml(nouvelleVersion)} »</strong> sur l'appel d'offres <strong>"${echapperHtml(tenderTitle)}"</strong>.</p>
+                 <p style="margin-top: 25px;">Pensez à travailler sur cette version :</p>`
+              : estJalon
               ? `<p>L'échéance <strong>« ${echapperHtml(milestoneLabel)} »</strong> arrive dans 2 jours sur l'appel d'offres <strong>"${echapperHtml(tenderTitle)}"</strong>.</p>
                  <p style="margin: 20px 0; padding: 14px 18px; background: #fff7ed; border-left: 4px solid #EF9F27; border-radius: 8px; font-size: 15px;">
                    <strong>${echapperHtml(milestoneLabel)}</strong><br/>
@@ -322,7 +340,7 @@ Deno.serve(async (req: Request) => {
             
             <div style="text-align: center; margin: 30px 0;">
               <a href="${appUrl}" style="background-color: #00A3E0; color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                ${estJalon ? "Voir le rétroplanning" : "Accéder au dossier"}
+                ${estJalon && !estVersion ? "Voir le rétroplanning" : "Accéder au dossier"}
               </a>
             </div>
 
