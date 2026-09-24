@@ -573,12 +573,15 @@ test('base : une seule contestation en cours par demandeur et par entreprise', (
     assert.match(sql, /UNIQUE INDEX[^;]*contestations_entreprise \(entreprise_id, demandeur_id\) WHERE statut = 'en_attente'/);
 });
 
-test('base : « j’aime » au nom de l’appelant seulement, et sur un dossier accessible', () => {
-    const corps = derniereDefinition('toggle_comment_like');
-    assert.match(corps, /auth\.uid\(\)::TEXT/);
-    assert.ok(!/p_user_id::TEXT|to_jsonb\(p_user_id/.test(corps), 'p_user_id ne doit plus servir');
-    assert.match(corps, /app\.est_membre\(c\.tender_id\)/);
+test('base : l’ancien fil de commentaires est retiré de la base (123)', () => {
+    // Fonction « j'aime » et table n'étaient plus utilisées par l'application,
+    // mais restaient appelables par l'API.
+    const derniere = migrationsTriees.map(m => m.sql).join('\n');
+    assert.match(derniere, /DROP TABLE IF EXISTS comments CASCADE/);
+    assert.match(derniere, /proname = 'toggle_comment_like'/);
+    assert.ok(!fichiers('src', /\.tsx?$/).some(f => /from\(\s*['"]comments/.test(lire(f))), 'plus aucune lecture de comments');
 });
+
 
 import { AVIS } from '../supabase/functions/avis-securite/regles.ts';
 

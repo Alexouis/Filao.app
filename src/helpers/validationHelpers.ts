@@ -192,3 +192,21 @@ export const dateNaissanceValide = (valeur: string | null | undefined, aujourdhu
  * exigeaient 12.
  */
 export const LONGUEUR_MOT_DE_PASSE = 12;
+
+
+/** Longueur maximale de la présentation d'une entreprise. */
+export const LONGUEUR_DESCRIPTION = 1000;
+
+/**
+ * Présentation d'entreprise prête à enregistrer : caractères de contrôle
+ * retirés (retours à la ligne conservés), pas plus d'une ligne vide de suite,
+ * espaces de bord supprimés, longueur bornée.
+ */
+export const nettoyerDescription = (valeur: string | null | undefined): string =>
+    String(valeur ?? '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+        .slice(0, LONGUEUR_DESCRIPTION);

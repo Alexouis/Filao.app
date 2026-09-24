@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import {
   emailValide, normaliserEmail, nettoyerTexteLibre, contientBalise,
   sirenValide, siretValide, messageErreurIdentifiantAcheteur, dateValide,
-  motifIlikeExact, telephoneValide, dateNaissanceValide,
+  motifIlikeExact, telephoneValide, dateNaissanceValide, nettoyerDescription, LONGUEUR_DESCRIPTION,
 } from '../src/helpers/validationHelpers.ts';
 
 import {
@@ -1242,4 +1242,12 @@ test('libelleDepuisNomFichier : un nom de fichier devient un libellé lisible', 
   assert.equal(libelleDepuisNomFichier('Kbis.2026.pdf'), 'Kbis.2026');
   assert.equal(libelleDepuisNomFichier('.pdf'), '');
   assert.equal(libelleDepuisNomFichier(''), '');
+});
+
+
+test('nettoyerDescription : retours à la ligne gardés, lignes vides limitées, longueur bornée', () => {
+  assert.equal(nettoyerDescription('  Bureau d\'études\r\n\r\n\r\n\r\nDepuis 2010.  '), "Bureau d'études\n\nDepuis 2010.");
+  assert.equal(nettoyerDescription('A\u0007B'), 'AB');
+  assert.equal(nettoyerDescription('x'.repeat(LONGUEUR_DESCRIPTION + 50)).length, LONGUEUR_DESCRIPTION);
+  assert.equal(nettoyerDescription(null), '');
 });

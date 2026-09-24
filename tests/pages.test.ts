@@ -153,6 +153,25 @@ test('Réseau : les invitations envoyées par e-mail sont suivies (relancer, ann
     } finally { restaurer(); }
 });
 
+test('Mon entreprise : la présentation se lit et se saisit', async () => {
+    cleanup();
+    const restaurer = installerFauxSupabase({
+        tables: { entreprises: [{ ...entreprise, description: 'Bureau d’études VRD.' }], utilisateurs: [{ ...profil }], roles: [{ id: 'r-admin', name: 'admin' }] },
+        rpc: { est_admin_entreprise: true, places_restantes_entreprise: 5 },
+    });
+    try {
+        const { erreurs } = await afficher(React.createElement(CompanyTab, { userProfile: profil, onUpdate: () => {} }));
+        assert.ok(await screen.findByText('Bureau d’études VRD.'), 'bloc À propos en consultation');
+        fireEvent.click(screen.getByText('Modifier'));
+        await attendre();
+        const champ = screen.getByLabelText(/Présentation de l'entreprise/) as HTMLTextAreaElement;
+        assert.equal(champ.value, 'Bureau d’études VRD.');
+        fireEvent.change(champ, { target: { value: 'Nouvelle présentation' } });
+        assert.ok(screen.getByText(`21/1000`));
+        assert.deepEqual(erreurs.map(e => e.message), []);
+    } finally { restaurer(); }
+});
+
 // ---------------------------------------------------------------------------
 // Toutes les pages touchées pendant la revue : affichage et gestes principaux
 // ---------------------------------------------------------------------------

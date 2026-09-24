@@ -15,6 +15,7 @@ import { SpecialtyAccordion } from '../ui/SpecialtyAccordion';
 const inputClass = "w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:border-filao-primary focus:ring-1 focus:ring-filao-primary/30 transition-colors";
 const lockedInputClass = "w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-600 text-sm cursor-not-allowed";
 import { SettingsCard } from './SettingsCard';
+import { LONGUEUR_DESCRIPTION } from '../../helpers/validationHelpers';
 
 /**
  * Fiche entreprise en ÉDITION : identité, localisation, compétences,
@@ -33,7 +34,8 @@ import { SettingsCard } from './SettingsCard';
 export interface CompanyInfoEditFormProps {
     formData: Record<string, any>;
     entrepriseData?: { id?: string } | null;
-    onChangerChamp: (e: React.ChangeEvent<any>) => void;
+    /** Met à jour un champ de la fiche (le typage annonçait un événement). */
+    onChangerChamp: (champ: string, valeur: string) => void;
 
     /** Référentiels de compétences, chargés par le parent. */
     refDomains: any[];
@@ -170,6 +172,21 @@ const CompanyInfoEditFormBase: React.FC<CompanyInfoEditFormProps> = ({
                                             <div className="col-span-2">
                                                 <label className="text-xs font-medium text-gray-600 mb-0.5 block">Site web</label>
                                                 <input type="url" value={formData.site_web} onChange={(e) => onChangerChamp('site_web', e.target.value)} className={inputClass} placeholder="https://www.exemple.fr" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label htmlFor="description-entreprise" className="text-xs font-medium text-gray-600 mb-0.5 flex justify-between">
+                                                    <span>Présentation de l'entreprise</span>
+                                                    <span className="text-gray-400 font-normal">{(formData.description || '').length}/{LONGUEUR_DESCRIPTION}</span>
+                                                </label>
+                                                <textarea
+                                                    id="description-entreprise"
+                                                    value={formData.description || ''}
+                                                    onChange={(e) => onChangerChamp('description', e.target.value)}
+                                                    maxLength={LONGUEUR_DESCRIPTION}
+                                                    rows={4}
+                                                    className={`${inputClass} resize-y`}
+                                                    placeholder="Votre activité, vos savoir-faire, vos références marquantes… Elle apparaît dans votre fiche, visible des autres entreprises du réseau."
+                                                />
                                             </div>
                                         </div>
                                     </div>

@@ -21,7 +21,7 @@ import {
 import { dateLocaleISO } from '../../helpers/dateHelpers';
 import { enregistrerTaxonomie } from '../../helpers/taxonomieEntreprise';
 import { verifierSiret } from '../../helpers/verificationSiret';
-import { nettoyerTexteLibre } from '../../helpers/validationHelpers';
+import { nettoyerTexteLibre, nettoyerDescription } from '../../helpers/validationHelpers';
 import { libelleDepuisNomFichier } from '../../helpers/textHelpers';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 
@@ -379,6 +379,9 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
         libelle_naf: '',
         date_creation: '',
         site_web: '',
+        // Présentation affichée dans la fiche publique (page Réseau). Elle y
+        // était lue, mais aucun écran ne permettait de la renseigner.
+        description: '',
         prenom: '',
         nom_famille: '',
         effectif: 1,
@@ -495,6 +498,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 libelle_naf: ent.libelle_naf || '',
                 date_creation: ent.date_creation || '',
                 site_web: ent.site_web || '',
+                description: ent.description || '',
                 prenom: ent.prenom || '',
                 nom_famille: ent.nom_famille || '',
                 effectif: ent.effectif || 1,
@@ -735,6 +739,7 @@ export const CompanyTab: React.FC<CompanyTabProps> = ({ userProfile, onUpdate, i
                 nom_famille: vide(formData.nom_famille),
                 effectif: formData.effectif || 1,
                 site_web: vide(formData.site_web),
+                description: nettoyerDescription(formData.description) || null,
                 // `siret_verified` n'est plus envoyé : seul le serveur le pose
                 // (`verifier-siret`, plus bas).
             };

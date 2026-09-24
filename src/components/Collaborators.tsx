@@ -723,7 +723,7 @@ const Collaborators: React.FC<CollaboratorsProps> = ({ onNavigate }) => {
                             {company.description ? (
                                 <div className="bg-white/40 border border-white/50 rounded-2xl p-6 h-full">
                                     <h3 className="text-sm font-bold text-[#0B1F38] mb-3">À propos</h3>
-                                    <p className="text-sm text-[#0B1F38]/80 leading-relaxed font-medium">
+                                    <p className="text-sm text-[#0B1F38]/80 leading-relaxed font-medium whitespace-pre-line">
                                         {company.description}
                                     </p>
                                 </div>

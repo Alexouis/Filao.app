@@ -133,6 +133,17 @@ const CompanyInfoReadOnlyBase: React.FC<CompanyInfoReadOnlyProps> = ({
                                     </div>
                                 </SettingsCard>
 
+                                {/* Présentation : ce que voient les autres entreprises du réseau. */}
+                                <SettingsCard title="À propos" icon={Building2}>
+                                    {formData.description ? (
+                                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{formData.description}</p>
+                                    ) : (
+                                        <p className="text-sm text-gray-400 italic">
+                                            Aucune présentation. Ajoutez-en une avec « Modifier » : elle apparaît dans votre fiche du réseau.
+                                        </p>
+                                    )}
+                                </SettingsCard>
+
                                 {/* Card 3: Activité & Spécialités (Summary) */}
                                 <SettingsCard title="Activités & Spécialités" icon={Briefcase}>
                                     <div className="space-y-4">
