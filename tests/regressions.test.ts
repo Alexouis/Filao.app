@@ -835,3 +835,133 @@ test('garde-fou : les trois formulaires de mot de passe partagent la même saisi
         assert.match(src, /premierCritereManquant\(evaluerMotDePasse\(/, `${f} : validation commune`);
     }
 });
+
+// ---------------------------------------------------------------------------
+// Schéma RÉEL (supabase/schema/*.csv, relevé dans la base de production)
+// ---------------------------------------------------------------------------
+/** Lecture CSV minimale (guillemets doublés, virgules dans les champs). */
+const lireCsv = (chemin: string): Record<string, string>[] => {
+    const texte = lire(chemin).replace(/^\uFEFF/, '').replace(/\r/g, '');
+    const lignes: string[][] = [];
+    let champ = '', ligne: string[] = [], entre = false;
+    for (let i = 0; i < texte.length; i++) {
+        const c = texte[i];
+        if (entre) {
+            if (c === '"' && texte[i + 1] === '"') { champ += '"'; i++; }
+            else if (c === '"') entre = false;
+            else champ += c;
+        } else if (c === '"') entre = true;
+        else if (c === ',') { ligne.push(champ); champ = ''; }
+        else if (c === '\n') { ligne.push(champ); lignes.push(ligne); ligne = []; champ = ''; }
+        else champ += c;
+    }
+    if (champ || ligne.length) { ligne.push(champ); lignes.push(ligne); }
+    const [entete, ...corps] = lignes.filter(l => l.some(Boolean));
+    return corps.map(l => Object.fromEntries(entete.map((h, i) => [h, l[i] ?? ''])));
+};
+
+const SCHEMA = 'supabase/schema';
+const colonnesReelles = new Map<string, Set<string>>();
+for (const r of lireCsv(`${SCHEMA}/columns.csv`)) {
+    if (!colonnesReelles.has(r.table_name)) colonnesReelles.set(r.table_name, new Set());
+    colonnesReelles.get(r.table_name)!.add(r.column_name);
+}
+const fonctionsReelles = new Set(lireCsv(`${SCHEMA}/functions.csv`).map(r => `${r.schema}.${r.nom}`));
+
+/** Découpe au niveau 0 (hors parenthèses, accolades, crochets). */
+const decouper = (txt: string): string[] => {
+    const parts: string[] = []; let cur = '', d = 0;
+    for (const ch of txt) {
+        if ('{[('.includes(ch)) d++;
+        if ('}])'.includes(ch)) d--;
+        if (ch === ',' && d === 0) { parts.push(cur); cur = ''; } else cur += ch;
+    }
+    parts.push(cur);
+    return parts;
+};
+const objetEquilibre = (s: string, i: number): string | null => {
+    let d = 0;
+    for (let j = i; j < s.length; j++) {
+        if (s[j] === '{') d++;
+        else if (s[j] === '}') { d--; if (d === 0) return s.slice(i, j + 1); }
+    }
+    return null;
+};
+
+/**
+ * Tables, colonnes et RPC utilisées par le code, relevées dans chaque chaîne
+ * `.from('table')…` : colonnes de `select` simples, filtres (`eq`, `in`,
+ * `order`…) et clés littérales des écritures (`insert`, `update`, `upsert`).
+ */
+const usagesBase = () => {
+    const sources = [...fichiers('src', /\.tsx?$/), ...fichiers(FONCTIONS, /\.ts$/)];
+    const tables: string[] = [], colonnes: string[] = [], rpc: string[] = [];
+    for (const f of sources) {
+        const src = sansCommentaires(lire(f));
+        for (const m of src.matchAll(/\.from\(\s*['"]([a-z_0-9]+)['"]\s*\)/g)) {
+            if (/storage\s*$/.test(src.slice(Math.max(0, m.index! - 40), m.index))) continue;
+            const t = m[1];
+            if (!colonnesReelles.has(t)) { tables.push(`${f} : ${t}`); continue; }
+            let chaine = src.slice(m.index! + m[0].length, m.index! + m[0].length + 1500);
+            let d = 0, fin = chaine.length;
+            for (let k = 0; k < chaine.length; k++) {
+                const ch = chaine[k];
+                if ('({['.includes(ch)) d++; else if (')}]'.includes(ch)) d--;
+                if ((ch === ';' && d <= 0) || d < 0) { fin = k; break; }
+            }
+            chaine = chaine.slice(0, fin);
+            const suivant = chaine.search(/\.from\(/);
+            if (suivant >= 0) chaine = chaine.slice(0, suivant);
+            const connues = colonnesReelles.get(t)!;
+            const verifier = (c: string) => { if (!connues.has(c)) colonnes.push(`${f} : ${t}.${c}`); };
+            for (const sm of chaine.matchAll(/\.select\(\s*(['"`])([^'"`]*)\1/g)) {
+                for (const p of decouper(sm[2]).map(x => x.trim())) {
+                    if (!p || p === '*' || /[(:.!$]/.test(p)) continue;
+                    verifier(p);
+                }
+            }
+            for (const cm of chaine.matchAll(/\.(eq|neq|order|in|is|ilike|gte|lte|gt|lt|not|contains)\(\s*['"]([a-z_0-9]+)['"]/g)) verifier(cm[2]);
+            const verifierObjet = (obj: string | null) => {
+                if (!obj) return;
+                for (const p of decouper(obj.slice(1, -1)).map(x => x.trim())) {
+                    if (!p || p.startsWith('...')) continue;
+                    const k = p.match(/^['"]?([A-Za-z_]\w*)['"]?\s*(:|$)/);
+                    if (k) verifier(k[1]);
+                }
+            };
+            // Objet littéral : `.update({ nom: … })`.
+            for (const wm of chaine.matchAll(/\.(update|insert|upsert)\(\s*\{/g)) {
+                verifierObjet(objetEquilibre(chaine, wm.index! + wm[0].length - 1));
+            }
+            // Variable : `.update(companyPayload)` → sa définition
+            // `const companyPayload = { … }`, la plus proche AVANT l'appel.
+            // C'est ce cas qui a laissé passer `entreprises.description`.
+            for (const wm of chaine.matchAll(/\.(update|insert|upsert)\(\s*([A-Za-z_]\w*)\s*[,)]/g)) {
+                const nom = wm[2];
+                const position = m.index!;
+                const defs = [...src.slice(0, position).matchAll(new RegExp(`(?:const|let)\\s+${nom}\\s*(?::[^=]+)?=\\s*\\{`, 'g'))];
+                const derniere = defs[defs.length - 1];
+                if (derniere) verifierObjet(objetEquilibre(src, derniere.index! + derniere[0].length - 1));
+            }
+        }
+        for (const m of src.matchAll(/\.rpc\(\s*['"]([a-z_0-9]+)['"]/g)) {
+            if (!fonctionsReelles.has(`public.${m[1]}`)) rpc.push(`${f} : ${m[1]}`);
+        }
+    }
+    return { tables, colonnes, rpc };
+};
+
+test('schéma réel : toute table utilisée par le code existe en base', () => {
+    assert.deepEqual(usagesBase().tables, []);
+});
+
+test('schéma réel : toute colonne lue, filtrée ou écrite existe en base', () => {
+    // `entreprises.description` était écrite par la fiche entreprise sans
+    // exister en base : toute sauvegarde de la fiche échouait.
+    assert.deepEqual(usagesBase().colonnes, [],
+        'Colonne absente de la base : ajouter la migration, l’appliquer, puis mettre à jour supabase/schema (voir LISEZMOI).');
+});
+
+test('schéma réel : toute RPC appelée existe en base', () => {
+    assert.deepEqual(usagesBase().rpc, []);
+});

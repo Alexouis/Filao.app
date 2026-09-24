@@ -20,7 +20,7 @@ const motifExact = (valeur: string): string =>
  *
  * PÉRIMÈTRE
  * Profil, entreprise, dossiers créés, groupements, invitations, documents
- * (métadonnées, pas les binaires), commentaires, avis, réseau. Les référentiels
+ * (métadonnées, pas les binaires), messages, avis, réseau. Les référentiels
  * partagés (ref_*, plan_limits) et les données d'autres utilisateurs sont
  * exclus : ce ne sont pas les données personnelles de l'appelant.
  *
@@ -86,7 +86,6 @@ Deno.serve(async (req: Request) => {
       invitations,
       documentsCandidature,
       depots,
-      commentaires,
       avisDonnes,
       reseau,
       integrations,
@@ -108,7 +107,6 @@ Deno.serve(async (req: Request) => {
         ? safe(admin.from("documents_candidature").select("id, categorie, created_at, entreprise_id").eq("entreprise_id", entrepriseId))
         : Promise.resolve([]),
       safe(admin.from("depots_pieces").select("*").eq("auteur_id", uid)),
-      safe(admin.from("comments").select("*").eq("user_id", uid)),
       entrepriseId
         ? safe(admin.from("avis_partenaires").select("*").eq("evaluateur_id", entrepriseId))
         : Promise.resolve([]),
@@ -120,7 +118,7 @@ Deno.serve(async (req: Request) => {
         : Promise.resolve([]),
       // Intégrations : on expose l'existence et le fournisseur, jamais les jetons.
       safe(admin.from("user_integrations").select("provider, created_at, expires_at").eq("user_id", uid)),
-      // Messages rédigés : données personnelles au même titre que les commentaires.
+      // Messages rédigés : données personnelles.
       safe(admin.from("chat_messages").select("*").eq("sender_id", uid)),
     ]);
 
@@ -138,7 +136,6 @@ Deno.serve(async (req: Request) => {
       invitations,
       documents_candidature: documentsCandidature,
       depots_pieces: depots,
-      commentaires,
       avis_donnes: avisDonnes,
       reseau,
       integrations,

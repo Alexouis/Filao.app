@@ -1,0 +1,338 @@
+table_name,column_name,data_type,is_nullable
+acces_invite_debit,cle,text,NO
+acces_invite_debit,fenetre,timestamp with time zone,NO
+acces_invite_debit,portee,text,NO
+acces_invite_debit,compteur,integer,NO
+avis_partenaires,id,uuid,NO
+avis_partenaires,projet_id,uuid,NO
+avis_partenaires,evaluateur_id,uuid,NO
+avis_partenaires,evalue_id,uuid,NO
+avis_partenaires,note,integer,NO
+avis_partenaires,commentaire,text,YES
+avis_partenaires,created_at,timestamp with time zone,YES
+chat_last_viewed,user_id,uuid,NO
+chat_last_viewed,tender_id,uuid,NO
+chat_last_viewed,last_viewed_at,timestamp with time zone,YES
+chat_messages,id,uuid,NO
+chat_messages,tender_id,uuid,NO
+chat_messages,sender_id,uuid,NO
+chat_messages,content,text,YES
+chat_messages,created_at,timestamp with time zone,YES
+chat_messages,type,text,YES
+chat_messages,metadata,jsonb,YES
+collaborateurs,id,uuid,NO
+collaborateurs,utilisateur_id,uuid,YES
+collaborateurs,role,text,NO
+collaborateurs,est_utilisateur,boolean,NO
+collaborateurs,created_at,timestamp without time zone,NO
+collaborateurs,email,text,NO
+collaborateurs,competences,ARRAY,NO
+collaborateurs,nom,text,NO
+collaborateurs,aos,ARRAY,YES
+collaborateurs,company,text,YES
+collaborateurs,status,text,YES
+collaborateurs,uploaded_documents,jsonb,YES
+collaborateurs,accepted_at,timestamp without time zone,YES
+collaborateurs,rejected_at,timestamp without time zone,YES
+collaborateurs,last_updated,timestamp without time zone,YES
+collaborateurs,modified_at,timestamp without time zone,YES
+company_domains,entreprise_id,uuid,NO
+company_domains,domain_id,text,NO
+company_expertise_tags,entreprise_id,uuid,NO
+company_expertise_tags,tag_id,text,NO
+company_expertise_tags,custom_label,text,YES
+company_geo_zones,entreprise_id,uuid,NO
+company_geo_zones,geo_zone_id,text,NO
+company_natures,entreprise_id,uuid,NO
+company_natures,nature,text,NO
+company_specialties,entreprise_id,uuid,NO
+company_specialties,specialty_id,text,NO
+company_specialties,custom_label,text,YES
+connexions,id,uuid,NO
+connexions,user_id,uuid,NO
+connexions,ip,text,YES
+connexions,user_agent,text,YES
+connexions,appareil,text,YES
+connexions,methode,text,YES
+connexions,created_at,timestamp with time zone,NO
+contestations_entreprise,id,uuid,NO
+contestations_entreprise,entreprise_id,uuid,NO
+contestations_entreprise,demandeur_id,uuid,NO
+contestations_entreprise,motif,text,NO
+contestations_entreprise,justificatif,text,YES
+contestations_entreprise,statut,text,NO
+contestations_entreprise,note_traitement,text,YES
+contestations_entreprise,created_at,timestamp with time zone,NO
+contestations_entreprise,traite_le,timestamp with time zone,YES
+demandes_rattachement,id,uuid,NO
+demandes_rattachement,entreprise_id,uuid,NO
+demandes_rattachement,utilisateur_id,uuid,NO
+demandes_rattachement,statut,text,NO
+demandes_rattachement,motif_refus,text,YES
+demandes_rattachement,created_at,timestamp with time zone,NO
+demandes_rattachement,traite_le,timestamp with time zone,YES
+demandes_rattachement,traite_par,uuid,YES
+depots_pieces,id,uuid,NO
+depots_pieces,tender_id,uuid,NO
+depots_pieces,destinataire_id,uuid,NO
+depots_pieces,auteur_id,uuid,YES
+depots_pieces,auteur_libelle,text,YES
+depots_pieces,type_piece,text,YES
+depots_pieces,nom_piece,text,YES
+depots_pieces,created_at,timestamp with time zone,NO
+documents_candidature,id,uuid,NO
+documents_candidature,entreprise_id,uuid,NO
+documents_candidature,uploaded_by,uuid,NO
+documents_candidature,label,text,NO
+documents_candidature,url,text,NO
+documents_candidature,statut,text,NO
+documents_candidature,created_at,timestamp with time zone,YES
+documents_candidature,updated_at,timestamp with time zone,YES
+documents_candidature,categorie,text,YES
+documents_candidature,date_emission,date,YES
+documents_candidature,date_expiration,date,YES
+documents_candidature_view,id,uuid,YES
+documents_candidature_view,entreprise_id,uuid,YES
+documents_candidature_view,uploaded_by,uuid,YES
+documents_candidature_view,label,text,YES
+documents_candidature_view,url,text,YES
+documents_candidature_view,statut,text,YES
+documents_candidature_view,created_at,timestamp with time zone,YES
+documents_candidature_view,updated_at,timestamp with time zone,YES
+documents_candidature_view,categorie,text,YES
+documents_candidature_view,date_emission,date,YES
+documents_candidature_view,date_expiration,date,YES
+documents_candidature_view,duree_validite_mois,integer,YES
+documents_candidature_view,sans_expiration,boolean,YES
+documents_candidature_view,date_expiration_effective,date,YES
+documents_candidature_view,statut_effectif,text,YES
+emails_a_envoyer,id,uuid,NO
+emails_a_envoyer,type_email,text,NO
+emails_a_envoyer,objet_id,uuid,YES
+emails_a_envoyer,destinataire,text,NO
+emails_a_envoyer,jour_cible,date,NO
+emails_a_envoyer,payload,jsonb,NO
+emails_a_envoyer,statut,text,NO
+emails_a_envoyer,tentatives,integer,NO
+emails_a_envoyer,derniere_erreur,text,YES
+emails_a_envoyer,created_at,timestamp with time zone,NO
+emails_a_envoyer,updated_at,timestamp with time zone,NO
+emails_bloques,destinataire,text,NO
+emails_bloques,motif,text,NO
+emails_bloques,bloque_le,timestamp with time zone,NO
+emails_envoyes,id,uuid,NO
+emails_envoyes,type_email,text,NO
+emails_envoyes,destinataire,text,NO
+emails_envoyes,objet,text,YES
+emails_envoyes,objet_id,uuid,YES
+emails_envoyes,destinataire_id,uuid,YES
+emails_envoyes,statut,text,NO
+emails_envoyes,identifiant_prestataire,text,YES
+emails_envoyes,erreur,text,YES
+emails_envoyes,horodatage,timestamp with time zone,NO
+emails_envoyes,updated_at,timestamp with time zone,NO
+entreprises,id,uuid,NO
+entreprises,nom,text,NO
+entreprises,siret,text,YES
+entreprises,adresse,text,YES
+entreprises,ville,text,YES
+entreprises,code_postal,text,YES
+entreprises,taille,text,YES
+entreprises,logo_url,text,YES
+entreprises,created_at,timestamp with time zone,YES
+entreprises,created_by,uuid,YES
+entreprises,siret_verified,boolean,YES
+entreprises,forme_juridique,text,YES
+entreprises,code_naf,text,YES
+entreprises,libelle_naf,text,YES
+entreprises,date_creation,text,YES
+entreprises,visible_reseau,boolean,YES
+entreprises,plan,text,NO
+entreprises,stripe_customer_id,text,YES
+entreprises,stripe_subscription_id,text,YES
+entreprises,ao_offert_utilise,boolean,NO
+entreprises,subscription_status,text,YES
+entreprises,current_period_end,timestamp with time zone,YES
+entreprises,site_web,text,YES
+entreprises,prenom,text,YES
+entreprises,nom_famille,text,YES
+entreprises,effectif,integer,YES
+entreprises,sans_membre_depuis,timestamp with time zone,YES
+entreprises,cle_reprise_hash,text,YES
+entreprises,cle_reprise_creee_le,timestamp with time zone,YES
+entreprises,description,text,YES
+groupements,id,uuid,NO
+groupements,projet_id,uuid,NO
+groupements,entreprise_id,uuid,NO
+groupements,role_groupement,text,NO
+groupements,statut,text,YES
+groupements,date_invitation,timestamp with time zone,YES
+groupements,date_reponse,timestamp with time zone,YES
+groupements,invite_par,uuid,YES
+invitations,id,uuid,NO
+invitations,tender_id,uuid,NO
+invitations,email,text,NO
+invitations,role,text,NO
+invitations,status,text,NO
+invitations,message,text,YES
+invitations,created_by,uuid,NO
+invitations,created_at,timestamp with time zone,YES
+invitations,expires_at,timestamp with time zone,YES
+invitations,accepted_at,timestamp with time zone,YES
+invitations,refused_at,timestamp with time zone,YES
+invitations,access_code,text,YES
+invitations,token_hash,text,YES
+invitations,revoked_at,timestamp with time zone,YES
+invitations,revoked_by,uuid,YES
+invitations,relance_demandee_le,timestamp with time zone,YES
+invitations,nom_invite,text,YES
+invitations_reseau,id,uuid,NO
+invitations_reseau,token_hash,text,NO
+invitations_reseau,entreprise_origine_id,uuid,NO
+invitations_reseau,email,text,YES
+invitations_reseau,created_at,timestamp with time zone,NO
+invitations_reseau,expires_at,timestamp with time zone,NO
+invitations_reseau,consumed_at,timestamp with time zone,YES
+invitations_reseau,consumed_by,uuid,YES
+mfa_backup_codes,id,uuid,NO
+mfa_backup_codes,user_id,uuid,NO
+mfa_backup_codes,code_hash,text,NO
+mfa_backup_codes,created_at,timestamp with time zone,NO
+mfa_backup_codes,consumed_at,timestamp with time zone,YES
+plan_limits,plan,text,NO
+plan_limits,max_ao_simultanes,integer,YES
+plan_limits,max_utilisateurs,integer,YES
+plan_limits,label,text,NO
+plan_limits,prix_mensuel,integer,NO
+plan_limits,prix_mensuel_ht,integer,YES
+plan_limits,prix_annuel_ht,integer,YES
+plan_limits,stripe_price_id_mensuel,text,YES
+plan_limits,stripe_price_id_annuel,text,YES
+plan_limits,fonctionnalites,jsonb,NO
+plan_limits,ordre,smallint,YES
+plan_limits,max_stockage_octets,bigint,YES
+plan_limits,sur_devis,boolean,NO
+plan_limits,actif,boolean,NO
+plan_limits,nom_commercial,text,YES
+plan_limits,descriptif,jsonb,NO
+plan_limits,populaire,boolean,NO
+plan_limits,libelle_action,text,YES
+ref_domains,id,text,NO
+ref_domains,label,text,NO
+ref_domains,natures,ARRAY,NO
+ref_domains,display_order,integer,YES
+ref_durees_validite_document,type_document,text,NO
+ref_durees_validite_document,libelle,text,NO
+ref_durees_validite_document,duree_validite_mois,integer,YES
+ref_durees_validite_document,sans_expiration,boolean,NO
+ref_durees_validite_document,saisie_manuelle,boolean,NO
+ref_durees_validite_document,updated_at,timestamp with time zone,NO
+ref_expertise_tags,id,text,NO
+ref_expertise_tags,thematic,text,NO
+ref_expertise_tags,label,text,NO
+ref_expertise_tags,display_order,integer,YES
+ref_geo_zones,id,text,NO
+ref_geo_zones,label,text,NO
+ref_geo_zones,zone_type,text,NO
+ref_geo_zones,display_order,integer,YES
+ref_specialties,id,text,NO
+ref_specialties,domain_id,text,YES
+ref_specialties,label,text,NO
+ref_specialties,display_order,integer,YES
+reponses_ao,id,uuid,NO
+reponses_ao,createur_id,uuid,NO
+reponses_ao,titre,text,NO
+reponses_ao,description,text,YES
+reponses_ao,lieu_execution,ARRAY,NO
+reponses_ao,nb_collaborateurs,smallint,NO
+reponses_ao,montant_estime,double precision,NO
+reponses_ao,created_at,timestamp without time zone,NO
+reponses_ao,date_limite,timestamp without time zone,NO
+reponses_ao,etape,smallint,NO
+reponses_ao,modified_at,timestamp without time zone,YES
+reponses_ao,nombre_pj_attendues,smallint,NO
+reponses_ao,remporte,boolean,NO
+reponses_ao,organisme_acheteur,text,NO
+reponses_ao,secteur_activite,USER-DEFINED,NO
+reponses_ao,type_marche,ARRAY,NO
+reponses_ao,mode_passation,USER-DEFINED,NO
+reponses_ao,date_publication,timestamp without time zone,YES
+reponses_ao,date_depot_souhaitee,timestamp without time zone,YES
+reponses_ao,lien_telechargement,text,YES
+reponses_ao,lien_depot,text,YES
+reponses_ao,devise,text,YES
+reponses_ao,feed_id,uuid,YES
+reponses_ao,nombre_pj,ARRAY,YES
+reponses_ao,statut,USER-DEFINED,NO
+reponses_ao,nb_fichiers_recus,integer,YES
+reponses_ao,required_skills,ARRAY,YES
+reponses_ao,success_score,integer,YES
+reponses_ao,type_groupement,text,YES
+reponses_ao,dce_documents,jsonb,YES
+reponses_ao,jalons,jsonb,YES
+reponses_ao,cpv_codes,ARRAY,NO
+reponses_ao,criteres_attribution,jsonb,YES
+reponses_ao,reference_marche,text,YES
+reponses_ao,verrouille_par_quota,boolean,NO
+reponses_ao,verrouille_le,timestamp with time zone,YES
+reponses_ao,date_decision,timestamp with time zone,YES
+reponses_ao,entreprise_id,uuid,YES
+reponses_ao_specialties,reponse_ao_id,uuid,NO
+reponses_ao_specialties,specialty_id,text,NO
+reseau_entreprises,id,uuid,NO
+reseau_entreprises,entreprise_origine_id,uuid,NO
+reseau_entreprises,entreprise_cible_id,uuid,NO
+reseau_entreprises,statut,text,NO
+reseau_entreprises,created_at,timestamp with time zone,YES
+roles,id,uuid,NO
+roles,name,text,NO
+roles,created_at,timestamp with time zone,YES
+roles,updated_at,timestamp with time zone,YES
+user_integrations,id,uuid,NO
+user_integrations,user_id,uuid,NO
+user_integrations,provider,text,NO
+user_integrations,access_token,text,YES
+user_integrations,refresh_token,text,YES
+user_integrations,expires_at,timestamp with time zone,YES
+user_integrations,meta,jsonb,YES
+user_integrations,created_at,timestamp with time zone,YES
+user_integrations,updated_at,timestamp with time zone,YES
+utilisateurs,id,uuid,NO
+utilisateurs,nom,text,NO
+utilisateurs,email,text,NO
+utilisateurs,created_at,timestamp without time zone,YES
+utilisateurs,prenom,text,NO
+utilisateurs,photo_url,text,YES
+utilisateurs,date_naissance,date,YES
+utilisateurs,entreprise,text,YES
+utilisateurs,telephone,text,YES
+utilisateurs,poste,text,YES
+utilisateurs,siret,text,YES
+utilisateurs,tva,text,YES
+utilisateurs,objectifs,jsonb,YES
+utilisateurs,notifications_on,boolean,YES
+utilisateurs,email_facturation,text,YES
+utilisateurs,notifications,ARRAY,YES
+utilisateurs,modified_at,date,YES
+utilisateurs,storage_used,bigint,YES
+utilisateurs,entreprise_id,uuid,YES
+utilisateurs,accepte_communications,boolean,NO
+utilisateurs,notification_preferences,jsonb,NO
+utilisateurs,onboarding_completed,boolean,YES
+utilisateurs,cgu_acceptees_le,timestamp with time zone,YES
+utilisateurs,cgu_version,text,YES
+utilisateurs,source_inscription,text,YES
+utilisateurs,source_detail,text,YES
+utilisateurs,role_id,uuid,YES
+utilisateurs,utm_source,text,YES
+utilisateurs,utm_medium,text,YES
+utilisateurs,utm_campaign,text,YES
+utilisateurs,utm_term,text,YES
+utilisateurs,utm_content,text,YES
+utilisateurs,compte_supprime_le,timestamp with time zone,YES
+utilisateurs_publics,id,uuid,YES
+utilisateurs_publics,prenom,text,YES
+utilisateurs_publics,nom,text,YES
+utilisateurs_publics,photo_url,text,YES
+utilisateurs_publics,entreprise_id,uuid,YES
+utilisateurs_publics,email,text,YES

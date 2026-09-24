@@ -1,0 +1,84 @@
+schema,nom,arguments
+app,email_authentifie,
+app,entreprise_courante,
+app,entreprise_creee_par_moi,p_entreprise uuid
+app,est_convie,p_ao uuid
+app,est_mandataire,p_ao uuid
+app,est_membre,p_ao uuid
+app,fixer_entreprise_dossier,
+app,partage_dossier,p_utilisateur uuid
+app,peut_ecrire_dossier,p_ao uuid
+app,piece_de_mon_dossier,p_objet text
+app,proteger_entreprise,
+app,proteger_profil,
+app,recalculer_quota_apres_statut,
+app,recalculer_quota_entreprise,
+app,recalculer_quota_forfait,
+app,uuid_ou_null,p_texte text
+app,voit_dossier_entreprise,p_ao uuid
+public,ajouter_notification,"p_utilisateur uuid, p_notification jsonb"
+public,annuler_demande_rattachement,
+public,annuler_invitation_reseau,p_invitation uuid
+public,appliquer_quota_entreprise,p_entreprise_id uuid
+public,appliquer_quota_utilisateur,p_user_id uuid
+public,avancement_dossier,p_tender_id uuid
+public,avancement_dossiers,p_tender_ids uuid[]
+public,basculer_verrou_quota,"p_tender_id uuid, p_rouvrir boolean"
+public,changer_role_membre,"p_membre uuid, p_admin boolean"
+public,check_is_project_creator,"proj_id uuid, user_id uuid"
+public,check_is_project_member,"proj_id uuid, user_id uuid"
+public,consommer_invitation_reseau,"p_token text, p_entreprise uuid"
+public,consommer_quota_invite,"p_cle text, p_portee text, p_limite integer"
+public,declencher_rappels_jalons,
+public,delete_user,
+public,demander_nouveau_lien,p_token text
+public,demander_rattachement,p_entreprise uuid
+public,dossiers_de_mon_entreprise,
+public,dossiers_portes_entreprise,p_entreprise_id uuid
+public,empreinte_jeton,p_token text
+public,est_admin_entreprise,
+public,filao_cpv_codes_valides,codes text[]
+public,fn_enfiler_bienvenue,
+public,fn_notify_invitation_response,
+public,fn_role_defaut,
+public,garantir_admin_entreprise,
+public,generer_cle_reprise,p_entreprise uuid
+public,get_comment_reply_count,comment_id uuid
+public,get_complete_schema,
+public,get_invitation_by_code,"p_tender_id uuid, p_email text, p_code text"
+public,get_invitation_by_token,p_token text
+public,get_my_entreprise_id,
+public,get_tender_owner_info,p_tender_id uuid
+public,ignorer_connexion_doublon,
+public,is_project_creator,p_projet_id uuid
+public,is_tender_creator,tender_uuid uuid
+public,is_tender_member,tender_uuid uuid
+public,maj_entreprise_sans_membre,
+public,mes_invitations_reseau,
+public,modifier_mes_notifications,"p_action text, p_ids text[]"
+public,peut_demander_reinitialisation,p_email text
+public,peut_renvoyer_verification,p_email text
+public,places_restantes_entreprise,p_entreprise uuid
+public,poser_date_decision,
+public,promouvoir_createur_admin,
+public,purger_quota_invite,
+public,quitter_entreprise,
+public,quitter_groupement,p_tender_id uuid
+public,quota_entreprise,p_entreprise_id uuid
+public,relier_entreprises,"p_a uuid, p_b uuid"
+public,reprendre_entreprise,p_cle text
+public,resoudre_contestation,"p_contestation uuid, p_accepter boolean, p_note text, p_detacher_membres boolean"
+public,resoudre_invitation_par_jeton,p_token text
+public,respond_to_invitation,"p_token text, p_status text"
+public,respond_to_invitation_by_code,"p_tender_id uuid, p_email text, p_code text, p_status text"
+public,revoquer_invitation,p_invitation_id uuid
+public,stockage_consomme_entreprise,p_entreprise uuid
+public,stockage_restant_entreprise,p_entreprise uuid
+public,supprimer_entreprise_si_inutilisee,"p_entreprise uuid, p_hors_utilisateur uuid"
+public,supprimer_entreprise_si_inutilisee,p_entreprise uuid
+public,traiter_demande_rattachement,"p_demande uuid, p_accepter boolean"
+public,update_comment_edited_at,
+public,update_modified_at,
+public,update_tender_file_count,"tender_id uuid, increment_by integer"
+public,update_updated_at_column,
+public,verifier_quota_avant_creation,

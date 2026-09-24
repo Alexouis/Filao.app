@@ -1,0 +1,67 @@
+tablename,policyname,cmd
+avis_partenaires,Companies can rate partners,INSERT
+avis_partenaires,avis_partenaires_select_authentifie,SELECT
+chat_last_viewed,Acces individuel chat_last_viewed,ALL
+chat_messages,chat_messages_insert_membre,INSERT
+chat_messages,chat_messages_select_membre_ou_admin,SELECT
+company_domains,company_domains_select_authentifie,SELECT
+company_domains,company_domains_write_admin,ALL
+company_expertise_tags,company_expertise_tags_select_authentifie,SELECT
+company_expertise_tags,company_expertise_tags_write_admin,ALL
+company_geo_zones,company_geo_zones_select_authentifie,SELECT
+company_geo_zones,company_geo_zones_write_admin,ALL
+company_natures,company_natures_select_authentifie,SELECT
+company_natures,company_natures_write_admin,ALL
+company_specialties,company_specialties_select_authentifie,SELECT
+company_specialties,company_specialties_write_admin,ALL
+connexions,connexions_insert,INSERT
+connexions,connexions_select,SELECT
+contestations_entreprise,contestations_select_demandeur,SELECT
+demandes_rattachement,demandes_rattachement_select,SELECT
+depots_pieces,depots_pieces_insert_membre_ou_admin,INSERT
+depots_pieces,depots_pieces_select,SELECT
+documents_candidature,Users can delete their company documents,DELETE
+documents_candidature,Users can insert their company documents,INSERT
+documents_candidature,Users can view their company documents,SELECT
+documents_candidature,documents_candidature_delete,DELETE
+documents_candidature,documents_candidature_insert,INSERT
+documents_candidature,documents_candidature_select,SELECT
+documents_candidature,documents_candidature_update,UPDATE
+emails_envoyes,emails_envoyes_select,SELECT
+entreprises,Authenticated users can create company,INSERT
+entreprises,entreprises_select_authentifie,SELECT
+entreprises,entreprises_update_admin,UPDATE
+groupements,groupements_delete_mandataire_ou_soi,DELETE
+groupements,groupements_insert_mandataire,INSERT
+groupements,groupements_select_convie_ou_entreprise,SELECT
+groupements,groupements_update_mandataire,UPDATE
+invitations,Creators can insert invitations,INSERT
+invitations,Creators can update own invitations,UPDATE
+invitations,invitations_select_v2,SELECT
+plan_limits,Lecture des forfaits,SELECT
+ref_domains,Public read for ref_domains,SELECT
+ref_durees_validite_document,ref_durees_select,SELECT
+ref_expertise_tags,Public read for ref_expertise_tags,SELECT
+ref_geo_zones,Public read for ref_geo_zones,SELECT
+ref_specialties,Public read for ref_specialties,SELECT
+reponses_ao,reponses_ao_delete_mandataire,DELETE
+reponses_ao,reponses_ao_insert_utilisateur,INSERT
+reponses_ao,reponses_ao_select_convie_ou_entreprise,SELECT
+reponses_ao,reponses_ao_update_porteur_ou_admin,UPDATE
+reponses_ao_specialties,Manage reponses_ao skills,ALL
+reponses_ao_specialties,reponses_ao_specialties_select_dossier,SELECT
+reseau_entreprises,Ajout reseau,INSERT
+reseau_entreprises,Lecture reseau,SELECT
+reseau_entreprises,Modif reseau,UPDATE
+reseau_entreprises,Suppr reseau,DELETE
+roles,Public can view roles,SELECT
+roles,Service role can delete roles,DELETE
+roles,Service role can insert roles,INSERT
+roles,Service role can update roles,UPDATE
+user_integrations,Users can delete their own integrations,DELETE
+user_integrations,Users can insert their own integrations,INSERT
+user_integrations,Users can read their own integrations,SELECT
+user_integrations,Users can update their own integrations,UPDATE
+utilisateurs,Users can insert own profile,INSERT
+utilisateurs,Users can update own profile,UPDATE
+utilisateurs,utilisateurs_select_lie,SELECT
